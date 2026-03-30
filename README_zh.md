@@ -17,6 +17,66 @@ Agentic 编程 CLI 的统一接口层。
 | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Google | 已实现 |
 | [OpenCode](https://opencode.ai) | 开源 | 已实现 |
 
+## 安装
+
+```bash
+pip install agentabi
+```
+
+安装可选的 SDK 集成：
+
+```bash
+pip install agentabi[claude]   # Claude Code SDK 支持
+pip install agentabi[codex]    # Codex SDK 支持
+pip install agentabi[gemini]   # Gemini CLI SDK 支持
+pip install agentabi[all]      # 所有可选 SDK
+```
+
+> **注意：** 各 agent 的 CLI 需要单独安装（如 `claude`、`codex`、`gemini`、`opencode`）。
+
+## 快速开始
+
+### 运行任务
+
+```python
+import asyncio
+from agentabi import Session
+
+async def main():
+    session = Session(agent="claude_code")
+    result = await session.run(prompt="Fix the bug in auth.py")
+    print(result["status"])       # "success"
+    print(result["result_text"])  # agent 的回复
+
+asyncio.run(main())
+```
+
+### 流式事件
+
+```python
+async for event in session.stream(prompt="Explain this code"):
+    if event["type"] == "message_delta":
+        print(event["text"], end="")
+```
+
+### 同步便捷接口
+
+```python
+from agentabi import run_sync
+
+result = run_sync(prompt="List Python files", agent="codex")
+```
+
+### 发现可用 agent
+
+```python
+from agentabi import detect_agents, get_agent_capabilities
+
+agents = detect_agents()          # ["claude_code", "codex", ...]
+caps = get_agent_capabilities("claude_code")
+print(caps["supports_streaming"]) # True
+```
+
 ## 使用场景
 
 - **Fleet 管理** — 多个编程 agent 的统一入口

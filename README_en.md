@@ -17,6 +17,66 @@ One interface. Any coding agent.
 | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Google | Implemented |
 | [OpenCode](https://opencode.ai) | Open Source | Implemented |
 
+## Installation
+
+```bash
+pip install agentabi
+```
+
+With optional SDK integrations:
+
+```bash
+pip install agentabi[claude]   # Claude Code SDK support
+pip install agentabi[codex]    # Codex SDK support
+pip install agentabi[gemini]   # Gemini CLI SDK support
+pip install agentabi[all]      # All optional SDKs
+```
+
+> **Note:** Each agent's CLI must be installed separately (e.g., `claude`, `codex`, `gemini`, `opencode`).
+
+## Quick Start
+
+### Run a task
+
+```python
+import asyncio
+from agentabi import Session
+
+async def main():
+    session = Session(agent="claude_code")
+    result = await session.run(prompt="Fix the bug in auth.py")
+    print(result["status"])       # "success"
+    print(result["result_text"])  # agent's response
+
+asyncio.run(main())
+```
+
+### Stream events
+
+```python
+async for event in session.stream(prompt="Explain this code"):
+    if event["type"] == "message_delta":
+        print(event["text"], end="")
+```
+
+### Sync convenience
+
+```python
+from agentabi import run_sync
+
+result = run_sync(prompt="List Python files", agent="codex")
+```
+
+### Discover available agents
+
+```python
+from agentabi import detect_agents, get_agent_capabilities
+
+agents = detect_agents()          # ["claude_code", "codex", ...]
+caps = get_agent_capabilities("claude_code")
+print(caps["supports_streaming"]) # True
+```
+
 ## Use Cases
 
 - **Fleet Management** — Unified entry point for managing multiple coding agents
