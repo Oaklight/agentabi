@@ -1,3 +1,9 @@
+---
+title: Home
+hide:
+  - navigation
+---
+
 # agentabi
 
 **Coding Agent CLI 的统一 Python 接口。**
