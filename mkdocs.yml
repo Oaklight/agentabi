@@ -1,0 +1,104 @@
+site_name: agentabi
+site_description: A unified Python interface for driving coding agent CLIs
+site_author: Peng Ding
+site_url: https://agentabi.readthedocs.io/en/
+repo_name: oaklight/agentabi
+repo_url: https://github.com/oaklight/agentabi
+copyright: Copyright &copy; 2025-2026 Peng Ding
+
+theme:
+  name: material
+  language: en
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.indexes
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+
+plugins:
+  - search:
+      separator: '[\s\-,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_root_toc_entry: false
+            merge_init_into_class: true
+            separate_signature: true
+            show_signature_annotations: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/oaklight/agentabi
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/agentabi/
+  alternate:
+    - name: English
+      link: /en/
+      lang: en
+    - name: Chinese
+      link: /zh-cn/
+      lang: zh
+
+nav:
+  - Home: index.md
+  - Usage:
+      - Installation: usage/installation.md
+      - Quick Start: usage/quickstart.md
+      - Streaming: usage/streaming.md
+      - Agent Discovery: usage/discovery.md
+  - API Reference:
+      - Overview: api/index.md
+      - Session: api/session.md
+      - Providers: api/providers.md
+      - IR Events: api/ir-events.md
+      - IR Types: api/ir-types.md
+  - Examples:
+      - Overview: examples/index.md
+  - Architecture: architecture.md
+  - Changelog: changelog.md
