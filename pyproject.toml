@@ -6,12 +6,30 @@ build-backend = "setuptools.build_meta"
 name = "agentabi"
 dynamic = ["version"]
 authors = [{name = "Peng Ding", email = "pding.dp@foxmail.com"}]
-description = "A unified Python interface for driving coding agent CLIs (Claude Code, Codex, Gemini CLI, OpenCode)."
+description = "Unified async Python API for driving coding agent CLIs — Claude Code, Codex, Gemini CLI, and more"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
+keywords = [
+    "ai",
+    "agent",
+    "coding-agent",
+    "cli",
+    "claude-code",
+    "codex",
+    "gemini-cli",
+    "opencode",
+    "llm",
+    "async",
+    "subprocess",
+    "orchestration",
+    "streaming",
+    "multi-agent",
+    "automation",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
@@ -20,6 +38,9 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
 ]
 dependencies = [
     "typing_extensions>=4.0.0",
