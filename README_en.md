@@ -12,12 +12,10 @@ One interface. Any coding agent.
 
 | Agent | Provider | Status |
 |-------|----------|--------|
-| [Claude Code](https://github.com/anthropics/claude-code) | Anthropic | Planned |
-| [Codex](https://github.com/openai/codex) | OpenAI | Planned |
-| [Pi](https://github.com/mariozechner/pi-coding-agent) | OpenClaw | Planned |
-| [OpenCode](https://opencode.ai) | Open Source | Planned |
-| [OpenClaw](https://openclaw.com) | Open Source | Planned |
-| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Google | Planned |
+| [Claude Code](https://github.com/anthropics/claude-code) | Anthropic | Implemented |
+| [Codex](https://github.com/openai/codex) | OpenAI | Implemented |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Google | Implemented |
+| [OpenCode](https://opencode.ai) | Open Source | Implemented |
 
 ## Use Cases
 

@@ -12,12 +12,10 @@ Agentic 编程 CLI 的统一接口层。
 
 | Agent | 提供方 | 状态 |
 |-------|--------|------|
-| [Claude Code](https://github.com/anthropics/claude-code) | Anthropic | 计划中 |
-| [Codex](https://github.com/openai/codex) | OpenAI | 计划中 |
-| [Pi](https://github.com/mariozechner/pi-coding-agent) | OpenClaw | 计划中 |
-| [OpenCode](https://opencode.ai) | 开源 | 计划中 |
-| [OpenClaw](https://openclaw.com) | 开源 | 计划中 |
-| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Google | 计划中 |
+| [Claude Code](https://github.com/anthropics/claude-code) | Anthropic | 已实现 |
+| [Codex](https://github.com/openai/codex) | OpenAI | 已实现 |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Google | 已实现 |
+| [OpenCode](https://opencode.ai) | 开源 | 已实现 |
 
 ## 使用场景
 
