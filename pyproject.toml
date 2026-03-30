@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentabi"
+dynamic = ["version"]
+description = "A unified Python interface for driving coding agent CLIs (Claude Code, Codex, Gemini CLI, OpenCode)."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "typing_extensions>=4.0.0",
+]
+
+[project.optional-dependencies]
+claude = ["claude-agent-sdk>=0.1.0"]
+codex = ["codex-sdk-python>=0.1.0"]
+gemini = ["gemini-cli-sdk>=0.5.0"]
+all = [
+    "claude-agent-sdk>=0.1.0",
+    "codex-sdk-python>=0.1.0",
+    "gemini-cli-sdk>=0.5.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov",
+    "ruff",
+]
+
+[project.urls]
+Repository = "https://github.com/oaklight/agentabi"
+Issues = "https://github.com/oaklight/agentabi/issues"
+
+[tool.setuptools.dynamic]
+version = {attr = "agentabi.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"agentabi" = ["py.typed"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.ty]
+# Optional SDK deps are not installed during type checking
+[tool.ty.rules]
+unresolved-import = "ignore"
