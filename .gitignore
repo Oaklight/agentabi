@@ -31,5 +31,9 @@ Thumbs.db
 docs_en/
 docs_zh/
 
+# Private planning documents
+PLAN.md
+paper-plan.md
+
 # MkDocs build output
 site/
