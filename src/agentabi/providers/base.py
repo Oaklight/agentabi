@@ -83,6 +83,7 @@ async def default_run(provider: Any, task: TaskConfig) -> SessionResult:
         Aggregated SessionResult built from stream events.
     """
     session_id = ""
+    delta_parts: List[str] = []
     result_text = ""
     status: SessionStatus = "success"
     model = ""
@@ -95,10 +96,17 @@ async def default_run(provider: Any, task: TaskConfig) -> SessionResult:
         if etype == "session_start":
             session_id = event.get("session_id", "")
             model = event.get("model", "")
+        elif etype == "message_delta":
+            text = event.get("text", "")
+            if text:
+                delta_parts.append(text)
         elif etype == "message_end":
             text = event.get("text")
             if text:
                 result_text = text
+            elif delta_parts:
+                result_text = "".join(delta_parts)
+            delta_parts = []
         elif etype == "usage":
             usage = event.get("usage", {})
             cost = event.get("cost_usd")

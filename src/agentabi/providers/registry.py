@@ -33,13 +33,14 @@ def _build_provider_chain() -> Dict[str, List[Type[Provider]]]:
     # so we can always list them here.
     from .claude_sdk import ClaudeSDKProvider
     from .codex_sdk import CodexSDKProvider
+    from .gemini_native import GeminiNativeProvider
     from .gemini_sdk import GeminiSDKProvider
     from .opencode_native import OpenCodeNativeProvider
 
     return {
         "claude_code": [ClaudeNativeProvider, ClaudeSDKProvider],
         "codex": [CodexSDKProvider],
-        "gemini_cli": [GeminiSDKProvider],
+        "gemini_cli": [GeminiNativeProvider, GeminiSDKProvider],
         "opencode": [OpenCodeNativeProvider],
     }
 

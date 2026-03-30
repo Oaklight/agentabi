@@ -1,3 +1,0 @@
-"""
-agentabi - OpenCode native types.
-"""

@@ -60,6 +60,14 @@ select = ["E", "F", "I", "W"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = [
+    "integration: Real CLI integration tests (require installed CLIs)",
+    "claude: Tests requiring Claude Code CLI",
+    "codex: Tests requiring Codex CLI",
+    "gemini: Tests requiring Gemini CLI",
+    "opencode: Tests requiring OpenCode CLI",
+    "cross_cli: Cross-CLI consistency tests",
+]
 
 [tool.ty]
 # Optional SDK deps are not installed during type checking

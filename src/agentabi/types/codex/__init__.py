@@ -1,3 +1,0 @@
-"""
-agentabi - Codex native types.
-"""

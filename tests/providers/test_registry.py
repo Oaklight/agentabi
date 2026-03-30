@@ -48,7 +48,10 @@ class TestRegistry:
         provider = resolve_provider("claude_code")
         assert isinstance(provider, ClaudeNativeProvider)
 
-    @patch("agentabi.providers.claude_sdk.ClaudeSDKProvider.is_available", return_value=False)
+    @patch(
+        "agentabi.providers.claude_sdk.ClaudeSDKProvider.is_available",
+        return_value=False,
+    )
     @patch("shutil.which", return_value=None)
     def test_resolve_claude_no_cli_no_sdk_raises(self, mock_which, mock_sdk):
         """When neither CLI nor SDK is available, should raise."""
