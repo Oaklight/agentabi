@@ -26,3 +26,10 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# Documentation worktrees
+docs_en/
+docs_zh/
+
+# MkDocs build output
+site/
