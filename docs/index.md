@@ -1,3 +1,9 @@
+---
+title: Home
+hide:
+  - navigation
+---
+
 # agentabi
 
 **A unified Python interface for driving coding agent CLIs.**
