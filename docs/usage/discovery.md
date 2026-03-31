@@ -70,7 +70,7 @@ print(caps)
 | Identifier | CLI | Provider Chain |
 |-----------|-----|----------------|
 | `claude_code` | `claude` | ClaudeNativeProvider, ClaudeSDKProvider |
-| `codex` | `codex` | CodexSDKProvider |
+| `codex` | `codex` | CodexNativeProvider, CodexSDKProvider |
 | `gemini_cli` | `gemini` | GeminiNativeProvider, GeminiSDKProvider |
 | `opencode` | `opencode` | OpenCodeNativeProvider |
 

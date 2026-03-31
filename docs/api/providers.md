@@ -33,6 +33,7 @@ Native providers run the agent CLI as a subprocess and parse its structured outp
 | Provider | Agent | CLI Command |
 |----------|-------|-------------|
 | `ClaudeNativeProvider` | `claude_code` | `claude -p <prompt> --output-format stream-json` |
+| `CodexNativeProvider` | `codex` | `codex exec --json --full-auto <prompt>` |
 | `GeminiNativeProvider` | `gemini_cli` | `gemini -o stream-json -y -p <prompt>` |
 | `OpenCodeNativeProvider` | `opencode` | `opencode run --format json -- <prompt>` |
 
@@ -57,13 +58,33 @@ The registry maps agent identifiers to ordered provider chains:
 ```python
 {
     "claude_code": [ClaudeNativeProvider, ClaudeSDKProvider],
-    "codex":       [CodexSDKProvider],
+    "codex":       [CodexNativeProvider, CodexSDKProvider],
     "gemini_cli":  [GeminiNativeProvider, GeminiSDKProvider],
     "opencode":    [OpenCodeNativeProvider],
 }
 ```
 
 `resolve_provider(agent)` tries each provider in order and returns the first one where `is_available()` returns `True`.
+
+### Provider Selection with `prefer`
+
+By default, native (subprocess) providers are tried first. Use the `prefer` parameter to override:
+
+```python
+from agentabi import get_provider, Session
+
+# Explicit SDK preference
+provider = get_provider("codex", prefer="sdk")
+
+# Or via Session
+session = Session(agent="codex", prefer="sdk")
+```
+
+| Value | Behavior |
+|-------|----------|
+| `None` (default) | Native first, SDK fallback |
+| `"native"` | Same as default |
+| `"sdk"` | SDK first, native fallback |
 
 ## Custom Provider Access
 

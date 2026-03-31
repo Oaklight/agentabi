@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.2.0 (2026-03-31)
+
+Native-first provider architecture: all agents now default to subprocess providers with SDK as fallback.
+
+### Features
+
+- **CodexNativeProvider** — Subprocess provider for Codex CLI (`codex exec --json --full-auto`), parsing JSONL events into IR
+- **`prefer` parameter** — `Session(prefer="sdk")` or `get_provider(agent, prefer="sdk")` for explicit native vs SDK provider selection
+- **Native-first for all agents** — All 4 agents now have native subprocess providers as the default, with SDK as optional fallback
+
+### Testing
+
+- 142 unit tests (+23 for CodexNativeProvider)
+- Native vs SDK comparison integration tests — parametrized across all dual-provider agents, verifying IR event consistency
+- `native_vs_sdk` pytest marker for targeted test runs
+
+### Provider Changes
+
+- `codex` provider chain updated: `[CodexNativeProvider, CodexSDKProvider]` (was `[CodexSDKProvider]`)
+- `CodexSDKProvider` now emits `session_end` event for lifecycle consistency with native provider
+
 ## v0.1.0 (2026-03-31)
 
 Initial release with unified provider architecture for 4 coding agent CLIs.

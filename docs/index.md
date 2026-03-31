@@ -49,7 +49,7 @@ asyncio.run(main())
 | Agent | Provider Types | Transport |
 |-------|---------------|-----------|
 | Claude Code | Native (subprocess) + SDK | subprocess / SDK |
-| Codex | SDK | SDK |
+| Codex | Native (subprocess) + SDK | subprocess / SDK |
 | Gemini CLI | Native (subprocess) + SDK | subprocess / SDK |
 | OpenCode | Native (subprocess) | subprocess |
 

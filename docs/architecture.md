@@ -13,11 +13,11 @@ graph TD
     A[Your Code] --> B[Session]
     B --> C{Provider Registry}
     C --> D[ClaudeNativeProvider]
-    C --> E[CodexSDKProvider]
+    C --> E[CodexNativeProvider]
     C --> F[GeminiNativeProvider]
     C --> G[OpenCodeNativeProvider]
     D --> H[claude CLI]
-    E --> I[codex-sdk-python]
+    E --> I[codex CLI]
     F --> J[gemini CLI]
     G --> K[opencode CLI]
     D --> L[IR Events]
@@ -50,7 +50,7 @@ Each agent has an ordered list of providers. The registry tries each in order:
 
 ```
 claude_code → [ClaudeNativeProvider, ClaudeSDKProvider]
-codex       → [CodexSDKProvider]
+codex       → [CodexNativeProvider, CodexSDKProvider]
 gemini_cli  → [GeminiNativeProvider, GeminiSDKProvider]
 opencode    → [OpenCodeNativeProvider]
 ```
@@ -90,6 +90,7 @@ src/agentabi/
 │   ├── registry.py      # Provider chain registry
 │   ├── claude_native.py # Claude subprocess provider
 │   ├── claude_sdk.py    # Claude SDK provider
+│   ├── codex_native.py  # Codex subprocess provider
 │   ├── codex_sdk.py     # Codex SDK provider
 │   ├── gemini_native.py # Gemini subprocess provider
 │   ├── gemini_sdk.py    # Gemini SDK provider
