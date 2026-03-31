@@ -13,11 +13,11 @@ graph TD
     A[你的代码] --> B[Session]
     B --> C{Provider 注册表}
     C --> D[ClaudeNativeProvider]
-    C --> E[CodexSDKProvider]
+    C --> E[CodexNativeProvider]
     C --> F[GeminiNativeProvider]
     C --> G[OpenCodeNativeProvider]
     D --> H[claude CLI]
-    E --> I[codex-sdk-python]
+    E --> I[codex CLI]
     F --> J[gemini CLI]
     G --> K[opencode CLI]
     D --> L[IR 事件]
@@ -50,7 +50,7 @@ graph TD
 
 ```
 claude_code → [ClaudeNativeProvider, ClaudeSDKProvider]
-codex       → [CodexSDKProvider]
+codex       → [CodexNativeProvider, CodexSDKProvider]
 gemini_cli  → [GeminiNativeProvider, GeminiSDKProvider]
 opencode    → [OpenCodeNativeProvider]
 ```
@@ -90,6 +90,7 @@ src/agentabi/
 │   ├── registry.py      # Provider 链注册表
 │   ├── claude_native.py # Claude 子进程 provider
 │   ├── claude_sdk.py    # Claude SDK provider
+│   ├── codex_native.py  # Codex 子进程 provider
 │   ├── codex_sdk.py     # Codex SDK provider
 │   ├── gemini_native.py # Gemini 子进程 provider
 │   ├── gemini_sdk.py    # Gemini SDK provider

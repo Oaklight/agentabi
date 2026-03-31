@@ -49,7 +49,7 @@ asyncio.run(main())
 | Agent | Provider 类型 | 传输方式 |
 |-------|-------------|---------|
 | Claude Code | Native（子进程）+ SDK | 子进程 / SDK |
-| Codex | SDK | SDK |
+| Codex | Native（子进程）+ SDK | 子进程 / SDK |
 | Gemini CLI | Native（子进程）+ SDK | 子进程 / SDK |
 | OpenCode | Native（子进程） | 子进程 |
 
