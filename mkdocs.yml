@@ -86,20 +86,20 @@ extra:
       lang: zh
 
 nav:
-  - Home: index.md
-  - Usage:
-      - Installation: usage/installation.md
-      - Quick Start: usage/quickstart.md
-      - Streaming: usage/streaming.md
-      - Agent Discovery: usage/discovery.md
+  - 首页: index.md
+  - 使用指南:
+      - 安装: usage/installation.md
+      - 快速开始: usage/quickstart.md
+      - 流式输出: usage/streaming.md
+      - Agent 发现: usage/discovery.md
       - Native vs SDK: usage/native-vs-sdk.md
-  - API Reference:
-      - Overview: api/index.md
+  - API 参考:
+      - 概览: api/index.md
       - Session: api/session.md
       - Providers: api/providers.md
-      - IR Events: api/ir-events.md
-      - IR Types: api/ir-types.md
-  - Examples:
-      - Overview: examples/index.md
-  - Architecture: architecture.md
-  - Changelog: changelog.md
+      - IR 事件: api/ir-events.md
+      - IR 类型: api/ir-types.md
+  - 示例:
+      - 概览: examples/index.md
+  - 架构设计: architecture.md
+  - 更新日志: changelog.md
