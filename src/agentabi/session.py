@@ -41,6 +41,7 @@ class Session:
         *,
         agent: Optional[str] = None,
         model: Optional[str] = None,
+        prefer: Optional[str] = None,
     ) -> None:
         """Initialize a Session.
 
@@ -48,6 +49,9 @@ class Session:
             agent: Agent type to use (e.g., "claude_code", "codex").
                 If None, auto-detects the first available agent.
             model: Default model to use. Can be overridden per-task.
+            prefer: Preferred provider type. "native" (default) tries
+                native subprocess providers first; "sdk" tries SDK
+                providers first. Falls back if preferred is unavailable.
 
         Raises:
             AgentNotAvailable: If no provider is available.
@@ -59,7 +63,7 @@ class Session:
 
         self._agent = agent
         self._model = model
-        self._provider: Provider = resolve_provider(agent)
+        self._provider: Provider = resolve_provider(agent, prefer=prefer)
 
     @property
     def agent(self) -> str:

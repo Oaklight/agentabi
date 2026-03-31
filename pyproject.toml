@@ -91,6 +91,7 @@ markers = [
     "gemini: Tests requiring Gemini CLI",
     "opencode: Tests requiring OpenCode CLI",
     "cross_cli: Cross-CLI consistency tests",
+    "native_vs_sdk: Native vs SDK provider comparison tests",
 ]
 
 [tool.ty]

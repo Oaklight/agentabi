@@ -32,6 +32,7 @@ def _build_provider_chain() -> Dict[str, List[Type[Provider]]]:
     # SDK providers are imported lazily inside is_available(),
     # so we can always list them here.
     from .claude_sdk import ClaudeSDKProvider
+    from .codex_native import CodexNativeProvider
     from .codex_sdk import CodexSDKProvider
     from .gemini_native import GeminiNativeProvider
     from .gemini_sdk import GeminiSDKProvider
@@ -39,7 +40,7 @@ def _build_provider_chain() -> Dict[str, List[Type[Provider]]]:
 
     return {
         "claude_code": [ClaudeNativeProvider, ClaudeSDKProvider],
-        "codex": [CodexSDKProvider],
+        "codex": [CodexNativeProvider, CodexSDKProvider],
         "gemini_cli": [GeminiNativeProvider, GeminiSDKProvider],
         "opencode": [OpenCodeNativeProvider],
     }
@@ -55,11 +56,18 @@ def _get_chain() -> Dict[str, List[Type[Provider]]]:
     return _chain_cache
 
 
-def resolve_provider(agent: str) -> Provider:
+def resolve_provider(
+    agent: str,
+    *,
+    prefer: str | None = None,
+) -> Provider:
     """Try providers in order, return first available.
 
     Args:
         agent: Agent identifier (e.g., "claude_code", "codex").
+        prefer: Preferred provider type. "native" tries native first (default),
+            "sdk" tries SDK first. If the preferred type is unavailable,
+            falls back to the other.
 
     Returns:
         An instantiated Provider.
@@ -71,16 +79,25 @@ def resolve_provider(agent: str) -> Provider:
     if agent not in chain:
         raise AgentNotAvailable(agent)
 
-    for provider_cls in chain[agent]:
+    providers = list(chain[agent])
+
+    if prefer == "sdk":
+        # Move SDK providers to front
+        sdk = [p for p in providers if "SDK" in p.__name__]
+        native = [p for p in providers if "SDK" not in p.__name__]
+        providers = sdk + native
+    # Default (prefer=None or prefer="native") keeps native-first order
+
+    for provider_cls in providers:
         if provider_cls.is_available():
             return provider_cls()
 
     raise AgentNotAvailable(agent)
 
 
-def get_provider(agent: str) -> Provider:
+def get_provider(agent: str, *, prefer: str | None = None) -> Provider:
     """Alias for resolve_provider()."""
-    return resolve_provider(agent)
+    return resolve_provider(agent, prefer=prefer)
 
 
 def list_agents() -> List[str]:
