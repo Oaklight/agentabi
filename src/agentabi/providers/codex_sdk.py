@@ -16,6 +16,7 @@ from ..types.ir.events import (
     MessageDeltaEvent,
     MessageEndEvent,
     MessageStartEvent,
+    SessionEndEvent,
     SessionStartEvent,
     ToolResultEvent,
     ToolUseEvent,
@@ -168,6 +169,9 @@ class CodexSDKProvider:
 
         end: MessageEndEvent = {"type": "message_end", "stop_reason": "end_turn"}
         results.append(end)
+
+        session_end: SessionEndEvent = {"type": "session_end"}
+        results.append(session_end)
         return results
 
     @staticmethod

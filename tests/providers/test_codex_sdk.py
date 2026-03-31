@@ -186,7 +186,7 @@ class TestCodexSDKConvert:
             usage=MockUsage(input_tokens=500, output_tokens=200, cached_input_tokens=50)
         )
         events = self._convert(event)
-        assert len(events) == 2  # usage + message_end
+        assert len(events) == 3  # usage + message_end + session_end
         assert events[0]["type"] == "usage"
         assert events[0]["usage"]["input_tokens"] == 500
         assert events[0]["usage"]["output_tokens"] == 200
