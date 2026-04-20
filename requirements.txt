@@ -2,3 +2,4 @@ zensical
 
 mkdocstrings[python]>=0.24.0
 pymdown-extensions>=10.0.0
+llmstxt-standalone

@@ -49,6 +49,29 @@ plugins:
             merge_init_into_class: true
             separate_signature: true
             show_signature_annotations: true
+  - llmstxt:
+      full_output: llms-full.txt
+      sections:
+        首页:
+          - index.md
+        使用指南:
+          - usage/installation.md
+          - usage/quickstart.md
+          - usage/streaming.md
+          - usage/discovery.md
+          - usage/native-vs-sdk.md
+        API 参考:
+          - api/index.md
+          - api/session.md
+          - api/providers.md
+          - api/ir-events.md
+          - api/ir-types.md
+        示例:
+          - examples/index.md
+        架构设计:
+          - architecture.md
+        更新日志:
+          - changelog.md
 
 markdown_extensions:
   - admonition
