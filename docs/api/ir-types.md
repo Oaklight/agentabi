@@ -83,14 +83,41 @@ AgentType = Literal["claude_code", "codex", "gemini_cli", "opencode"]
 ```python
 class PermissionConfig(TypedDict, total=False):
     level: PermissionLevel
-
-PermissionLevel = Literal["default", "full_auto"]
+    allowed_tools: list[str]
+    disallowed_tools: list[str]
+    sandbox: bool
 ```
+
+## PermissionLevel
+
+```python
+PermissionLevel = Literal[
+    "default",       # Prompt for sensitive operations
+    "accept_edits",  # Auto-approve file edits
+    "plan",          # Planning mode, no execution
+    "full_auto",     # Auto-approve everything (bypass all checks)
+    "auto",          # Auto mode (agent decides)
+    "dont_ask",      # Never prompt, skip if not auto-approved
+]
+```
+
+**Provider mapping:**
+
+| Level | Claude CLI | Gemini CLI | OpenCode CLI |
+|-------|-----------|-----------|-------------|
+| `"default"` | `--permission-mode default` | `--approval-mode default` | *(default)* |
+| `"accept_edits"` | `--permission-mode acceptEdits` | `--approval-mode auto_edit` | *(not supported)* |
+| `"plan"` | `--permission-mode plan` | `--approval-mode plan` | *(not supported)* |
+| `"full_auto"` | `--permission-mode bypassPermissions` | `--approval-mode yolo` | `--dangerously-skip-permissions` |
+| `"auto"` | `--permission-mode auto` | *(fallback to yolo)* | *(not supported)* |
+| `"dont_ask"` | `--permission-mode dontAsk` | *(fallback to yolo)* | *(not supported)* |
 
 ## PermissionRequest
 
 ```python
 class PermissionRequest(TypedDict, total=False):
-    tool: str
+    tool_name: str
+    tool_use_id: str
+    tool_input: dict
     description: str
 ```

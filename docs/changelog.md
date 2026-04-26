@@ -1,5 +1,44 @@
 # Changelog
 
+## v0.3.0 (2026-04-26)
+
+Sync all CLI providers with current tool versions; align CI pipeline with llm-rosetta.
+
+### Bug Fixes
+
+- **OpenCode**: remove incorrect `--prompt` flag mapping for `system_prompt` — `opencode run` does not have this flag; system prompts are now documented as unsupported for this provider
+- **Claude**: switch `full_auto` from `--dangerously-skip-permissions` to `--permission-mode bypassPermissions`, matching the modern CLI interface
+
+### Features
+
+- **Claude**: add `auto`, `dont_ask`, `default` permission level mappings to `--permission-mode`
+- **Gemini**: replace hardcoded `-y` (yolo) flag with `--approval-mode` driven by permission config (`yolo`, `auto_edit`, `plan`, `default`)
+- **OpenCode**: add `--dangerously-skip-permissions` support, set `supports_permissions` to `True`
+- **PermissionLevel**: add `"auto"` and `"dont_ask"` to the `PermissionLevel` type
+
+### CI & Tooling
+
+- Upgrade GitHub Actions to `actions/checkout@v6` and `actions/setup-python@v6`
+- Add `ty check` (type checking) to the CI lint pipeline
+- Add install-smoke-test matrix job (core, claude, codex variants)
+- Add `UP` and `C901` ruff lint rules; fix all UP006/UP035 warnings (use builtin generics)
+- Refactor `default_run()` and `ClaudeNativeProvider._build_command()` to resolve C901 complexity
+- Add `ty`, `build`, `twine` to dev dependencies
+
+### Testing
+
+- 147 unit tests (+5 for new permission mode mappings)
+- All existing tests updated to match new CLI flag behavior
+
+### CLI Versions Tested
+
+| Tool | Version |
+|------|---------|
+| Claude Code | 2.1.87 |
+| Codex CLI | 0.117.0 |
+| Gemini CLI | 0.35.3 |
+| OpenCode | 1.4.3 |
+
 ## v0.2.0 (2026-03-31)
 
 Native-first provider architecture: all agents now default to subprocess providers with SDK as fallback.

@@ -34,7 +34,7 @@ Native providers run the agent CLI as a subprocess and parse its structured outp
 |----------|-------|-------------|
 | `ClaudeNativeProvider` | `claude_code` | `claude -p <prompt> --output-format stream-json` |
 | `CodexNativeProvider` | `codex` | `codex exec --json --full-auto <prompt>` |
-| `GeminiNativeProvider` | `gemini_cli` | `gemini -o stream-json -y -p <prompt>` |
+| `GeminiNativeProvider` | `gemini_cli` | `gemini -o stream-json --approval-mode <mode> -p <prompt>` |
 | `OpenCodeNativeProvider` | `opencode` | `opencode run --format json -- <prompt>` |
 
 Native providers have **no extra Python dependencies** — they only require the CLI binary in PATH.
