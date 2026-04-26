@@ -1,8 +1,8 @@
 # 更新日志
 
-## v0.3.0 (2026-04-26)
+## v0.2.0 (2026-04-26)
 
-同步所有 CLI provider 实现以匹配当前工具版本；CI 流水线对齐 llm-rosetta。
+Native 优先的 provider 架构，CLI 对齐的权限模式。
 
 ### Bug 修复
 
@@ -11,6 +11,9 @@
 
 ### 功能
 
+- **CodexNativeProvider** — Codex CLI 的子进程 provider（`codex exec --json --full-auto`），解析 JSONL 事件为 IR
+- **`prefer` 参数** — `Session(prefer="sdk")` 或 `get_provider(agent, prefer="sdk")` 显式选择 native 或 SDK provider
+- **所有 agent 均 native 优先** — 4 个 agent 全部支持 native 子进程 provider 作为默认，SDK 作为可选回退
 - **Claude**：新增 `auto`、`dont_ask`、`default` 权限级别到 `--permission-mode` 映射
 - **Gemini**：将硬编码的 `-y`（yolo）标志替换为基于权限配置的 `--approval-mode`（`yolo`、`auto_edit`、`plan`、`default`）
 - **OpenCode**：新增 `--dangerously-skip-permissions` 支持，`supports_permissions` 设为 `True`
@@ -27,8 +30,15 @@
 
 ### 测试
 
-- 147 个单元测试（+5 个新权限模式映射测试）
+- 147 个单元测试（相比 v0.1.0 新增 28 个：CodexNativeProvider、权限模式映射）
+- Native vs SDK 对比集成测试 — 跨所有双 provider agent 参数化运行，验证 IR 事件一致性
+- `native_vs_sdk` pytest marker 用于定向测试
 - 所有现有测试已更新以匹配新 CLI 标志行为
+
+### Provider 变更
+
+- `codex` provider 链更新：`[CodexNativeProvider, CodexSDKProvider]`（原为 `[CodexSDKProvider]`）
+- `CodexSDKProvider` 现在发送 `session_end` 事件，与 native provider 保持生命周期一致
 
 ### 测试的 CLI 版本
 
@@ -38,27 +48,6 @@
 | Codex CLI | 0.117.0 |
 | Gemini CLI | 0.35.3 |
 | OpenCode | 1.4.3 |
-
-## v0.2.0 (2026-03-31)
-
-Native 优先的 provider 架构：所有 agent 默认使用子进程 provider，SDK 作为回退。
-
-### 功能
-
-- **CodexNativeProvider** — Codex CLI 的子进程 provider（`codex exec --json --full-auto`），解析 JSONL 事件为 IR
-- **`prefer` 参数** — `Session(prefer="sdk")` 或 `get_provider(agent, prefer="sdk")` 显式选择 native 或 SDK provider
-- **所有 agent 均 native 优先** — 4 个 agent 全部支持 native 子进程 provider 作为默认，SDK 作为可选回退
-
-### 测试
-
-- 142 个单元测试（+23 个 CodexNativeProvider 测试）
-- Native vs SDK 对比集成测试 — 跨所有双 provider agent 参数化运行，验证 IR 事件一致性
-- `native_vs_sdk` pytest marker 用于定向测试
-
-### Provider 变更
-
-- `codex` provider 链更新：`[CodexNativeProvider, CodexSDKProvider]`（原为 `[CodexSDKProvider]`）
-- `CodexSDKProvider` 现在发送 `session_end` 事件，与 native provider 保持生命周期一致
 
 ## v0.1.0 (2026-03-31)
 
