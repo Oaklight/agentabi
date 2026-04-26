@@ -7,8 +7,6 @@ resolve_provider() tries each in order, returning the first available.
 
 from __future__ import annotations
 
-from typing import Dict, List, Type
-
 from .base import Provider
 
 
@@ -25,7 +23,7 @@ class AgentNotAvailable(Exception):
         super().__init__(f"No provider available for agent '{agent}'.{hint}")
 
 
-def _build_provider_chain() -> Dict[str, List[Type[Provider]]]:
+def _build_provider_chain() -> dict[str, list[type[Provider]]]:
     """Build the provider chain lazily to avoid circular imports."""
     from .claude_native import ClaudeNativeProvider
 
@@ -46,10 +44,10 @@ def _build_provider_chain() -> Dict[str, List[Type[Provider]]]:
     }
 
 
-_chain_cache: Dict[str, List[Type[Provider]]] | None = None
+_chain_cache: dict[str, list[type[Provider]]] | None = None
 
 
-def _get_chain() -> Dict[str, List[Type[Provider]]]:
+def _get_chain() -> dict[str, list[type[Provider]]]:
     global _chain_cache
     if _chain_cache is None:
         _chain_cache = _build_provider_chain()
@@ -100,7 +98,7 @@ def get_provider(agent: str, *, prefer: str | None = None) -> Provider:
     return resolve_provider(agent, prefer=prefer)
 
 
-def list_agents() -> List[str]:
+def list_agents() -> list[str]:
     """List all registered agent names (regardless of availability).
 
     Returns:
@@ -109,7 +107,7 @@ def list_agents() -> List[str]:
     return list(_get_chain().keys())
 
 
-def list_available_agents() -> List[str]:
+def list_available_agents() -> list[str]:
     """List agents that have at least one available provider.
 
     Returns:

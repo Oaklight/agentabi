@@ -43,7 +43,8 @@ class TestBuildCommand:
         cmd = ClaudeNativeProvider._build_command(
             {"prompt": "hi", "permissions": {"level": "full_auto"}}
         )
-        assert "--dangerously-skip-permissions" in cmd
+        idx = cmd.index("--permission-mode")
+        assert cmd[idx + 1] == "bypassPermissions"
 
     def test_plan_mode_permissions(self):
         cmd = ClaudeNativeProvider._build_command(
@@ -51,6 +52,27 @@ class TestBuildCommand:
         )
         idx = cmd.index("--permission-mode")
         assert cmd[idx + 1] == "plan"
+
+    def test_auto_mode_permissions(self):
+        cmd = ClaudeNativeProvider._build_command(
+            {"prompt": "hi", "permissions": {"level": "auto"}}
+        )
+        idx = cmd.index("--permission-mode")
+        assert cmd[idx + 1] == "auto"
+
+    def test_dont_ask_permissions(self):
+        cmd = ClaudeNativeProvider._build_command(
+            {"prompt": "hi", "permissions": {"level": "dont_ask"}}
+        )
+        idx = cmd.index("--permission-mode")
+        assert cmd[idx + 1] == "dontAsk"
+
+    def test_default_permissions(self):
+        cmd = ClaudeNativeProvider._build_command(
+            {"prompt": "hi", "permissions": {"level": "default"}}
+        )
+        idx = cmd.index("--permission-mode")
+        assert cmd[idx + 1] == "default"
 
     def test_with_mcp_config(self):
         cmd = ClaudeNativeProvider._build_command(

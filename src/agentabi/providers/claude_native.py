@@ -11,7 +11,8 @@ import asyncio
 import json
 import os
 import shutil
-from typing import Any, AsyncIterator, Dict, List, cast
+from collections.abc import AsyncIterator
+from typing import Any, cast
 
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
@@ -29,6 +30,15 @@ from ..types.ir.events import (
 )
 from ..types.ir.session import SessionResult
 from ..types.ir.task import TaskConfig
+
+_PERMISSION_LEVEL_MAP: dict[str, str] = {
+    "full_auto": "bypassPermissions",
+    "accept_edits": "acceptEdits",
+    "plan": "plan",
+    "auto": "auto",
+    "dont_ask": "dontAsk",
+    "default": "default",
+}
 
 
 class ClaudeNativeProvider:
@@ -102,7 +112,7 @@ class ClaudeNativeProvider:
     # ========== Private: command building ==========
 
     @staticmethod
-    def _build_command(task: TaskConfig) -> List[str]:
+    def _build_command(task: TaskConfig) -> list[str]:
         """Convert TaskConfig to `claude` CLI arguments."""
         cmd = ["claude", "--print", "--output-format", "stream-json", "--verbose"]
 
@@ -123,12 +133,9 @@ class ClaudeNativeProvider:
         permissions = task.get("permissions")
         if permissions:
             level = permissions.get("level")
-            if level == "full_auto":
-                cmd.append("--dangerously-skip-permissions")
-            elif level == "accept_edits":
-                cmd.extend(["--permission-mode", "acceptEdits"])
-            elif level == "plan":
-                cmd.extend(["--permission-mode", "plan"])
+            cli_mode = _PERMISSION_LEVEL_MAP.get(level or "")
+            if cli_mode:
+                cmd.extend(["--permission-mode", cli_mode])
 
         if "allowed_tools" in task:
             cmd.extend(["--allowed-tools", ",".join(task["allowed_tools"])])
@@ -161,7 +168,7 @@ class ClaudeNativeProvider:
     # ========== Private: event parsing ==========
 
     @staticmethod
-    def _parse_event(event: Dict[str, Any]) -> List[IREvent]:
+    def _parse_event(event: dict[str, Any]) -> list[IREvent]:
         """Convert a Claude Code JSONL event to IR event(s)."""
         event_type = event.get("type")
 
@@ -178,7 +185,7 @@ class ClaudeNativeProvider:
         return []
 
     @staticmethod
-    def _handle_system(event: Dict[str, Any]) -> List[IREvent]:
+    def _handle_system(event: dict[str, Any]) -> list[IREvent]:
         ir: SessionStartEvent = {
             "type": "session_start",
             "session_id": event.get("session_id", ""),
@@ -193,8 +200,8 @@ class ClaudeNativeProvider:
         return [ir]
 
     @staticmethod
-    def _handle_assistant(event: Dict[str, Any]) -> List[IREvent]:
-        results: List[IREvent] = []
+    def _handle_assistant(event: dict[str, Any]) -> list[IREvent]:
+        results: list[IREvent] = []
         message = event.get("message", {})
         content = message.get("content", [])
         message_id = message.get("id", "")
@@ -231,8 +238,8 @@ class ClaudeNativeProvider:
         return results
 
     @staticmethod
-    def _handle_user(event: Dict[str, Any]) -> List[IREvent]:
-        results: List[IREvent] = []
+    def _handle_user(event: dict[str, Any]) -> list[IREvent]:
+        results: list[IREvent] = []
         message = event.get("message", {})
         content = message.get("content", [])
 
@@ -257,7 +264,7 @@ class ClaudeNativeProvider:
         return results
 
     @staticmethod
-    def _handle_stream_event(event: Dict[str, Any]) -> List[IREvent]:
+    def _handle_stream_event(event: dict[str, Any]) -> list[IREvent]:
         inner = event.get("event", {})
         if inner.get("type") == "content_block_delta":
             delta = inner.get("delta", {})
@@ -269,8 +276,8 @@ class ClaudeNativeProvider:
         return []
 
     @staticmethod
-    def _handle_result(event: Dict[str, Any]) -> List[IREvent]:
-        results: List[IREvent] = []
+    def _handle_result(event: dict[str, Any]) -> list[IREvent]:
+        results: list[IREvent] = []
 
         raw_usage = event.get("usage", {})
         usage: UsageInfo = {}

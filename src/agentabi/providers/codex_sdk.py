@@ -6,7 +6,8 @@ Wraps codex-sdk-python behind the Provider protocol.
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Literal, cast
+from collections.abc import AsyncIterator
+from typing import Any, Literal, cast
 
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (

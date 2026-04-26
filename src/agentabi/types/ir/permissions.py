@@ -4,7 +4,7 @@ agentabi - Permission Types
 Defines permission configuration and request types for the agent ABI.
 """
 
-from typing import List, Literal
+from typing import Literal
 
 from typing_extensions import NotRequired, Required, TypedDict
 
@@ -16,7 +16,9 @@ PermissionLevel = Literal[
     "default",  # prompt for sensitive operations
     "accept_edits",  # auto-approve file edits
     "plan",  # planning mode, no execution
-    "full_auto",  # auto-approve everything
+    "full_auto",  # auto-approve everything (bypass all checks)
+    "auto",  # auto mode (agent decides)
+    "dont_ask",  # never prompt, skip if not auto-approved
 ]
 
 # ============================================================================
@@ -31,8 +33,8 @@ class PermissionConfig(TypedDict):
     """
 
     level: NotRequired[PermissionLevel]
-    allowed_tools: NotRequired[List[str]]
-    disallowed_tools: NotRequired[List[str]]
+    allowed_tools: NotRequired[list[str]]
+    disallowed_tools: NotRequired[list[str]]
     sandbox: NotRequired[bool]  # run in sandboxed environment
 
 

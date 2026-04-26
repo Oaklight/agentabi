@@ -5,7 +5,7 @@ Defines TaskConfig, the unified input type for submitting work to any agent CLI.
 Analogous to llmir's IRRequest.
 """
 
-from typing import Any, Dict, List, Literal
+from typing import Any, Literal
 
 from typing_extensions import NotRequired, Required, TypedDict
 
@@ -54,7 +54,7 @@ class TaskConfig(TypedDict):
 
     # ========== Execution Context ==========
     working_dir: NotRequired[str]
-    env: NotRequired[Dict[str, str]]
+    env: NotRequired[dict[str, str]]
 
     # ========== Session Management ==========
     session_id: NotRequired[str]
@@ -68,14 +68,14 @@ class TaskConfig(TypedDict):
 
     # ========== Permission Control ==========
     permissions: NotRequired[PermissionConfig]
-    allowed_tools: NotRequired[List[str]]
-    disallowed_tools: NotRequired[List[str]]
+    allowed_tools: NotRequired[list[str]]
+    disallowed_tools: NotRequired[list[str]]
 
     # ========== MCP ==========
     mcp_config: NotRequired[str]  # path to MCP config file
 
     # ========== Agent-Specific Extensions ==========
-    agent_extensions: NotRequired[Dict[str, Any]]
+    agent_extensions: NotRequired[dict[str, Any]]
 
 
 __all__ = [

@@ -58,7 +58,10 @@ dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov",
-    "ruff",
+    "ruff>=0.15.0",
+    "ty>=0.0.31",
+    "build>=1.2.2.post1",
+    "twine>=6.1.0",
 ]
 
 [project.urls]
@@ -80,7 +83,11 @@ line-length = 88
 target-version = "py39"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W"]
+select = ["E", "F", "I", "W", "UP", "C901"]
+ignore = ["UP007"]  # Allow Union[X, Y] syntax for Python 3.9 compat
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -94,7 +101,16 @@ markers = [
     "native_vs_sdk: Native vs SDK provider comparison tests",
 ]
 
-[tool.ty]
-# Optional SDK deps are not installed during type checking
+[tool.ty.environment]
+python-version = "3.9"
+
+[tool.ty.src]
+include = ["src", "tests"]
+
 [tool.ty.rules]
+# Optional SDK deps are not installed during type checking
 unresolved-import = "ignore"
+# ty cannot narrow Union[TypedDict, ...] members by discriminator key;
+# also SDK type stubs may lag behind actual API.
+invalid-key = "ignore"
+invalid-assignment = "ignore"

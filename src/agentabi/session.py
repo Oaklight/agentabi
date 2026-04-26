@@ -8,7 +8,8 @@ Async-first design with sync convenience wrapper.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, AsyncIterator, Optional, cast
+from collections.abc import AsyncIterator
+from typing import Any, cast
 
 from .providers.base import Provider
 from .providers.registry import resolve_provider
@@ -39,9 +40,9 @@ class Session:
     def __init__(
         self,
         *,
-        agent: Optional[str] = None,
-        model: Optional[str] = None,
-        prefer: Optional[str] = None,
+        agent: str | None = None,
+        model: str | None = None,
+        prefer: str | None = None,
     ) -> None:
         """Initialize a Session.
 
@@ -71,7 +72,7 @@ class Session:
         return self._agent
 
     @property
-    def model(self) -> Optional[str]:
+    def model(self) -> str | None:
         """The default model, if set."""
         return self._model
 
@@ -84,9 +85,9 @@ class Session:
         self,
         prompt: str,
         *,
-        working_dir: Optional[str] = None,
-        max_turns: Optional[int] = None,
-        system_prompt: Optional[str] = None,
+        working_dir: str | None = None,
+        max_turns: int | None = None,
+        system_prompt: str | None = None,
         **kwargs,
     ) -> AsyncIterator[IREvent]:
         """Stream IR events from a task execution.
@@ -115,9 +116,9 @@ class Session:
         self,
         prompt: str,
         *,
-        working_dir: Optional[str] = None,
-        max_turns: Optional[int] = None,
-        system_prompt: Optional[str] = None,
+        working_dir: str | None = None,
+        max_turns: int | None = None,
+        system_prompt: str | None = None,
         **kwargs,
     ) -> SessionResult:
         """Run a task to completion.
@@ -145,9 +146,9 @@ class Session:
         self,
         prompt: str,
         *,
-        working_dir: Optional[str] = None,
-        max_turns: Optional[int] = None,
-        system_prompt: Optional[str] = None,
+        working_dir: str | None = None,
+        max_turns: int | None = None,
+        system_prompt: str | None = None,
         **kwargs,
     ) -> TaskConfig:
         """Build a TaskConfig from arguments."""
@@ -173,8 +174,8 @@ class Session:
 def run_sync(
     prompt: str,
     *,
-    agent: Optional[str] = None,
-    model: Optional[str] = None,
+    agent: str | None = None,
+    model: str | None = None,
     **kwargs,
 ) -> SessionResult:
     """Synchronous convenience for running a task.

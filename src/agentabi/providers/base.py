@@ -7,7 +7,8 @@ abstraction layer between Session and agent CLIs/SDKs.
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, List
+from collections.abc import AsyncIterator
+from typing import Any
 
 from typing_extensions import Protocol, runtime_checkable
 
@@ -70,6 +71,78 @@ class Provider(Protocol):
         ...
 
 
+class _RunState:
+    """Mutable accumulator for default_run event aggregation."""
+
+    __slots__ = (
+        "session_id",
+        "delta_parts",
+        "result_text",
+        "status",
+        "model",
+        "cost_usd",
+        "errors",
+        "usage",
+    )
+
+    def __init__(self) -> None:
+        self.session_id = ""
+        self.delta_parts: list[str] = []
+        self.result_text = ""
+        self.status: SessionStatus = "success"
+        self.model = ""
+        self.cost_usd = 0.0
+        self.errors: list[str] = []
+        self.usage: UsageInfo = {}
+
+    def handle(self, event: IREvent) -> None:
+        """Dispatch a single IR event into the accumulator."""
+        etype = event.get("type")
+        if etype == "session_start":
+            self.session_id = event.get("session_id", "")
+            self.model = event.get("model", "")
+        elif etype == "message_delta":
+            text = event.get("text", "")
+            if text:
+                self.delta_parts.append(text)
+        elif etype == "message_end":
+            self._flush_message(event)
+        elif etype == "usage":
+            self.usage = event.get("usage", {})
+            cost = event.get("cost_usd")
+            if cost is not None:
+                self.cost_usd = cost
+        elif etype == "error":
+            self.errors.append(event.get("error", ""))
+            if event.get("is_fatal"):
+                self.status = "error"
+
+    def _flush_message(self, event: IREvent) -> None:
+        text = event.get("text")
+        if text:
+            self.result_text = text
+        elif self.delta_parts:
+            self.result_text = "".join(self.delta_parts)
+        self.delta_parts = []
+
+    def build(self) -> SessionResult:
+        result: SessionResult = {
+            "session_id": self.session_id,
+            "status": self.status,
+        }
+        if self.model:
+            result["model"] = self.model
+        if self.result_text:
+            result["result_text"] = self.result_text
+        if self.usage:
+            result["usage"] = self.usage
+        if self.cost_usd:
+            result["cost_usd"] = self.cost_usd
+        if self.errors:
+            result["errors"] = self.errors
+        return result
+
+
 async def default_run(provider: Any, task: TaskConfig) -> SessionResult:
     """Default run() implementation that aggregates stream() events.
 
@@ -82,57 +155,10 @@ async def default_run(provider: Any, task: TaskConfig) -> SessionResult:
     Returns:
         Aggregated SessionResult built from stream events.
     """
-    session_id = ""
-    delta_parts: List[str] = []
-    result_text = ""
-    status: SessionStatus = "success"
-    model = ""
-    cost_usd = 0.0
-    errors: List[str] = []
-    usage: UsageInfo = {}
-
+    state = _RunState()
     async for event in provider.stream(task):
-        etype = event.get("type")
-        if etype == "session_start":
-            session_id = event.get("session_id", "")
-            model = event.get("model", "")
-        elif etype == "message_delta":
-            text = event.get("text", "")
-            if text:
-                delta_parts.append(text)
-        elif etype == "message_end":
-            text = event.get("text")
-            if text:
-                result_text = text
-            elif delta_parts:
-                result_text = "".join(delta_parts)
-            delta_parts = []
-        elif etype == "usage":
-            usage = event.get("usage", {})
-            cost = event.get("cost_usd")
-            if cost is not None:
-                cost_usd = cost
-        elif etype == "error":
-            errors.append(event.get("error", ""))
-            if event.get("is_fatal"):
-                status = "error"
-
-    result: SessionResult = {
-        "session_id": session_id,
-        "status": status,
-    }
-    if model:
-        result["model"] = model
-    if result_text:
-        result["result_text"] = result_text
-    if usage:
-        result["usage"] = usage
-    if cost_usd:
-        result["cost_usd"] = cost_usd
-    if errors:
-        result["errors"] = errors
-
-    return result
+        state.handle(event)
+    return state.build()
 
 
 __all__ = [

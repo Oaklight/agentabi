@@ -6,7 +6,8 @@ Wraps claude-agent-sdk behind the Provider protocol.
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
@@ -75,6 +76,12 @@ class ClaudeSDKProvider:
                 options.permission_mode = "acceptEdits"
             elif level == "plan":
                 options.permission_mode = "plan"
+            elif level == "auto":
+                options.permission_mode = "auto"
+            elif level == "dont_ask":
+                options.permission_mode = "dontAsk"
+            elif level == "default":
+                options.permission_mode = "default"
 
         async for msg in query(prompt=task["prompt"], options=options):
             for event in self._convert(msg):

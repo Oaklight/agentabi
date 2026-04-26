@@ -1,7 +1,7 @@
 """Tests for GeminiSDKProvider event conversion."""
 
 from dataclasses import dataclass, field
-from typing import Any, List, Optional
+from typing import Any, Optional
 from unittest.mock import patch
 
 
@@ -43,7 +43,7 @@ class MockUserMessage:
 
 @dataclass
 class MockAssistantMessage:
-    content: List[Any] = field(default_factory=list)
+    content: list[Any] = field(default_factory=list)
     type: str = "assistant"
 
 

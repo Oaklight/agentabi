@@ -6,7 +6,8 @@ Wraps gemini-cli-sdk behind the Provider protocol.
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (

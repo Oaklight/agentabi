@@ -11,7 +11,8 @@ import asyncio
 import json
 import os
 import shutil
-from typing import Any, AsyncIterator, Dict, List, Literal, cast
+from collections.abc import AsyncIterator
+from typing import Any, Literal, cast
 
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
@@ -105,7 +106,7 @@ class CodexNativeProvider:
         return await default_run(self, task)
 
     @staticmethod
-    def _build_command(task: TaskConfig) -> List[str]:
+    def _build_command(task: TaskConfig) -> list[str]:
         """Convert TaskConfig to codex CLI arguments."""
         cmd = ["codex", "exec", "--json", "--full-auto"]
 
@@ -125,7 +126,7 @@ class CodexNativeProvider:
         return cmd
 
     @staticmethod
-    def _parse_event(raw: Dict[str, Any]) -> List[IREvent]:
+    def _parse_event(raw: dict[str, Any]) -> list[IREvent]:
         """Convert a Codex CLI JSONL event to IR events."""
         event_type = raw.get("type")
 
@@ -142,7 +143,7 @@ class CodexNativeProvider:
         return []
 
     @staticmethod
-    def _handle_thread_started(raw: Dict[str, Any]) -> List[IREvent]:
+    def _handle_thread_started(raw: dict[str, Any]) -> list[IREvent]:
         start: SessionStartEvent = {
             "type": "session_start",
             "session_id": raw.get("thread_id", ""),
@@ -151,7 +152,7 @@ class CodexNativeProvider:
         return [start]
 
     @staticmethod
-    def _handle_turn_started() -> List[IREvent]:
+    def _handle_turn_started() -> list[IREvent]:
         msg_start: MessageStartEvent = {
             "type": "message_start",
             "role": "assistant",
@@ -159,8 +160,8 @@ class CodexNativeProvider:
         return [msg_start]
 
     @staticmethod
-    def _handle_turn_completed(raw: Dict[str, Any]) -> List[IREvent]:
-        results: List[IREvent] = []
+    def _handle_turn_completed(raw: dict[str, Any]) -> list[IREvent]:
+        results: list[IREvent] = []
 
         usage_raw = raw.get("usage", {})
         usage: UsageInfo = {}
@@ -190,7 +191,7 @@ class CodexNativeProvider:
         return results
 
     @staticmethod
-    def _handle_item(raw: Dict[str, Any], *, started: bool) -> List[IREvent]:
+    def _handle_item(raw: dict[str, Any], *, started: bool) -> list[IREvent]:
         """Convert an item.started or item.completed event to IR events."""
         item = raw.get("item", {})
         item_type = item.get("type", "")
@@ -213,7 +214,7 @@ class CodexNativeProvider:
         return []
 
     @staticmethod
-    def _handle_agent_message(item: Dict[str, Any], *, started: bool) -> List[IREvent]:
+    def _handle_agent_message(item: dict[str, Any], *, started: bool) -> list[IREvent]:
         if started:
             return []
         text = item.get("text", "")
@@ -226,7 +227,7 @@ class CodexNativeProvider:
         return [delta]
 
     @staticmethod
-    def _handle_command(item: Dict[str, Any], *, started: bool) -> List[IREvent]:
+    def _handle_command(item: dict[str, Any], *, started: bool) -> list[IREvent]:
         item_id = item.get("id", "")
         if started:
             tool_use: ToolUseEvent = {
@@ -247,13 +248,13 @@ class CodexNativeProvider:
             return [tool_result]
 
     @staticmethod
-    def _handle_file_change(item: Dict[str, Any], *, started: bool) -> List[IREvent]:
+    def _handle_file_change(item: dict[str, Any], *, started: bool) -> list[IREvent]:
         if started:
             return []
-        results: List[IREvent] = []
+        results: list[IREvent] = []
         for change in item.get("changes", []):
             kind = change.get("kind", "update")
-            action_map: Dict[str, str] = {
+            action_map: dict[str, str] = {
                 "add": "create",
                 "delete": "delete",
                 "update": "modify",
@@ -269,7 +270,7 @@ class CodexNativeProvider:
         return results
 
     @staticmethod
-    def _handle_mcp_tool(item: Dict[str, Any], *, started: bool) -> List[IREvent]:
+    def _handle_mcp_tool(item: dict[str, Any], *, started: bool) -> list[IREvent]:
         item_id = item.get("id", "")
         if started:
             server = item.get("server", "")

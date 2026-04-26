@@ -18,7 +18,8 @@ class TestBuildCommand:
             "gemini",
             "-o",
             "stream-json",
-            "-y",
+            "--approval-mode",
+            "yolo",
             "-p",
             "Hello",
         ]
@@ -56,6 +57,46 @@ class TestBuildCommand:
         assert "-p" in cmd
         p_idx = cmd.index("-p")
         assert cmd[p_idx + 1] == "What is 2+2?"
+
+    def test_full_auto_permissions(self):
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "gemini_cli",
+                "permissions": {"level": "full_auto"},
+            }
+        )
+        cmd = GeminiNativeProvider._build_command(task)
+        idx = cmd.index("--approval-mode")
+        assert cmd[idx + 1] == "yolo"
+
+    def test_accept_edits_permissions(self):
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "gemini_cli",
+                "permissions": {"level": "accept_edits"},
+            }
+        )
+        cmd = GeminiNativeProvider._build_command(task)
+        idx = cmd.index("--approval-mode")
+        assert cmd[idx + 1] == "auto_edit"
+
+    def test_plan_mode_permissions(self):
+        task = self._task(
+            {"prompt": "Hi", "agent": "gemini_cli", "permissions": {"level": "plan"}}
+        )
+        cmd = GeminiNativeProvider._build_command(task)
+        idx = cmd.index("--approval-mode")
+        assert cmd[idx + 1] == "plan"
+
+    def test_default_permissions(self):
+        task = self._task(
+            {"prompt": "Hi", "agent": "gemini_cli", "permissions": {"level": "default"}}
+        )
+        cmd = GeminiNativeProvider._build_command(task)
+        idx = cmd.index("--approval-mode")
+        assert cmd[idx + 1] == "default"
 
 
 class TestParseEvent:
