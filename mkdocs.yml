@@ -1,7 +1,7 @@
 site_name: agentabi
 site_description: Coding Agent CLI 的统一 Python 接口
 site_author: Peng Ding
-site_url: https://agentabi.readthedocs.io/zh-cn/
+site_url: https://agentabi.readthedocs.io/zh-cn/latest
 repo_name: oaklight/agentabi
 repo_url: https://github.com/oaklight/agentabi
 copyright: Copyright &copy; 2025-2026 Peng Ding
