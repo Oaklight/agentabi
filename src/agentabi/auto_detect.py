@@ -7,8 +7,6 @@ and getting agent capabilities.
 
 from __future__ import annotations
 
-from typing import List
-
 from .providers.registry import (
     AgentNotAvailable,
     get_provider,
@@ -17,7 +15,7 @@ from .providers.registry import (
 from .types.ir.capabilities import AgentCapabilities
 
 
-def detect_agents() -> List[str]:
+def detect_agents() -> list[str]:
     """Detect which agents have at least one available provider.
 
     Returns:

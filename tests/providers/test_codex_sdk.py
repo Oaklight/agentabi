@@ -1,7 +1,7 @@
 """Tests for CodexSDKProvider event conversion."""
 
 from dataclasses import dataclass, field
-from typing import Any, List, Literal, Optional
+from typing import Any, Literal, Optional
 from unittest.mock import patch
 
 
@@ -68,7 +68,7 @@ class MockFileUpdateChange:
 class MockFileChangeItem:
     id: str = "item-3"
     type: Literal["file_change"] = "file_change"
-    changes: List[MockFileUpdateChange] = field(default_factory=list)
+    changes: list[MockFileUpdateChange] = field(default_factory=list)
     status: str = "completed"
 
 

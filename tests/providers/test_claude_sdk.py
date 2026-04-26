@@ -1,7 +1,7 @@
 """Tests for ClaudeSDKProvider event conversion."""
 
 from dataclasses import dataclass, field
-from typing import Any, List, Optional
+from typing import Any, Optional
 from unittest.mock import patch
 
 
@@ -33,7 +33,7 @@ class MockToolResultBlock:
 
 @dataclass
 class MockAssistantMessage:
-    content: List[Any] = field(default_factory=list)
+    content: list[Any] = field(default_factory=list)
     model: str = "claude-sonnet-4-20250514"
     message_id: Optional[str] = None
     stop_reason: Optional[str] = None

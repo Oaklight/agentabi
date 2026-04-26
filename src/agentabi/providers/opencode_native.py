@@ -11,7 +11,8 @@ import asyncio
 import json
 import os
 import shutil
-from typing import Any, AsyncIterator, Dict, List
+from collections.abc import AsyncIterator
+from typing import Any
 
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
@@ -51,7 +52,7 @@ class OpenCodeNativeProvider:
             "supports_session_resume": True,
             "supports_system_prompt": True,
             "supports_tool_filtering": False,
-            "supports_permissions": False,
+            "supports_permissions": True,
             "supports_multi_turn": False,
             "transport": "subprocess",
         }
@@ -96,15 +97,15 @@ class OpenCodeNativeProvider:
         return await default_run(self, task)
 
     @staticmethod
-    def _build_command(task: TaskConfig) -> List[str]:
+    def _build_command(task: TaskConfig) -> list[str]:
         """Convert TaskConfig to opencode CLI arguments."""
         cmd = ["opencode", "run", "--format", "json"]
 
         if "model" in task:
             cmd.extend(["--model", task["model"]])
 
-        if "system_prompt" in task:
-            cmd.extend(["--prompt", task["system_prompt"]])
+        # Note: OpenCode CLI does not support system prompts via CLI flags.
+        # system_prompt in TaskConfig is ignored for this provider.
 
         if "working_dir" in task:
             cmd.extend(["--dir", task["working_dir"]])
@@ -112,12 +113,18 @@ class OpenCodeNativeProvider:
         if task.get("resume") and "session_id" in task:
             cmd.extend(["--session", task["session_id"]])
 
+        permissions = task.get("permissions")
+        if permissions:
+            level = permissions.get("level")
+            if level == "full_auto":
+                cmd.append("--dangerously-skip-permissions")
+
         cmd.append("--")
         cmd.append(task["prompt"])
         return cmd
 
     @staticmethod
-    def _parse_event(raw: Dict[str, Any]) -> List[IREvent]:
+    def _parse_event(raw: dict[str, Any]) -> list[IREvent]:
         """Convert an OpenCode JSON event to IR events.
 
         OpenCode JSON format (--format json):
@@ -141,8 +148,8 @@ class OpenCodeNativeProvider:
         return []
 
     @staticmethod
-    def _handle_step_start(part: Dict[str, Any], session_id: str) -> List[IREvent]:
-        results: List[IREvent] = []
+    def _handle_step_start(part: dict[str, Any], session_id: str) -> list[IREvent]:
+        results: list[IREvent] = []
         start: SessionStartEvent = {
             "type": "session_start",
             "session_id": session_id,
@@ -161,7 +168,7 @@ class OpenCodeNativeProvider:
         return results
 
     @staticmethod
-    def _handle_text(part: Dict[str, Any]) -> List[IREvent]:
+    def _handle_text(part: dict[str, Any]) -> list[IREvent]:
         text = part.get("text", "")
         if text:
             delta: MessageDeltaEvent = {"type": "message_delta", "text": text}
@@ -169,8 +176,8 @@ class OpenCodeNativeProvider:
         return []
 
     @staticmethod
-    def _handle_tool_use(part: Dict[str, Any]) -> List[IREvent]:
-        results: List[IREvent] = []
+    def _handle_tool_use(part: dict[str, Any]) -> list[IREvent]:
+        results: list[IREvent] = []
         state = part.get("state", {})
         tool_name = part.get("tool", "")
         call_id = part.get("callID", "")
@@ -210,8 +217,8 @@ class OpenCodeNativeProvider:
         return results
 
     @staticmethod
-    def _handle_step_finish(part: Dict[str, Any], session_id: str) -> List[IREvent]:
-        results: List[IREvent] = []
+    def _handle_step_finish(part: dict[str, Any], session_id: str) -> list[IREvent]:
+        results: list[IREvent] = []
 
         tokens = part.get("tokens", {})
         usage: UsageInfo = {}

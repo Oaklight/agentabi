@@ -11,7 +11,8 @@ import asyncio
 import json
 import os
 import shutil
-from typing import Any, AsyncIterator, Dict, List
+from collections.abc import AsyncIterator
+from typing import Any
 
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
@@ -104,16 +105,32 @@ class GeminiNativeProvider:
         return await default_run(self, task)
 
     @staticmethod
-    def _build_command(task: TaskConfig) -> List[str]:
+    def _build_command(task: TaskConfig) -> list[str]:
         """Convert TaskConfig to gemini CLI arguments."""
-        cmd = ["gemini", "-o", "stream-json", "-y"]
+        cmd = ["gemini", "-o", "stream-json"]
+
+        permissions = task.get("permissions")
+        if permissions:
+            level = permissions.get("level")
+            if level == "full_auto":
+                cmd.extend(["--approval-mode", "yolo"])
+            elif level == "accept_edits":
+                cmd.extend(["--approval-mode", "auto_edit"])
+            elif level == "plan":
+                cmd.extend(["--approval-mode", "plan"])
+            elif level == "default":
+                cmd.extend(["--approval-mode", "default"])
+            else:
+                cmd.extend(["--approval-mode", "yolo"])
+        else:
+            cmd.extend(["--approval-mode", "yolo"])
 
         if "model" in task:
             cmd.extend(["-m", task["model"]])
 
         if "system_prompt" in task:
             # Gemini CLI uses -s for sandbox, no direct system prompt flag.
-            # Pass as GEMINI_SYSTEM_PROMPT env var if supported.
+            # system_prompt in TaskConfig is ignored for this provider.
             pass
 
         if task.get("resume"):
@@ -124,7 +141,7 @@ class GeminiNativeProvider:
         return cmd
 
     @staticmethod
-    def _parse_event(raw: Dict[str, Any]) -> List[IREvent]:
+    def _parse_event(raw: dict[str, Any]) -> list[IREvent]:
         """Convert a Gemini CLI stream-json event to IR events."""
         event_type = raw.get("type")
 
@@ -141,7 +158,7 @@ class GeminiNativeProvider:
         return []
 
     @staticmethod
-    def _handle_init(raw: Dict[str, Any]) -> List[IREvent]:
+    def _handle_init(raw: dict[str, Any]) -> list[IREvent]:
         start: SessionStartEvent = {
             "type": "session_start",
             "session_id": raw.get("session_id", ""),
@@ -153,7 +170,7 @@ class GeminiNativeProvider:
         return [start]
 
     @staticmethod
-    def _handle_message(raw: Dict[str, Any]) -> List[IREvent]:
+    def _handle_message(raw: dict[str, Any]) -> list[IREvent]:
         role = raw.get("role", "")
         if role == "user":
             return []
@@ -171,7 +188,7 @@ class GeminiNativeProvider:
             return []
 
         # Non-delta assistant message: full text
-        results: List[IREvent] = []
+        results: list[IREvent] = []
         msg_start: MessageStartEvent = {
             "type": "message_start",
             "role": "assistant",
@@ -185,7 +202,7 @@ class GeminiNativeProvider:
         return results
 
     @staticmethod
-    def _handle_tool_use(raw: Dict[str, Any]) -> List[IREvent]:
+    def _handle_tool_use(raw: dict[str, Any]) -> list[IREvent]:
         tool_event: ToolUseEvent = {
             "type": "tool_use",
             "tool_use_id": raw.get("tool_id", ""),
@@ -195,7 +212,7 @@ class GeminiNativeProvider:
         return [tool_event]
 
     @staticmethod
-    def _handle_tool_result(raw: Dict[str, Any]) -> List[IREvent]:
+    def _handle_tool_result(raw: dict[str, Any]) -> list[IREvent]:
         result: ToolResultEvent = {
             "type": "tool_result",
             "tool_use_id": raw.get("tool_id", ""),
@@ -212,8 +229,8 @@ class GeminiNativeProvider:
         return [result]
 
     @staticmethod
-    def _handle_result(raw: Dict[str, Any]) -> List[IREvent]:
-        results: List[IREvent] = []
+    def _handle_result(raw: dict[str, Any]) -> list[IREvent]:
+        results: list[IREvent] = []
         stats = raw.get("stats", {})
 
         usage: UsageInfo = {}

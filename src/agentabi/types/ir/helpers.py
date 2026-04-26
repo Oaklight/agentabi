@@ -4,7 +4,7 @@ agentabi - IR Helpers
 Convenience constructors for creating IR events and types.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from .events import (
     ErrorEvent,
@@ -21,7 +21,7 @@ def create_session_start_event(
     *,
     agent: Optional[str] = None,
     model: Optional[str] = None,
-    tools: Optional[List[str]] = None,
+    tools: Optional[list[str]] = None,
     working_dir: Optional[str] = None,
 ) -> SessionStartEvent:
     """Create a SessionStartEvent with optional metadata."""
@@ -58,7 +58,7 @@ def create_message_delta_event(
 def create_tool_use_event(
     tool_use_id: str,
     tool_name: str,
-    tool_input: Dict[str, Any],
+    tool_input: dict[str, Any],
 ) -> ToolUseEvent:
     """Create a ToolUseEvent."""
     return {

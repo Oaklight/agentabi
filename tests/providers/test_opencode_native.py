@@ -28,13 +28,25 @@ class TestBuildCommand:
         assert "--model" in cmd
         assert "anthropic/claude-sonnet-4-20250514" in cmd
 
-    def test_with_system_prompt(self):
+    def test_system_prompt_ignored(self):
         task = self._task(
             {"prompt": "Hi", "agent": "opencode", "system_prompt": "Be concise"}
         )
         cmd = OpenCodeNativeProvider._build_command(task)
-        assert "--prompt" in cmd
-        assert "Be concise" in cmd
+        assert "--prompt" not in cmd
+        assert "Be concise" not in cmd
+
+    def test_full_auto_permissions(self):
+        task = self._task(
+            {"prompt": "Hi", "agent": "opencode", "permissions": {"level": "full_auto"}}
+        )
+        cmd = OpenCodeNativeProvider._build_command(task)
+        assert "--dangerously-skip-permissions" in cmd
+
+    def test_no_permissions_flag_by_default(self):
+        task = self._task({"prompt": "Hi", "agent": "opencode"})
+        cmd = OpenCodeNativeProvider._build_command(task)
+        assert "--dangerously-skip-permissions" not in cmd
 
     def test_with_working_dir(self):
         task = self._task(

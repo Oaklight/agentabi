@@ -13,7 +13,7 @@ Event categories:
     - File changes: file_diff
 """
 
-from typing import Any, Dict, List, Literal, Union
+from typing import Any, Literal, Union
 
 from typing_extensions import NotRequired, Required, TypedDict
 
@@ -33,7 +33,7 @@ class SessionStartEvent(TypedDict):
     session_id: Required[str]
     agent: NotRequired[str]  # agent type identifier
     model: NotRequired[str]
-    tools: NotRequired[List[str]]
+    tools: NotRequired[list[str]]
     working_dir: NotRequired[str]
 
 
@@ -94,7 +94,7 @@ class ToolUseEvent(TypedDict):
     type: Required[Literal["tool_use"]]
     tool_use_id: Required[str]
     tool_name: Required[str]
-    tool_input: Required[Dict[str, Any]]
+    tool_input: Required[dict[str, Any]]
 
 
 class ToolResultEvent(TypedDict):
@@ -124,7 +124,7 @@ class PermissionRequestEvent(TypedDict):
     type: Required[Literal["permission_request"]]
     tool_name: Required[str]
     tool_use_id: Required[str]
-    tool_input: NotRequired[Dict[str, Any]]
+    tool_input: NotRequired[dict[str, Any]]
     description: NotRequired[str]
 
 

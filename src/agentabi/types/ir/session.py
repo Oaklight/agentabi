@@ -5,7 +5,7 @@ Defines SessionResult, the unified output type after an agent session completes.
 Analogous to llmir's IRResponse.
 """
 
-from typing import Any, Dict, List, Literal
+from typing import Any, Literal
 
 from typing_extensions import NotRequired, Required, TypedDict
 
@@ -48,7 +48,7 @@ class SessionResult(TypedDict):
     result_text: NotRequired[str]
 
     # ========== File Changes ==========
-    file_diffs: NotRequired[List[FileDiffEvent]]
+    file_diffs: NotRequired[list[FileDiffEvent]]
 
     # ========== Usage ==========
     usage: NotRequired[UsageInfo]
@@ -58,10 +58,10 @@ class SessionResult(TypedDict):
 
     # ========== Error ==========
     error: NotRequired[str]
-    errors: NotRequired[List[str]]
+    errors: NotRequired[list[str]]
 
     # ========== Agent-Specific ==========
-    agent_extensions: NotRequired[Dict[str, Any]]
+    agent_extensions: NotRequired[dict[str, Any]]
 
 
 # ============================================================================
