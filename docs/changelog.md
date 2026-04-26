@@ -1,5 +1,44 @@
 # 更新日志
 
+## v0.3.0 (2026-04-26)
+
+同步所有 CLI provider 实现以匹配当前工具版本；CI 流水线对齐 llm-rosetta。
+
+### Bug 修复
+
+- **OpenCode**：移除错误的 `--prompt` 标志映射 — `opencode run` 不支持此参数；系统提示词现记录为该 provider 不支持的功能
+- **Claude**：`full_auto` 权限从 `--dangerously-skip-permissions` 改为 `--permission-mode bypassPermissions`，与现代 CLI 接口一致
+
+### 功能
+
+- **Claude**：新增 `auto`、`dont_ask`、`default` 权限级别到 `--permission-mode` 映射
+- **Gemini**：将硬编码的 `-y`（yolo）标志替换为基于权限配置的 `--approval-mode`（`yolo`、`auto_edit`、`plan`、`default`）
+- **OpenCode**：新增 `--dangerously-skip-permissions` 支持，`supports_permissions` 设为 `True`
+- **PermissionLevel**：新增 `"auto"` 和 `"dont_ask"` 权限级别
+
+### CI 与工具
+
+- GitHub Actions 升级到 `actions/checkout@v6` 和 `actions/setup-python@v6`
+- CI lint 流水线新增 `ty check`（类型检查）
+- 新增 install-smoke-test 矩阵任务（core、claude、codex 变体）
+- 新增 `UP` 和 `C901` ruff lint 规则；修复所有 UP006/UP035 警告（使用内建泛型）
+- 重构 `default_run()` 和 `ClaudeNativeProvider._build_command()` 以解决 C901 复杂度
+- dev 依赖新增 `ty`、`build`、`twine`
+
+### 测试
+
+- 147 个单元测试（+5 个新权限模式映射测试）
+- 所有现有测试已更新以匹配新 CLI 标志行为
+
+### 测试的 CLI 版本
+
+| 工具 | 版本 |
+|------|------|
+| Claude Code | 2.1.87 |
+| Codex CLI | 0.117.0 |
+| Gemini CLI | 0.35.3 |
+| OpenCode | 1.4.3 |
+
 ## v0.2.0 (2026-03-31)
 
 Native 优先的 provider 架构：所有 agent 默认使用子进程 provider，SDK 作为回退。

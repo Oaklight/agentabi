@@ -83,14 +83,41 @@ AgentType = Literal["claude_code", "codex", "gemini_cli", "opencode"]
 ```python
 class PermissionConfig(TypedDict, total=False):
     level: PermissionLevel
-
-PermissionLevel = Literal["default", "full_auto"]
+    allowed_tools: list[str]
+    disallowed_tools: list[str]
+    sandbox: bool
 ```
+
+## PermissionLevel
+
+```python
+PermissionLevel = Literal[
+    "default",       # 敏感操作时提示确认
+    "accept_edits",  # 自动批准文件编辑
+    "plan",          # 规划模式，不执行
+    "full_auto",     # 自动批准所有操作（绕过所有检查）
+    "auto",          # 自动模式（agent 自行决定）
+    "dont_ask",      # 从不提示，未自动批准则跳过
+]
+```
+
+**Provider 映射：**
+
+| 级别 | Claude CLI | Gemini CLI | OpenCode CLI |
+|------|-----------|-----------|-------------|
+| `"default"` | `--permission-mode default` | `--approval-mode default` | *（默认）* |
+| `"accept_edits"` | `--permission-mode acceptEdits` | `--approval-mode auto_edit` | *（不支持）* |
+| `"plan"` | `--permission-mode plan` | `--approval-mode plan` | *（不支持）* |
+| `"full_auto"` | `--permission-mode bypassPermissions` | `--approval-mode yolo` | `--dangerously-skip-permissions` |
+| `"auto"` | `--permission-mode auto` | *（回退到 yolo）* | *（不支持）* |
+| `"dont_ask"` | `--permission-mode dontAsk` | *（回退到 yolo）* | *（不支持）* |
 
 ## PermissionRequest
 
 ```python
 class PermissionRequest(TypedDict, total=False):
-    tool: str
+    tool_name: str
+    tool_use_id: str
+    tool_input: dict
     description: str
 ```
