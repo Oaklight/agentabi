@@ -2,7 +2,7 @@
 agentabi - Gemini CLI Native Provider
 
 Native subprocess + stream-json provider for Gemini CLI.
-Runs `gemini -o stream-json -y -p <prompt>` and parses JSONL output.
+Runs `gemini -o stream-json --approval-mode <mode> -p <prompt>` and parses JSONL output.
 """
 
 from __future__ import annotations
