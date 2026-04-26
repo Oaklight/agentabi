@@ -1,8 +1,8 @@
 # Changelog
 
-## v0.3.0 (2026-04-26)
+## v0.2.0 (2026-04-26)
 
-Sync all CLI providers with current tool versions; align CI pipeline with llm-rosetta.
+Native-first provider architecture with CLI-aligned permission modes.
 
 ### Bug Fixes
 
@@ -11,6 +11,9 @@ Sync all CLI providers with current tool versions; align CI pipeline with llm-ro
 
 ### Features
 
+- **CodexNativeProvider** — Subprocess provider for Codex CLI (`codex exec --json --full-auto`), parsing JSONL events into IR
+- **`prefer` parameter** — `Session(prefer="sdk")` or `get_provider(agent, prefer="sdk")` for explicit native vs SDK provider selection
+- **Native-first for all agents** — All 4 agents now have native subprocess providers as the default, with SDK as optional fallback
 - **Claude**: add `auto`, `dont_ask`, `default` permission level mappings to `--permission-mode`
 - **Gemini**: replace hardcoded `-y` (yolo) flag with `--approval-mode` driven by permission config (`yolo`, `auto_edit`, `plan`, `default`)
 - **OpenCode**: add `--dangerously-skip-permissions` support, set `supports_permissions` to `True`
@@ -27,8 +30,15 @@ Sync all CLI providers with current tool versions; align CI pipeline with llm-ro
 
 ### Testing
 
-- 147 unit tests (+5 for new permission mode mappings)
+- 147 unit tests (+28 vs v0.1.0: CodexNativeProvider, permission mode mappings)
+- Native vs SDK comparison integration tests — parametrized across all dual-provider agents, verifying IR event consistency
+- `native_vs_sdk` pytest marker for targeted test runs
 - All existing tests updated to match new CLI flag behavior
+
+### Provider Changes
+
+- `codex` provider chain updated: `[CodexNativeProvider, CodexSDKProvider]` (was `[CodexSDKProvider]`)
+- `CodexSDKProvider` now emits `session_end` event for lifecycle consistency with native provider
 
 ### CLI Versions Tested
 
@@ -38,27 +48,6 @@ Sync all CLI providers with current tool versions; align CI pipeline with llm-ro
 | Codex CLI | 0.117.0 |
 | Gemini CLI | 0.35.3 |
 | OpenCode | 1.4.3 |
-
-## v0.2.0 (2026-03-31)
-
-Native-first provider architecture: all agents now default to subprocess providers with SDK as fallback.
-
-### Features
-
-- **CodexNativeProvider** — Subprocess provider for Codex CLI (`codex exec --json --full-auto`), parsing JSONL events into IR
-- **`prefer` parameter** — `Session(prefer="sdk")` or `get_provider(agent, prefer="sdk")` for explicit native vs SDK provider selection
-- **Native-first for all agents** — All 4 agents now have native subprocess providers as the default, with SDK as optional fallback
-
-### Testing
-
-- 142 unit tests (+23 for CodexNativeProvider)
-- Native vs SDK comparison integration tests — parametrized across all dual-provider agents, verifying IR event consistency
-- `native_vs_sdk` pytest marker for targeted test runs
-
-### Provider Changes
-
-- `codex` provider chain updated: `[CodexNativeProvider, CodexSDKProvider]` (was `[CodexSDKProvider]`)
-- `CodexSDKProvider` now emits `session_end` event for lifecycle consistency with native provider
 
 ## v0.1.0 (2026-03-31)
 
