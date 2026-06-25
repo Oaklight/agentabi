@@ -122,6 +122,31 @@ class CodexNativeProvider:
             if level == "full_auto":
                 cmd.append("--dangerously-bypass-approvals-and-sandbox")
 
+        # Override codex config.toml provider when env specifies a
+        # custom base URL — codex ignores OPENAI_BASE_URL env var
+        # in favor of its config file, so we must use -c flags to
+        # override the existing provider's connection settings.
+        task_env = task.get("env") or {}
+        base_url = task_env.get("OPENAI_BASE_URL")
+        api_key = task_env.get("OPENAI_API_KEY")
+        provider = task_env.get("CODEX_PROVIDER", "openai")
+        if base_url:
+            cmd.extend(
+                [
+                    "-c",
+                    f"model_provider={provider}",
+                    "-c",
+                    f"model_providers.{provider}.base_url={base_url}",
+                ]
+            )
+            if api_key:
+                cmd.extend(
+                    [
+                        "-c",
+                        f"model_providers.{provider}.api_key={api_key}",
+                    ]
+                )
+
         cmd.append(task["prompt"])
         return cmd
 
