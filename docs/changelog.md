@@ -1,5 +1,22 @@
 # 更新日志
 
+## v0.2.1 (2026-06-25)
+
+补丁版本，修复自定义端点的代理工作流支持。
+
+### Bug 修复
+
+- **Provider base URL 覆盖** — 当 agent 通过自定义代理端点（如 llm-rosetta gateway）连接时，通过 `OPENAI_BASE_URL` 或 `ANTHROPIC_BASE_URL` 等环境变量指定的 base URL 现在能正确覆盖 provider 默认值。此前环境变量中指定的端点会被忽略。
+
+### CI 与工具
+
+- 切换到 pre-commit 进行 lint 检查
+
+### 文档
+
+- 移除 README 中的 DeepWiki 徽章
+- README 新增 PyPI、release、CI 和 license 徽章
+
 ## v0.2.0 (2026-04-26)
 
 Native 优先的 provider 架构，CLI 对齐的权限模式。
