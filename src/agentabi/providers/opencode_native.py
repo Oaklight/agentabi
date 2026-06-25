@@ -101,8 +101,16 @@ class OpenCodeNativeProvider:
         """Convert TaskConfig to opencode CLI arguments."""
         cmd = ["opencode", "run", "--format", "json"]
 
-        if "model" in task:
-            cmd.extend(["--model", task["model"]])
+        # OpenCode uses provider/model format.  When env overrides the
+        # base URL (via OPENAI_BASE_URL), prefix the model with "openai/"
+        # so OpenCode routes through the overridden OpenAI-compatible
+        # provider instead of a config-file provider.
+        task_env = task.get("env") or {}
+        model = task.get("model", "")
+        if model and task_env.get("OPENAI_BASE_URL") and "/" not in model:
+            model = f"openai/{model}"
+        if model:
+            cmd.extend(["--model", model])
 
         # Note: OpenCode CLI does not support system prompts via CLI flags.
         # system_prompt in TaskConfig is ignored for this provider.

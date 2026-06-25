@@ -68,7 +68,21 @@ class GeminiNativeProvider:
     async def stream(self, task: TaskConfig) -> AsyncIterator[IREvent]:
         """Run task via gemini CLI and yield IR events."""
         cmd = self._build_command(task)
-        merged_env = {**os.environ, **(task.get("env") or {})}
+        task_env = task.get("env") or {}
+        merged_env = {**os.environ, **task_env}
+        # Map generic env vars to Gemini-specific ones when only
+        # OPENAI_BASE_URL / OPENAI_API_KEY are provided.
+        # GOOGLE_GEMINI_BASE_URL and GEMINI_API_KEY in task_env are
+        # already in merged_env via the spread above.
+        has_gemini_url = task_env.get("GOOGLE_GEMINI_BASE_URL")
+        if not has_gemini_url and task_env.get("OPENAI_BASE_URL"):
+            # Strip /v1 suffix — Gemini CLI appends paths automatically
+            base = task_env["OPENAI_BASE_URL"].rstrip("/")
+            if base.endswith("/v1"):
+                base = base[:-3]
+            merged_env["GOOGLE_GEMINI_BASE_URL"] = base
+        if not task_env.get("GEMINI_API_KEY") and task_env.get("OPENAI_API_KEY"):
+            merged_env["GEMINI_API_KEY"] = task_env["OPENAI_API_KEY"]
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,

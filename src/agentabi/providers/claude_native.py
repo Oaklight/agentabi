@@ -41,6 +41,33 @@ _PERMISSION_LEVEL_MAP: dict[str, str] = {
 }
 
 
+def _inject_settings_override(cmd: list[str], task: TaskConfig) -> None:
+    """Add --settings JSON when env overrides the Anthropic base URL.
+
+    Claude Code ignores ``ANTHROPIC_BASE_URL`` env var when OAuth auth
+    is active.  ``--settings`` with ``apiKeyHelper`` + env overrides
+    forces API-key auth mode pointing at the custom endpoint.
+
+    Uses base64 encoding for the API key to avoid shell injection via
+    single quotes in the key value.
+    """
+    task_env = task.get("env") or {}
+    base_url = task_env.get("ANTHROPIC_BASE_URL")
+    api_key = task_env.get("ANTHROPIC_API_KEY")
+    if base_url and api_key:
+        import base64
+
+        encoded_key = base64.b64encode(api_key.encode()).decode()
+        settings = {
+            "apiKeyHelper": f"echo {encoded_key} | base64 -d",
+            "env": {
+                "ANTHROPIC_BASE_URL": base_url,
+                "CLAUDE_CODE_SKIP_ANTHROPIC_AUTH": "1",
+            },
+        }
+        cmd.extend(["--settings", json.dumps(settings)])
+
+
 class ClaudeNativeProvider:
     """Native subprocess + JSONL provider for Claude Code CLI.
 
@@ -72,7 +99,8 @@ class ClaudeNativeProvider:
     async def stream(self, task: TaskConfig) -> AsyncIterator[IREvent]:
         """Run task and yield IR events."""
         cmd = self._build_command(task)
-        merged_env = {**os.environ, **(task.get("env") or {})}
+        task_env = task.get("env") or {}
+        merged_env = {**os.environ, **task_env}
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -159,6 +187,8 @@ class ClaudeNativeProvider:
             cmd.extend(["--max-budget-usd", str(extensions["max_budget_usd"])])
         if extensions.get("continue_session"):
             cmd.append("--continue")
+
+        _inject_settings_override(cmd, task)
 
         cmd.append("--")
         cmd.append(task["prompt"])
