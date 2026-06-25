@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.2.1 (2026-06-25)
+
+Patch release fixing custom endpoint support for proxy workflows.
+
+### Bug Fixes
+
+- **Provider base URL override** — When agents connect via a custom proxy endpoint (e.g. llm-rosetta gateway) using env vars like `OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL`, the base URL now correctly overrides the provider's default. Previously the env-specified endpoint was ignored.
+
+### CI & Tooling
+
+- Switch to pre-commit for lint checks
+
+### Documentation
+
+- Remove DeepWiki badge from README
+- Add PyPI, release, CI, and license badges to READMEs
+
 ## v0.2.0 (2026-04-26)
 
 Native-first provider architecture with CLI-aligned permission modes.
