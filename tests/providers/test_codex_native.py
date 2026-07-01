@@ -48,9 +48,12 @@ class TestBuildCommand:
 
 
 class TestParseEvent:
+    def setup_method(self):
+        self.provider = CodexNativeProvider()
+
     def test_thread_started(self):
         raw = {"type": "thread.started", "thread_id": "abc-123"}
-        events = CodexNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 1
         assert events[0]["type"] == "session_start"
         assert events[0]["session_id"] == "abc-123"
@@ -58,7 +61,7 @@ class TestParseEvent:
 
     def test_turn_started(self):
         raw = {"type": "turn.started"}
-        events = CodexNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 1
         assert events[0]["type"] == "message_start"
         assert events[0]["role"] == "assistant"
@@ -72,7 +75,7 @@ class TestParseEvent:
                 "text": "The answer is 4",
             },
         }
-        events = CodexNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 1
         assert events[0]["type"] == "message_delta"
         assert events[0]["text"] == "The answer is 4"
@@ -82,7 +85,7 @@ class TestParseEvent:
             "type": "item.started",
             "item": {"id": "item_0", "type": "agent_message", "text": ""},
         }
-        events = CodexNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert events == []
 
     def test_agent_message_empty_text(self):
@@ -90,7 +93,7 @@ class TestParseEvent:
             "type": "item.completed",
             "item": {"id": "item_0", "type": "agent_message", "text": ""},
         }
-        events = CodexNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert events == []
 
     def test_command_started(self):
@@ -105,7 +108,7 @@ class TestParseEvent:
                 "status": "in_progress",
             },
         }
-        events = CodexNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 1
         assert events[0]["type"] == "tool_use"
         assert events[0]["tool_use_id"] == "item_1"
@@ -124,7 +127,7 @@ class TestParseEvent:
                 "status": "completed",
             },
         }
-        events = CodexNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 1
         assert events[0]["type"] == "tool_result"
         assert events[0]["tool_use_id"] == "item_1"
@@ -143,7 +146,7 @@ class TestParseEvent:
                 "status": "failed",
             },
         }
-        events = CodexNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 1
         assert events[0]["type"] == "tool_result"
         assert events[0]["is_error"] is True
@@ -161,7 +164,7 @@ class TestParseEvent:
                 ],
             },
         }
-        events = CodexNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 3
         assert events[0]["type"] == "file_diff"
         assert events[0]["file_path"] == "src/main.py"
@@ -174,7 +177,7 @@ class TestParseEvent:
             "type": "item.started",
             "item": {"id": "item_3", "type": "file_change", "changes": []},
         }
-        events = CodexNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert events == []
 
     def test_mcp_tool_started(self):
@@ -189,7 +192,7 @@ class TestParseEvent:
                 "status": "in_progress",
             },
         }
-        events = CodexNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 1
         assert events[0]["type"] == "tool_use"
         assert events[0]["tool_name"] == "mcp:my_server/search"
@@ -207,7 +210,7 @@ class TestParseEvent:
                 "status": "completed",
             },
         }
-        events = CodexNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 1
         assert events[0]["type"] == "tool_result"
         assert events[0]["tool_use_id"] == "item_4"
@@ -224,7 +227,7 @@ class TestParseEvent:
                 "status": "failed",
             },
         }
-        events = CodexNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 1
         assert events[0]["is_error"] is True
         assert events[0]["content"] == "not found"
@@ -238,7 +241,7 @@ class TestParseEvent:
                 "message": "Something went wrong",
             },
         }
-        events = CodexNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 1
         assert events[0]["type"] == "error"
         assert events[0]["error"] == "Something went wrong"
@@ -252,7 +255,7 @@ class TestParseEvent:
                 "output_tokens": 5,
             },
         }
-        events = CodexNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 3  # usage + message_end + session_end
         assert events[0]["type"] == "usage"
         assert events[0]["usage"]["input_tokens"] == 10849
@@ -271,14 +274,223 @@ class TestParseEvent:
                 "output_tokens": 10,
             },
         }
-        events = CodexNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         usage = events[0]["usage"]
         assert usage["cache_read_tokens"] == 50
 
     def test_unknown_event_type(self):
         raw = {"type": "unknown.thing", "data": "whatever"}
-        events = CodexNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert events == []
+
+    def test_message_end_carries_text(self):
+        """Verify that message_end carries accumulated text from agent_message."""
+        # Simulate: agent_message completed → turn.completed
+        self.provider._parse_event(
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "item_0",
+                    "type": "agent_message",
+                    "text": "The answer is 18",
+                },
+            }
+        )
+        events = self.provider._parse_event(
+            {
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": 100,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 5,
+                },
+            }
+        )
+        end = [e for e in events if e["type"] == "message_end"][0]
+        assert end["text"] == "The answer is 18"
+
+    def test_message_end_accumulates_multiple_messages(self):
+        """Verify text from multiple agent_message items is concatenated."""
+        self.provider._parse_event(
+            {
+                "type": "item.completed",
+                "item": {"id": "item_0", "type": "agent_message", "text": "Hello "},
+            }
+        )
+        self.provider._parse_event(
+            {
+                "type": "item.completed",
+                "item": {"id": "item_1", "type": "agent_message", "text": "world"},
+            }
+        )
+        events = self.provider._parse_event(
+            {
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": 10,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 5,
+                },
+            }
+        )
+        end = [e for e in events if e["type"] == "message_end"][0]
+        assert end["text"] == "Hello world"
+
+    def test_message_end_no_text_when_no_agent_message(self):
+        """Verify message_end has no text key when no agent_message was received."""
+        events = self.provider._parse_event(
+            {
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": 10,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 5,
+                },
+            }
+        )
+        end = [e for e in events if e["type"] == "message_end"][0]
+        assert "text" not in end
+
+    def test_pending_text_cleared_after_flush(self):
+        """Verify pending text is cleared after turn.completed."""
+        self.provider._parse_event(
+            {
+                "type": "item.completed",
+                "item": {"id": "item_0", "type": "agent_message", "text": "First"},
+            }
+        )
+        self.provider._parse_event(
+            {
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": 10,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 5,
+                },
+            }
+        )
+        # Second turn with no text
+        events = self.provider._parse_event(
+            {
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": 10,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 5,
+                },
+            }
+        )
+        end = [e for e in events if e["type"] == "message_end"][0]
+        assert "text" not in end
+
+
+class TestResultTextAggregation:
+    """End-to-end test: full event flow through _RunState produces result_text."""
+
+    def test_codex_flow_produces_result_text(self):
+        from agentabi.providers.base import _RunState
+
+        provider = CodexNativeProvider()
+        state = _RunState()
+
+        # Simulate full Codex session: thread.started → turn.started →
+        # agent_message → turn.completed
+        raw_events = [
+            {"type": "thread.started", "thread_id": "thread-abc"},
+            {"type": "turn.started"},
+            {
+                "type": "item.completed",
+                "item": {"id": "item_0", "type": "agent_message", "text": "18"},
+            },
+            {
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": 100,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 5,
+                },
+            },
+        ]
+        for raw in raw_events:
+            for event in provider._parse_event(raw):
+                state.handle(event)
+
+        result = state.build()
+        assert result["status"] == "success"
+        assert result["result_text"] == "18"
+
+    def test_codex_multi_turn_produces_result_text(self):
+        """Multi-turn: text → tool → text → done. Final text should win."""
+        from agentabi.providers.base import _RunState
+
+        provider = CodexNativeProvider()
+        state = _RunState()
+
+        raw_events = [
+            {"type": "thread.started", "thread_id": "thread-abc"},
+            # Turn 1: agent says something, then uses a tool
+            {"type": "turn.started"},
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "item_0",
+                    "type": "agent_message",
+                    "text": "Let me check.",
+                },
+            },
+            {
+                "type": "item.started",
+                "item": {
+                    "id": "item_1",
+                    "type": "command_execution",
+                    "command": "echo 18",
+                },
+            },
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "item_1",
+                    "type": "command_execution",
+                    "command": "echo 18",
+                    "aggregated_output": "18\n",
+                    "exit_code": 0,
+                    "status": "completed",
+                },
+            },
+            {
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": 100,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 50,
+                },
+            },
+            # Turn 2: agent gives final answer
+            {"type": "turn.started"},
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "item_2",
+                    "type": "agent_message",
+                    "text": "The answer is 18.",
+                },
+            },
+            {
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": 200,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 10,
+                },
+            },
+        ]
+        for raw in raw_events:
+            for event in provider._parse_event(raw):
+                state.handle(event)
+
+        result = state.build()
+        assert result["status"] == "success"
+        assert result["result_text"] == "The answer is 18."
 
 
 class TestCapabilities:

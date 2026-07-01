@@ -34,6 +34,9 @@ class CodexSDKProvider:
     Requires: pip install agentabi[codex]
     """
 
+    def __init__(self) -> None:
+        self._pending_text: list[str] = []
+
     @staticmethod
     def is_available() -> bool:
         """Check if codex-sdk-python is installed."""
@@ -99,8 +102,7 @@ class CodexSDKProvider:
 
         return await default_run(self, task)
 
-    @staticmethod
-    def _convert(event: Any) -> list[IREvent]:
+    def _convert(self, event: Any) -> list[IREvent]:
         """Convert a codex-sdk ThreadEvent to IR events."""
         from codex_sdk import (
             ItemCompletedEvent,
@@ -113,17 +115,17 @@ class CodexSDKProvider:
         )
 
         if isinstance(event, ThreadStartedEvent):
-            return CodexSDKProvider._convert_thread_started(event)
+            return self._convert_thread_started(event)
         elif isinstance(event, TurnStartedEvent):
-            return CodexSDKProvider._convert_turn_started()
+            return self._convert_turn_started()
         elif isinstance(event, TurnCompletedEvent):
-            return CodexSDKProvider._convert_turn_completed(event)
+            return self._convert_turn_completed(event)
         elif isinstance(event, TurnFailedEvent):
-            return CodexSDKProvider._convert_turn_failed(event)
+            return self._convert_turn_failed(event)
         elif isinstance(event, ItemStartedEvent):
-            return CodexSDKProvider._convert_item(event.item, started=True)
+            return self._convert_item(event.item, started=True)
         elif isinstance(event, ItemCompletedEvent):
-            return CodexSDKProvider._convert_item(event.item, started=False)
+            return self._convert_item(event.item, started=False)
         elif isinstance(event, ThreadErrorEvent):
             err: ErrorEvent = {
                 "type": "error",
@@ -150,8 +152,7 @@ class CodexSDKProvider:
         }
         return [start]
 
-    @staticmethod
-    def _convert_turn_completed(event: Any) -> list[IREvent]:
+    def _convert_turn_completed(self, event: Any) -> list[IREvent]:
         results: list[IREvent] = []
         usage_obj = getattr(event, "usage", None)
         usage: UsageInfo = {}
@@ -169,6 +170,9 @@ class CodexSDKProvider:
         results.append(usage_event)
 
         end: MessageEndEvent = {"type": "message_end", "stop_reason": "end_turn"}
+        if self._pending_text:
+            end["text"] = "".join(self._pending_text)
+            self._pending_text = []
         results.append(end)
 
         session_end: SessionEndEvent = {"type": "session_end"}
@@ -186,8 +190,18 @@ class CodexSDKProvider:
         err: ErrorEvent = {"type": "error", "error": msg, "is_fatal": True}
         return [err]
 
-    @staticmethod
-    def _convert_item(item: Any, *, started: bool) -> list[IREvent]:
+    def _convert_agent_message(self, item: Any) -> list[IREvent]:
+        """Convert an AgentMessageItem completion to IR events."""
+        text = item.text
+        if text:
+            self._pending_text.append(text)
+        delta: MessageDeltaEvent = {
+            "type": "message_delta",
+            "text": text,
+        }
+        return [delta]
+
+    def _convert_item(self, item: Any, *, started: bool) -> list[IREvent]:
         """Convert a ThreadItem to IR events."""
         from codex_sdk import (
             AgentMessageItem,
@@ -199,12 +213,7 @@ class CodexSDKProvider:
 
         if isinstance(item, AgentMessageItem):
             if not started:
-                # Emit text on completion
-                delta: MessageDeltaEvent = {
-                    "type": "message_delta",
-                    "text": item.text,
-                }
-                return [delta]
+                return self._convert_agent_message(item)
         elif isinstance(item, CommandExecutionItem):
             if started:
                 tool_use: ToolUseEvent = {
