@@ -193,8 +193,9 @@ class CodexSDKProvider:
     def _convert_agent_message(self, item: Any) -> list[IREvent]:
         """Convert an AgentMessageItem completion to IR events."""
         text = item.text
-        if text:
-            self._pending_text.append(text)
+        if not text:
+            return []
+        self._pending_text.append(text)
         delta: MessageDeltaEvent = {
             "type": "message_delta",
             "text": text,
