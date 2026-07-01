@@ -70,6 +70,7 @@ class LoggingMiddleware:
 
             start = time.monotonic()
             event_count = 0
+            failed = False
 
             try:
                 async for event in handler(task):
@@ -80,22 +81,24 @@ class LoggingMiddleware:
                             logger.log(level, "Event #%d: type=%s", event_count, etype)
                     yield event
             except Exception:
-                elapsed = time.monotonic() - start
-                logger.error(
-                    "Task failed: agent=%s elapsed=%.2fs events=%d",
-                    agent,
-                    elapsed,
-                    event_count,
-                )
+                failed = True
                 raise
-
-            elapsed = time.monotonic() - start
-            logger.info(
-                "Task completed: agent=%s elapsed=%.2fs events=%d",
-                agent,
-                elapsed,
-                event_count,
-            )
+            finally:
+                elapsed = time.monotonic() - start
+                if failed:
+                    logger.error(
+                        "Task failed: agent=%s elapsed=%.2fs events=%d",
+                        agent,
+                        elapsed,
+                        event_count,
+                    )
+                else:
+                    logger.info(
+                        "Task completed: agent=%s elapsed=%.2fs events=%d",
+                        agent,
+                        elapsed,
+                        event_count,
+                    )
 
         return wrapper
 
