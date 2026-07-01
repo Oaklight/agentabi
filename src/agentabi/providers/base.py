@@ -109,7 +109,7 @@ async def collect_subprocess_errors(
                 is_fatal=True,
             )
         )
-    elif proc.returncode and proc.returncode != 0:
+    elif proc.returncode:
         events.append(
             ErrorEvent(
                 type="error",

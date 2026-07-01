@@ -198,6 +198,31 @@ class TestTimeout:
             OpenCodeNativeProvider,
         ],
     )
+    async def test_timeout_with_stderr(self, provider_cls):
+        """Timeout + non-empty stderr: both errors should be emitted."""
+        provider = _make_provider_with_cmd(
+            provider_cls,
+            [
+                sys.executable,
+                "-c",
+                "import sys, time; sys.stderr.write('partial error\\n'); "
+                "sys.stderr.flush(); time.sleep(60)",
+            ],
+        )
+        events = await _collect_events(provider, {"prompt": "test", "timeout": 0.5})
+        errors = _error_events(events)
+        assert any("partial error" in e["error"] for e in errors)
+        assert any("timed out" in e.get("error", "").lower() for e in errors)
+
+    @pytest.mark.parametrize(
+        "provider_cls",
+        [
+            ClaudeNativeProvider,
+            CodexNativeProvider,
+            GeminiNativeProvider,
+            OpenCodeNativeProvider,
+        ],
+    )
     async def test_no_timeout_when_fast(self, provider_cls):
         """Fast-completing process with timeout set should not trigger timeout."""
         provider = _make_provider_with_cmd(
