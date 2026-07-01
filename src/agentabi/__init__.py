@@ -19,6 +19,14 @@ Sync convenience:
     from agentabi import run_sync
     result = run_sync(prompt="List Python files", agent="claude_code")
 
+Middleware:
+    from agentabi.middleware import LoggingMiddleware, TimeoutMiddleware
+
+    session = Session(
+        agent="claude_code",
+        middleware=[LoggingMiddleware(), TimeoutMiddleware(120)],
+    )
+
 Discovery:
     from agentabi import detect_agents, get_agent_capabilities
     agents = detect_agents()
@@ -26,6 +34,14 @@ Discovery:
 """
 
 from .auto_detect import detect_agents, get_agent_capabilities, get_default_agent
+from .middleware import (
+    LoggingMiddleware,
+    Middleware,
+    StreamHandler,
+    TimeoutMiddleware,
+    UsageMeterMiddleware,
+    chain_middleware,
+)
 from .providers.base import Provider
 from .providers.registry import AgentNotAvailable, get_provider
 from .session import Session, run_sync
@@ -92,4 +108,11 @@ __all__ = [
     "PermissionConfig",
     "PermissionLevel",
     "PermissionRequest",
+    # Middleware
+    "Middleware",
+    "StreamHandler",
+    "chain_middleware",
+    "LoggingMiddleware",
+    "TimeoutMiddleware",
+    "UsageMeterMiddleware",
 ]
