@@ -76,26 +76,36 @@ class CodexSDKProvider:
             if level == "full_auto":
                 thread_opts.approval_policy = "never"
 
+        temp_path: str | None = None
         if "system_prompt" in task:
             # Codex uses model_instructions_file, not inline system prompt.
             # Write to a temp file if system_prompt is provided.
             import os
             import tempfile
 
-            fd, path = tempfile.mkstemp(suffix=".md", prefix="agentabi_")
+            fd, temp_path = tempfile.mkstemp(suffix=".md", prefix="agentabi_")
             try:
                 with os.fdopen(fd, "w") as f:
                     f.write(task["system_prompt"])
-                thread_opts.model_instructions_file = path
+                thread_opts.model_instructions_file = temp_path
             except Exception:
                 os.close(fd)
 
-        codex = Codex(options=codex_opts)
-        thread = codex.start_thread(options=thread_opts)
+        try:
+            codex = Codex(options=codex_opts)
+            thread = codex.start_thread(options=thread_opts)
 
-        async for event in thread.run_streamed_events(task["prompt"]):
-            for ir_event in self._convert(event):
-                yield ir_event
+            async for event in thread.run_streamed_events(task["prompt"]):
+                for ir_event in self._convert(event):
+                    yield ir_event
+        finally:
+            if temp_path is not None:
+                import os
+
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
 
     async def run(self, task: TaskConfig) -> SessionResult:
         from .base import default_run

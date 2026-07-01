@@ -98,10 +98,13 @@ class ClaudeNativeProvider:
 
     async def stream(self, task: TaskConfig) -> AsyncIterator[IREvent]:
         """Run task and yield IR events."""
+        from .base import collect_subprocess_errors
+
         cmd = self._build_command(task)
         task_env = task.get("env") or {}
         merged_env = {**os.environ, **task_env}
 
+        timeout = task.get("timeout")
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -109,6 +112,19 @@ class ClaudeNativeProvider:
             env=merged_env,
             cwd=task.get("working_dir"),
         )
+
+        timed_out = False
+        timeout_task: asyncio.Task[None] | None = None
+        if timeout:
+
+            async def _kill_after_timeout() -> None:
+                nonlocal timed_out
+                await asyncio.sleep(timeout)
+                if proc.returncode is None:
+                    timed_out = True
+                    proc.kill()
+
+            timeout_task = asyncio.create_task(_kill_after_timeout())
 
         try:
             assert proc.stdout is not None
@@ -122,7 +138,15 @@ class ClaudeNativeProvider:
                     continue
                 for event in self._parse_event(raw):
                     yield event
+
+            await proc.wait()
+            for err in await collect_subprocess_errors(
+                proc, timed_out=timed_out, timeout_seconds=timeout
+            ):
+                yield err
         finally:
+            if timeout_task and not timeout_task.done():
+                timeout_task.cancel()
             if proc.returncode is None:
                 proc.terminate()
                 try:

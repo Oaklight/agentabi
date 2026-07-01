@@ -7,13 +7,14 @@ abstraction layer between Session and agent CLIs/SDKs.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
 
 from typing_extensions import Protocol, runtime_checkable
 
 from ..types.ir.capabilities import AgentCapabilities
-from ..types.ir.events import IREvent, UsageInfo
+from ..types.ir.events import ErrorEvent, IREvent, UsageInfo
 from ..types.ir.session import SessionResult, SessionStatus
 from ..types.ir.task import TaskConfig
 
@@ -69,6 +70,54 @@ class Provider(Protocol):
             Aggregated session result.
         """
         ...
+
+
+async def collect_subprocess_errors(
+    proc: asyncio.subprocess.Process,
+    *,
+    timed_out: bool = False,
+    timeout_seconds: float | None = None,
+) -> list[ErrorEvent]:
+    """Collect stderr and exit-code errors after a subprocess finishes.
+
+    Call after the stdout reading loop ends and ``await proc.wait()``
+    has been called so that ``proc.returncode`` is set.
+
+    Args:
+        proc: The completed subprocess.
+        timed_out: Whether the process was killed due to timeout.
+        timeout_seconds: The configured timeout value (for the error message).
+
+    Returns:
+        A (possibly empty) list of ErrorEvents to yield.
+    """
+    events: list[ErrorEvent] = []
+    stderr_text = ""
+
+    if proc.stderr:
+        stderr_data = await proc.stderr.read()
+        if stderr_data:
+            stderr_text = stderr_data.decode().strip()
+            if stderr_text:
+                events.append(ErrorEvent(type="error", error=stderr_text))
+
+    if timed_out:
+        events.append(
+            ErrorEvent(
+                type="error",
+                error=f"Process timed out after {timeout_seconds}s",
+                is_fatal=True,
+            )
+        )
+    elif proc.returncode and proc.returncode != 0:
+        events.append(
+            ErrorEvent(
+                type="error",
+                error=f"Process exited with code {proc.returncode}",
+            )
+        )
+
+    return events
 
 
 class _RunState:
@@ -163,5 +212,6 @@ async def default_run(provider: Any, task: TaskConfig) -> SessionResult:
 
 __all__ = [
     "Provider",
+    "collect_subprocess_errors",
     "default_run",
 ]

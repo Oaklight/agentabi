@@ -58,7 +58,7 @@ class GeminiNativeProvider:
             "supports_streaming": True,
             "supports_mcp": True,
             "supports_session_resume": True,
-            "supports_system_prompt": True,
+            "supports_system_prompt": False,
             "supports_tool_filtering": False,
             "supports_permissions": True,
             "supports_multi_turn": True,
@@ -67,23 +67,12 @@ class GeminiNativeProvider:
 
     async def stream(self, task: TaskConfig) -> AsyncIterator[IREvent]:
         """Run task via gemini CLI and yield IR events."""
-        cmd = self._build_command(task)
-        task_env = task.get("env") or {}
-        merged_env = {**os.environ, **task_env}
-        # Map generic env vars to Gemini-specific ones when only
-        # OPENAI_BASE_URL / OPENAI_API_KEY are provided.
-        # GOOGLE_GEMINI_BASE_URL and GEMINI_API_KEY in task_env are
-        # already in merged_env via the spread above.
-        has_gemini_url = task_env.get("GOOGLE_GEMINI_BASE_URL")
-        if not has_gemini_url and task_env.get("OPENAI_BASE_URL"):
-            # Strip /v1 suffix — Gemini CLI appends paths automatically
-            base = task_env["OPENAI_BASE_URL"].rstrip("/")
-            if base.endswith("/v1"):
-                base = base[:-3]
-            merged_env["GOOGLE_GEMINI_BASE_URL"] = base
-        if not task_env.get("GEMINI_API_KEY") and task_env.get("OPENAI_API_KEY"):
-            merged_env["GEMINI_API_KEY"] = task_env["OPENAI_API_KEY"]
+        from .base import collect_subprocess_errors
 
+        cmd = self._build_command(task)
+        merged_env = self._build_env(task)
+
+        timeout = task.get("timeout")
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -91,6 +80,19 @@ class GeminiNativeProvider:
             env=merged_env,
             cwd=task.get("working_dir"),
         )
+
+        timed_out = False
+        timeout_task: asyncio.Task[None] | None = None
+        if timeout:
+
+            async def _kill_after_timeout() -> None:
+                nonlocal timed_out
+                await asyncio.sleep(timeout)
+                if proc.returncode is None:
+                    timed_out = True
+                    proc.kill()
+
+            timeout_task = asyncio.create_task(_kill_after_timeout())
 
         try:
             assert proc.stdout is not None
@@ -104,7 +106,15 @@ class GeminiNativeProvider:
                     continue
                 for event in self._parse_event(raw):
                     yield event
+
+            await proc.wait()
+            for err in await collect_subprocess_errors(
+                proc, timed_out=timed_out, timeout_seconds=timeout
+            ):
+                yield err
         finally:
+            if timeout_task and not timeout_task.done():
+                timeout_task.cancel()
             if proc.returncode is None:
                 proc.terminate()
                 try:
@@ -112,6 +122,28 @@ class GeminiNativeProvider:
                 except asyncio.TimeoutError:
                     proc.kill()
                     await proc.wait()
+
+    @staticmethod
+    def _build_env(task: TaskConfig) -> dict[str, str]:
+        """Build merged environment with Gemini-specific variable mapping.
+
+        Maps generic OPENAI_BASE_URL / OPENAI_API_KEY to Gemini-specific
+        equivalents when the Gemini-native env vars are not already set.
+        """
+        task_env = task.get("env") or {}
+        merged_env = {**os.environ, **task_env}
+
+        has_gemini_url = task_env.get("GOOGLE_GEMINI_BASE_URL")
+        if not has_gemini_url and task_env.get("OPENAI_BASE_URL"):
+            # Strip /v1 suffix — Gemini CLI appends paths automatically
+            base = task_env["OPENAI_BASE_URL"].rstrip("/")
+            if base.endswith("/v1"):
+                base = base[:-3]
+            merged_env["GOOGLE_GEMINI_BASE_URL"] = base
+        if not task_env.get("GEMINI_API_KEY") and task_env.get("OPENAI_API_KEY"):
+            merged_env["GEMINI_API_KEY"] = task_env["OPENAI_API_KEY"]
+
+        return merged_env
 
     async def run(self, task: TaskConfig) -> SessionResult:
         from .base import default_run
@@ -141,11 +173,6 @@ class GeminiNativeProvider:
 
         if "model" in task:
             cmd.extend(["-m", task["model"]])
-
-        if "system_prompt" in task:
-            # Gemini CLI uses -s for sandbox, no direct system prompt flag.
-            # system_prompt in TaskConfig is ignored for this provider.
-            pass
 
         if task.get("resume"):
             resume_val = task.get("session_id", "latest")

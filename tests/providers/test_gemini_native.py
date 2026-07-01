@@ -259,3 +259,7 @@ class TestCapabilities:
         assert caps["supports_streaming"] is True
         assert caps["supports_mcp"] is True
         assert caps["transport"] == "subprocess"
+
+    def test_system_prompt_not_supported(self):
+        caps = GeminiNativeProvider().capabilities()
+        assert caps["supports_system_prompt"] is False
