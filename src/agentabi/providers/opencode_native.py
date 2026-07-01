@@ -38,6 +38,9 @@ class OpenCodeNativeProvider:
     JSON events into IR events.
     """
 
+    def __init__(self) -> None:
+        self._pending_text: list[str] = []
+
     @staticmethod
     def is_available() -> bool:
         """Check if `opencode` CLI is available."""
@@ -131,8 +134,7 @@ class OpenCodeNativeProvider:
         cmd.append(task["prompt"])
         return cmd
 
-    @staticmethod
-    def _parse_event(raw: dict[str, Any]) -> list[IREvent]:
+    def _parse_event(self, raw: dict[str, Any]) -> list[IREvent]:
         """Convert an OpenCode JSON event to IR events.
 
         OpenCode JSON format (--format json):
@@ -146,13 +148,13 @@ class OpenCodeNativeProvider:
         session_id = raw.get("sessionID", "")
 
         if event_type == "step_start":
-            return OpenCodeNativeProvider._handle_step_start(part, session_id)
+            return self._handle_step_start(part, session_id)
         elif event_type == "text":
-            return OpenCodeNativeProvider._handle_text(part)
+            return self._handle_text(part)
         elif event_type == "tool_use":
-            return OpenCodeNativeProvider._handle_tool_use(part)
+            return self._handle_tool_use(part)
         elif event_type == "step_finish":
-            return OpenCodeNativeProvider._handle_step_finish(part, session_id)
+            return self._handle_step_finish(part, session_id)
         return []
 
     @staticmethod
@@ -175,10 +177,10 @@ class OpenCodeNativeProvider:
         results.append(msg_start)
         return results
 
-    @staticmethod
-    def _handle_text(part: dict[str, Any]) -> list[IREvent]:
+    def _handle_text(self, part: dict[str, Any]) -> list[IREvent]:
         text = part.get("text", "")
         if text:
+            self._pending_text.append(text)
             delta: MessageDeltaEvent = {"type": "message_delta", "text": text}
             return [delta]
         return []
@@ -224,8 +226,9 @@ class OpenCodeNativeProvider:
 
         return results
 
-    @staticmethod
-    def _handle_step_finish(part: dict[str, Any], session_id: str) -> list[IREvent]:
+    def _handle_step_finish(
+        self, part: dict[str, Any], session_id: str
+    ) -> list[IREvent]:
         results: list[IREvent] = []
 
         tokens = part.get("tokens", {})
@@ -254,6 +257,9 @@ class OpenCodeNativeProvider:
             "type": "message_end",
             "stop_reason": reason,
         }
+        if self._pending_text:
+            end["text"] = "".join(self._pending_text)
+            self._pending_text = []
         message_id = part.get("messageID", "")
         if message_id:
             end["message_id"] = message_id

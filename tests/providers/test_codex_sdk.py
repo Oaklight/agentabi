@@ -160,11 +160,16 @@ def _patch_codex_modules():
 class TestCodexSDKConvert:
     """Test _convert() dispatches to correct handler."""
 
-    def _convert(self, event):
+    def setup_method(self):
+        """Create a fresh provider instance for each test."""
         with _patch_codex_modules():
             from agentabi.providers.codex_sdk import CodexSDKProvider
 
-            return CodexSDKProvider._convert(event)
+            self._provider = CodexSDKProvider()
+
+    def _convert(self, event):
+        with _patch_codex_modules():
+            return self._provider._convert(event)
 
     def test_thread_started(self):
         event = MockThreadStartedEvent(thread_id="thread-xyz")
@@ -341,6 +346,38 @@ class TestCodexSDKConvert:
 
         events = self._convert(UnknownEvent())
         assert events == []
+
+    def test_message_end_carries_text(self):
+        """Verify that message_end carries accumulated text from agent_message."""
+        item = MockAgentMessageItem(text="The answer is 18")
+        self._convert(MockItemCompletedEvent(item=item))
+        events = self._convert(
+            MockTurnCompletedEvent(usage=MockUsage(input_tokens=100, output_tokens=5))
+        )
+        end = [e for e in events if e["type"] == "message_end"][0]
+        assert end["text"] == "The answer is 18"
+
+    def test_message_end_no_text_when_no_message(self):
+        """Verify message_end has no text key when no agent_message was received."""
+        events = self._convert(
+            MockTurnCompletedEvent(usage=MockUsage(input_tokens=100, output_tokens=5))
+        )
+        end = [e for e in events if e["type"] == "message_end"][0]
+        assert "text" not in end
+
+    def test_pending_text_cleared_after_flush(self):
+        """Verify pending text is cleared after turn.completed."""
+        item = MockAgentMessageItem(text="First")
+        self._convert(MockItemCompletedEvent(item=item))
+        self._convert(
+            MockTurnCompletedEvent(usage=MockUsage(input_tokens=10, output_tokens=5))
+        )
+        # Second turn with no text
+        events = self._convert(
+            MockTurnCompletedEvent(usage=MockUsage(input_tokens=10, output_tokens=5))
+        )
+        end = [e for e in events if e["type"] == "message_end"][0]
+        assert "text" not in end
 
 
 class TestCodexSDKCapabilities:

@@ -77,6 +77,9 @@ class TestBuildCommand:
 
 
 class TestParseEvent:
+    def setup_method(self):
+        self.provider = OpenCodeNativeProvider()
+
     def test_step_start(self):
         raw = {
             "type": "step_start",
@@ -89,7 +92,7 @@ class TestParseEvent:
                 "type": "step-start",
             },
         }
-        events = OpenCodeNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 2
         assert events[0]["type"] == "session_start"
         assert events[0]["session_id"] == "ses_abc"
@@ -107,7 +110,7 @@ class TestParseEvent:
                 "text": "The answer is 4",
             },
         }
-        events = OpenCodeNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 1
         assert events[0]["type"] == "message_delta"
         assert events[0]["text"] == "The answer is 4"
@@ -118,7 +121,7 @@ class TestParseEvent:
             "sessionID": "ses_abc",
             "part": {"type": "text", "text": ""},
         }
-        events = OpenCodeNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 0
 
     def test_tool_use_completed(self):
@@ -137,7 +140,7 @@ class TestParseEvent:
                 },
             },
         }
-        events = OpenCodeNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 2
         assert events[0]["type"] == "tool_use"
         assert events[0]["tool_use_id"] == "call_123"
@@ -162,7 +165,7 @@ class TestParseEvent:
                 },
             },
         }
-        events = OpenCodeNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 2
         assert events[0]["type"] == "tool_use"
         assert events[1]["type"] == "tool_result"
@@ -186,7 +189,7 @@ class TestParseEvent:
                 "cost": 0.005,
             },
         }
-        events = OpenCodeNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 2  # usage + message_end
         assert events[0]["type"] == "usage"
         assert events[0]["usage"]["input_tokens"] == 100
@@ -208,7 +211,7 @@ class TestParseEvent:
                 "cost": 0,
             },
         }
-        events = OpenCodeNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 3  # usage + message_end + session_end
         assert events[2]["type"] == "session_end"
         assert events[2]["session_id"] == "ses_abc"
@@ -222,14 +225,228 @@ class TestParseEvent:
                 "tokens": {},
             },
         }
-        events = OpenCodeNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         types = [e["type"] for e in events]
         assert "session_end" not in types
 
     def test_unknown_event_type(self):
         raw = {"type": "unknown_event", "data": "whatever"}
-        events = OpenCodeNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert events == []
+
+    def test_message_end_carries_text(self):
+        """Verify that message_end carries accumulated text from text events."""
+        # Simulate: text → step_finish(stop)
+        self.provider._parse_event(
+            {
+                "type": "text",
+                "sessionID": "ses_abc",
+                "part": {"type": "text", "text": "The answer is 18"},
+            }
+        )
+        events = self.provider._parse_event(
+            {
+                "type": "step_finish",
+                "sessionID": "ses_abc",
+                "part": {
+                    "reason": "stop",
+                    "tokens": {"total": 10, "input": 0, "output": 10},
+                    "cost": 0,
+                },
+            }
+        )
+        end = [e for e in events if e["type"] == "message_end"][0]
+        assert end["text"] == "The answer is 18"
+
+    def test_message_end_accumulates_multiple_text_events(self):
+        """Verify text from multiple text events is concatenated."""
+        self.provider._parse_event(
+            {
+                "type": "text",
+                "sessionID": "ses_abc",
+                "part": {"type": "text", "text": "Hello "},
+            }
+        )
+        self.provider._parse_event(
+            {
+                "type": "text",
+                "sessionID": "ses_abc",
+                "part": {"type": "text", "text": "world"},
+            }
+        )
+        events = self.provider._parse_event(
+            {
+                "type": "step_finish",
+                "sessionID": "ses_abc",
+                "part": {
+                    "reason": "stop",
+                    "tokens": {"total": 10, "input": 0, "output": 10},
+                    "cost": 0,
+                },
+            }
+        )
+        end = [e for e in events if e["type"] == "message_end"][0]
+        assert end["text"] == "Hello world"
+
+    def test_message_end_no_text_when_no_text_events(self):
+        """Verify message_end has no text key when no text events were received."""
+        events = self.provider._parse_event(
+            {
+                "type": "step_finish",
+                "sessionID": "ses_abc",
+                "part": {
+                    "reason": "stop",
+                    "tokens": {"total": 10, "input": 0, "output": 10},
+                    "cost": 0,
+                },
+            }
+        )
+        end = [e for e in events if e["type"] == "message_end"][0]
+        assert "text" not in end
+
+    def test_pending_text_cleared_after_flush(self):
+        """Verify pending text is cleared after step_finish."""
+        self.provider._parse_event(
+            {
+                "type": "text",
+                "sessionID": "ses_abc",
+                "part": {"type": "text", "text": "First"},
+            }
+        )
+        self.provider._parse_event(
+            {
+                "type": "step_finish",
+                "sessionID": "ses_abc",
+                "part": {
+                    "reason": "tool-calls",
+                    "tokens": {},
+                },
+            }
+        )
+        # Second step_finish with no text
+        events = self.provider._parse_event(
+            {
+                "type": "step_finish",
+                "sessionID": "ses_abc",
+                "part": {
+                    "reason": "stop",
+                    "tokens": {"total": 10, "input": 0, "output": 10},
+                    "cost": 0,
+                },
+            }
+        )
+        end = [e for e in events if e["type"] == "message_end"][0]
+        assert "text" not in end
+
+
+class TestResultTextAggregation:
+    """End-to-end test: full event flow through _RunState produces result_text."""
+
+    def test_opencode_flow_produces_result_text(self):
+        from agentabi.providers.base import _RunState
+
+        provider = OpenCodeNativeProvider()
+        state = _RunState()
+
+        # Simulate full OpenCode session: step_start → text → step_finish(stop)
+        raw_events = [
+            {
+                "type": "step_start",
+                "sessionID": "ses_abc",
+                "part": {"messageID": "msg_1"},
+            },
+            {
+                "type": "text",
+                "sessionID": "ses_abc",
+                "part": {"type": "text", "text": "18"},
+            },
+            {
+                "type": "step_finish",
+                "sessionID": "ses_abc",
+                "part": {
+                    "reason": "stop",
+                    "tokens": {"total": 10, "input": 0, "output": 10},
+                    "cost": 0,
+                },
+            },
+        ]
+        for raw in raw_events:
+            for event in provider._parse_event(raw):
+                state.handle(event)
+
+        result = state.build()
+        assert result["status"] == "success"
+        assert result["result_text"] == "18"
+
+    def test_opencode_multi_turn_produces_result_text(self):
+        """Multi-turn: text → tool → text → done. Final text should win."""
+        from agentabi.providers.base import _RunState
+
+        provider = OpenCodeNativeProvider()
+        state = _RunState()
+
+        raw_events = [
+            {
+                "type": "step_start",
+                "sessionID": "ses_abc",
+                "part": {"messageID": "msg_1"},
+            },
+            # Turn 1: text then tool-calls
+            {
+                "type": "text",
+                "sessionID": "ses_abc",
+                "part": {"type": "text", "text": "Let me check."},
+            },
+            {
+                "type": "tool_use",
+                "sessionID": "ses_abc",
+                "part": {
+                    "tool": "bash",
+                    "callID": "call_1",
+                    "state": {
+                        "status": "completed",
+                        "input": {"command": "echo 18"},
+                        "output": "18",
+                    },
+                },
+            },
+            {
+                "type": "step_finish",
+                "sessionID": "ses_abc",
+                "part": {
+                    "reason": "tool-calls",
+                    "tokens": {"total": 100, "input": 50, "output": 50},
+                    "cost": 0.001,
+                },
+            },
+            # Turn 2: final answer
+            {
+                "type": "step_start",
+                "sessionID": "ses_abc",
+                "part": {"messageID": "msg_2"},
+            },
+            {
+                "type": "text",
+                "sessionID": "ses_abc",
+                "part": {"type": "text", "text": "The answer is 18."},
+            },
+            {
+                "type": "step_finish",
+                "sessionID": "ses_abc",
+                "part": {
+                    "reason": "stop",
+                    "tokens": {"total": 50, "input": 20, "output": 30},
+                    "cost": 0.001,
+                },
+            },
+        ]
+        for raw in raw_events:
+            for event in provider._parse_event(raw):
+                state.handle(event)
+
+        result = state.build()
+        assert result["status"] == "success"
+        assert result["result_text"] == "The answer is 18."
 
 
 class TestCapabilities:

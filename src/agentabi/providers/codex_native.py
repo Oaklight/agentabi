@@ -47,6 +47,9 @@ class CodexNativeProvider:
     - turn.completed  — turn ends with usage stats
     """
 
+    def __init__(self) -> None:
+        self._pending_text: list[str] = []
+
     @staticmethod
     def is_available() -> bool:
         """Check if `codex` CLI is available."""
@@ -150,21 +153,20 @@ class CodexNativeProvider:
         cmd.append(task["prompt"])
         return cmd
 
-    @staticmethod
-    def _parse_event(raw: dict[str, Any]) -> list[IREvent]:
+    def _parse_event(self, raw: dict[str, Any]) -> list[IREvent]:
         """Convert a Codex CLI JSONL event to IR events."""
         event_type = raw.get("type")
 
         if event_type == "thread.started":
-            return CodexNativeProvider._handle_thread_started(raw)
+            return self._handle_thread_started(raw)
         elif event_type == "turn.started":
-            return CodexNativeProvider._handle_turn_started()
+            return self._handle_turn_started()
         elif event_type == "item.started":
-            return CodexNativeProvider._handle_item(raw, started=True)
+            return self._handle_item(raw, started=True)
         elif event_type == "item.completed":
-            return CodexNativeProvider._handle_item(raw, started=False)
+            return self._handle_item(raw, started=False)
         elif event_type == "turn.completed":
-            return CodexNativeProvider._handle_turn_completed(raw)
+            return self._handle_turn_completed(raw)
         return []
 
     @staticmethod
@@ -184,8 +186,7 @@ class CodexNativeProvider:
         }
         return [msg_start]
 
-    @staticmethod
-    def _handle_turn_completed(raw: dict[str, Any]) -> list[IREvent]:
+    def _handle_turn_completed(self, raw: dict[str, Any]) -> list[IREvent]:
         results: list[IREvent] = []
 
         usage_raw = raw.get("usage", {})
@@ -208,6 +209,9 @@ class CodexNativeProvider:
         results.append(usage_event)
 
         end: MessageEndEvent = {"type": "message_end", "stop_reason": "end_turn"}
+        if self._pending_text:
+            end["text"] = "".join(self._pending_text)
+            self._pending_text = []
         results.append(end)
 
         session_end: SessionEndEvent = {"type": "session_end"}
@@ -215,20 +219,19 @@ class CodexNativeProvider:
 
         return results
 
-    @staticmethod
-    def _handle_item(raw: dict[str, Any], *, started: bool) -> list[IREvent]:
+    def _handle_item(self, raw: dict[str, Any], *, started: bool) -> list[IREvent]:
         """Convert an item.started or item.completed event to IR events."""
         item = raw.get("item", {})
         item_type = item.get("type", "")
 
         if item_type == "agent_message":
-            return CodexNativeProvider._handle_agent_message(item, started=started)
+            return self._handle_agent_message(item, started=started)
         elif item_type == "command_execution":
-            return CodexNativeProvider._handle_command(item, started=started)
+            return self._handle_command(item, started=started)
         elif item_type == "file_change":
-            return CodexNativeProvider._handle_file_change(item, started=started)
+            return self._handle_file_change(item, started=started)
         elif item_type == "mcp_tool_call":
-            return CodexNativeProvider._handle_mcp_tool(item, started=started)
+            return self._handle_mcp_tool(item, started=started)
         elif item_type == "error":
             if not started:
                 err: ErrorEvent = {
@@ -238,13 +241,15 @@ class CodexNativeProvider:
                 return [err]
         return []
 
-    @staticmethod
-    def _handle_agent_message(item: dict[str, Any], *, started: bool) -> list[IREvent]:
+    def _handle_agent_message(
+        self, item: dict[str, Any], *, started: bool
+    ) -> list[IREvent]:
         if started:
             return []
         text = item.get("text", "")
         if not text:
             return []
+        self._pending_text.append(text)
         delta: MessageDeltaEvent = {
             "type": "message_delta",
             "text": text,
