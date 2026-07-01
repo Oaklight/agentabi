@@ -59,7 +59,7 @@ class CodexNativeProvider:
             "supports_streaming": True,
             "supports_mcp": True,
             "supports_session_resume": True,
-            "supports_system_prompt": True,
+            "supports_system_prompt": False,
             "supports_tool_filtering": False,
             "supports_permissions": True,
             "supports_multi_turn": True,
@@ -68,9 +68,12 @@ class CodexNativeProvider:
 
     async def stream(self, task: TaskConfig) -> AsyncIterator[IREvent]:
         """Run task via codex CLI and yield IR events."""
+        from .base import collect_subprocess_errors
+
         cmd = self._build_command(task)
         merged_env = {**os.environ, **(task.get("env") or {})}
 
+        timeout = task.get("timeout")
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -78,6 +81,19 @@ class CodexNativeProvider:
             env=merged_env,
             cwd=task.get("working_dir"),
         )
+
+        timed_out = False
+        timeout_task: asyncio.Task[None] | None = None
+        if timeout:
+
+            async def _kill_after_timeout() -> None:
+                nonlocal timed_out
+                await asyncio.sleep(timeout)
+                if proc.returncode is None:
+                    timed_out = True
+                    proc.kill()
+
+            timeout_task = asyncio.create_task(_kill_after_timeout())
 
         try:
             assert proc.stdout is not None
@@ -91,7 +107,15 @@ class CodexNativeProvider:
                     continue
                 for event in self._parse_event(raw):
                     yield event
+
+            await proc.wait()
+            for err in await collect_subprocess_errors(
+                proc, timed_out=timed_out, timeout_seconds=timeout
+            ):
+                yield err
         finally:
+            if timeout_task and not timeout_task.done():
+                timeout_task.cancel()
             if proc.returncode is None:
                 proc.terminate()
                 try:
