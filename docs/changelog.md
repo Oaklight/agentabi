@@ -1,5 +1,33 @@
 # 更新日志
 
+## v0.2.2 (2026-07-01)
+
+Bug 修复、中间件管道和 provider 可靠性改进。
+
+### 功能
+
+- **中间件管道** — `Session` 的可插拔中间件系统。支持堆叠 `LoggingMiddleware`、`UsageMeterMiddleware` 和 `TimeoutMiddleware`（或自定义中间件）来拦截和转换事件流。中间件以洋葱模型包裹 `stream()`；`run()` 自动受益。
+
+### Bug 修复
+
+- **Codex/OpenCode result_text** — Codex（native + SDK）和 OpenCode provider 现在能正确填充成功完成时的 `result_text`。此前 `message_end` 事件缺少 `text` 字段，导致 `run()` 即使成功也返回空的 `result_text`。(#7)
+- **能力声明** — Codex native、Gemini native 和 OpenCode native 不再错误地声明 `supports_system_prompt: True`
+- **Codex SDK 临时文件泄漏** — system prompt 临时文件现在在 `try/finally` 块中清理
+
+### 改进
+
+- **stderr 捕获** — 所有 4 个 native provider 现在在子进程退出后读取 stderr，非空时发送 `ErrorEvent`
+- **退出码检查** — 非零子进程退出码现在会产生 `ErrorEvent`
+- **超时强制执行** — Native provider 遵守 `TaskConfig.timeout`，超时后杀死进程并发送致命错误
+
+### 文档
+
+- 生态系统引用中的 `llmir` 更名为 `llm-rosetta`
+
+### 测试
+
+- 231+ 个单元测试（v0.2.1 为 166 个）
+
 ## v0.2.1 (2026-06-25)
 
 补丁版本，修复自定义端点的代理工作流支持。
