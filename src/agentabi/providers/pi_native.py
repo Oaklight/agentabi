@@ -40,10 +40,11 @@ class PiNativeProvider:
 
     Pi CLI JSONL event types:
     - session         — session metadata (id, cwd)
-    - agent_start     — agent begins processing
+    - agent_start     — agent begins processing (skipped, no IR mapping)
     - turn_start      — new LLM turn begins
-    - message_start   — message begins (user or assistant)
-    - message_update  — streaming delta (text_delta, thinking_*)
+    - message_start   — message begins (user messages skipped)
+    - message_update  — streaming delta (text_delta mapped;
+                         thinking_start/delta/end skipped, no IR type)
     - message_end     — message completed with full content + usage
     - tool_execution_start — tool call begins
     - tool_execution_end   — tool call completed with result
@@ -209,9 +210,13 @@ class PiNativeProvider:
             start["working_dir"] = cwd
         return [start]
 
-    @staticmethod
-    def _handle_turn_start() -> list[IREvent]:
-        """Handle turn_start — emits MessageStartEvent."""
+    def _handle_turn_start(self) -> list[IREvent]:
+        """Handle turn_start — emits MessageStartEvent.
+
+        Also defensively clears pending text to prevent bleed from
+        a previous turn if message_end was missed.
+        """
+        self._pending_text = []
         msg_start: MessageStartEvent = {
             "type": "message_start",
             "role": "assistant",
@@ -297,7 +302,7 @@ class PiNativeProvider:
         return [tool_result]
 
     def _handle_turn_end(self, raw: dict[str, Any]) -> list[IREvent]:
-        """Handle turn_end — emits UsageEvent and MessageEndEvent."""
+        """Handle turn_end — emits UsageEvent with token counts and cost."""
         results: list[IREvent] = []
         message = raw.get("message", {})
 

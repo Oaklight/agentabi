@@ -118,6 +118,12 @@ class TestParseEvent:
         assert events[0]["type"] == "message_start"
         assert events[0]["role"] == "assistant"
 
+    def test_turn_start_clears_pending_text(self):
+        """turn_start defensively clears pending text from previous turn."""
+        self.provider._pending_text = ["leftover"]
+        self.provider._parse_event({"type": "turn_start"})
+        assert self.provider._pending_text == []
+
     def test_text_delta(self):
         raw = {
             "type": "message_update",
