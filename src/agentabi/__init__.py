@@ -69,7 +69,7 @@ from .types.ir import (
     UsageEvent,
 )
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 __all__ = [
     # Consumer API

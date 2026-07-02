@@ -97,10 +97,10 @@ print(caps["supports_streaming"]) # True
 
 ```
 agentabi  →  Agent CLI unified interface  →  like an OS ABI
-llmir     →  LLM API format conversion    →  like a compiler IR
+llm-rosetta  →  LLM API format conversion    →  like a compiler IR
 ```
 
-- [llmir](https://github.com/Oaklight/llmir) — LLM Intermediate Representation for converting between LLM provider API formats (OpenAI, Anthropic, Google)
+- [llm-rosetta](https://github.com/Oaklight/llm-rosetta) — LLM API format conversion layer for translating between LLM provider API formats (OpenAI, Anthropic, Google)
 
 ## License
 
