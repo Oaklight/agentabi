@@ -21,6 +21,7 @@ Agentic 编程 CLI 的统一接口层。
 | [Codex](https://github.com/openai/codex) | OpenAI | 已实现 |
 | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Google | 已实现 |
 | [OpenCode](https://opencode.ai) | 开源 | 已实现 |
+| [Pi](https://pi.dev/) | 开源 | 已实现 |
 
 ## 安装
 
@@ -37,7 +38,7 @@ pip install agentabi[gemini]   # Gemini CLI SDK 支持
 pip install agentabi[all]      # 所有可选 SDK
 ```
 
-> **注意：** 各 agent 的 CLI 需要单独安装（如 `claude`、`codex`、`gemini`、`opencode`）。
+> **注意：** 各 agent 的 CLI 需要单独安装（如 `claude`、`codex`、`gemini`、`opencode`、`pi`）。
 
 ## 快速开始
 

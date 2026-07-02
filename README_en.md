@@ -21,6 +21,7 @@ One interface. Any coding agent.
 | [Codex](https://github.com/openai/codex) | OpenAI | Implemented |
 | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Google | Implemented |
 | [OpenCode](https://opencode.ai) | Open Source | Implemented |
+| [Pi](https://pi.dev/) | Open Source | Implemented |
 
 ## Installation
 
@@ -37,7 +38,7 @@ pip install agentabi[gemini]   # Gemini CLI SDK support
 pip install agentabi[all]      # All optional SDKs
 ```
 
-> **Note:** Each agent's CLI must be installed separately (e.g., `claude`, `codex`, `gemini`, `opencode`).
+> **Note:** Each agent's CLI must be installed separately (e.g., `claude`, `codex`, `gemini`, `opencode`, `pi`).
 
 ## Quick Start
 
