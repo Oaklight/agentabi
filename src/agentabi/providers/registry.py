@@ -35,12 +35,14 @@ def _build_provider_chain() -> dict[str, list[type[Provider]]]:
     from .gemini_native import GeminiNativeProvider
     from .gemini_sdk import GeminiSDKProvider
     from .opencode_native import OpenCodeNativeProvider
+    from .pi_native import PiNativeProvider
 
     return {
         "claude_code": [ClaudeNativeProvider, ClaudeSDKProvider],
         "codex": [CodexNativeProvider, CodexSDKProvider],
         "gemini_cli": [GeminiNativeProvider, GeminiSDKProvider],
         "opencode": [OpenCodeNativeProvider],
+        "pi": [PiNativeProvider],
     }
 
 

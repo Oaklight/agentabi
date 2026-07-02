@@ -1,0 +1,342 @@
+"""
+agentabi - Pi Coding Agent Native Provider
+
+Native subprocess provider for Pi CLI.
+Runs `pi --print --mode json <prompt>` and parses JSONL output.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import shutil
+from collections.abc import AsyncIterator
+from typing import Any
+
+from ..types.ir.capabilities import AgentCapabilities
+from ..types.ir.events import (
+    IREvent,
+    MessageDeltaEvent,
+    MessageEndEvent,
+    MessageStartEvent,
+    SessionEndEvent,
+    SessionStartEvent,
+    ToolResultEvent,
+    ToolUseEvent,
+    UsageEvent,
+    UsageInfo,
+)
+from ..types.ir.session import SessionResult
+from ..types.ir.task import TaskConfig
+from .base import collect_subprocess_errors
+
+
+class PiNativeProvider:
+    """Native subprocess provider for Pi coding agent CLI.
+
+    Runs `pi --print --mode json <prompt>` as a subprocess
+    and parses JSONL events into IR events.
+
+    Pi CLI JSONL event types:
+    - session         — session metadata (id, cwd)
+    - agent_start     — agent begins processing
+    - turn_start      — new LLM turn begins
+    - message_start   — message begins (user or assistant)
+    - message_update  — streaming delta (text_delta, thinking_*)
+    - message_end     — message completed with full content + usage
+    - tool_execution_start — tool call begins
+    - tool_execution_end   — tool call completed with result
+    - turn_end        — turn ends with usage stats
+    - agent_end       — agent finishes, contains full message history
+    """
+
+    def __init__(self) -> None:
+        self._pending_text: list[str] = []
+
+    @staticmethod
+    def is_available() -> bool:
+        """Check if `pi` CLI is available."""
+        return shutil.which("pi") is not None
+
+    def capabilities(self) -> AgentCapabilities:
+        """Declare Pi capabilities."""
+        return {
+            "name": "Pi",
+            "agent_type": "pi",
+            "supports_streaming": True,
+            "supports_mcp": False,
+            "supports_session_resume": True,
+            "supports_system_prompt": True,
+            "supports_tool_filtering": True,
+            "supports_permissions": False,
+            "supports_multi_turn": True,
+            "transport": "subprocess",
+        }
+
+    async def stream(self, task: TaskConfig) -> AsyncIterator[IREvent]:
+        """Run task via pi CLI and yield IR events."""
+        cmd = self._build_command(task)
+        merged_env = {**os.environ, **(task.get("env") or {})}
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=merged_env,
+            cwd=task.get("working_dir"),
+        )
+
+        timed_out = False
+        timeout = task.get("timeout")
+        kill_task: asyncio.Task[None] | None = None
+
+        if timeout is not None and timeout > 0:
+
+            async def _kill_after(secs: float) -> None:
+                await asyncio.sleep(secs)
+                nonlocal timed_out
+                timed_out = True
+                proc.kill()
+
+            kill_task = asyncio.create_task(_kill_after(timeout))
+
+        try:
+            assert proc.stdout is not None
+            async for line_bytes in proc.stdout:
+                line = line_bytes.decode().rstrip("\n").rstrip("\r")
+                if not line:
+                    continue
+                try:
+                    raw = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                for event in self._parse_event(raw):
+                    yield event
+
+            await proc.wait()
+            for err_event in await collect_subprocess_errors(
+                proc, timed_out=timed_out, timeout_seconds=timeout
+            ):
+                yield err_event
+        finally:
+            if kill_task is not None:
+                kill_task.cancel()
+            if proc.returncode is None:
+                proc.terminate()
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=5)
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    await proc.wait()
+
+    async def run(self, task: TaskConfig) -> SessionResult:
+        """Run task and return aggregated result."""
+        from .base import default_run
+
+        return await default_run(self, task)
+
+    # ========== Private: command building ==========
+
+    @staticmethod
+    def _build_command(task: TaskConfig) -> list[str]:
+        """Convert TaskConfig to pi CLI arguments."""
+        cmd = ["pi", "--print", "--mode", "json"]
+
+        if "model" in task:
+            cmd.extend(["--model", task["model"]])
+
+        if "system_prompt" in task:
+            cmd.extend(["--system-prompt", task["system_prompt"]])
+        if "append_system_prompt" in task:
+            cmd.extend(["--append-system-prompt", task["append_system_prompt"]])
+
+        if "session_id" in task and task.get("resume"):
+            cmd.extend(["--session", task["session_id"]])
+
+        if "allowed_tools" in task:
+            cmd.extend(["--tools", ",".join(task["allowed_tools"])])
+        elif task.get("permissions") and "allowed_tools" in task["permissions"]:
+            cmd.extend(["--tools", ",".join(task["permissions"]["allowed_tools"])])
+
+        if "disallowed_tools" in task:
+            cmd.extend(["--exclude-tools", ",".join(task["disallowed_tools"])])
+        elif task.get("permissions") and "disallowed_tools" in task["permissions"]:
+            cmd.extend(
+                [
+                    "--exclude-tools",
+                    ",".join(task["permissions"]["disallowed_tools"]),
+                ]
+            )
+
+        cmd.append(task["prompt"])
+        return cmd
+
+    # ========== Private: event parsing ==========
+
+    def _parse_event(self, raw: dict[str, Any]) -> list[IREvent]:
+        """Convert a Pi CLI JSONL event to IR events."""
+        event_type = raw.get("type")
+
+        if event_type == "session":
+            return self._handle_session(raw)
+        elif event_type == "turn_start":
+            return self._handle_turn_start()
+        elif event_type == "message_update":
+            return self._handle_message_update(raw)
+        elif event_type == "message_end":
+            return self._handle_message_end(raw)
+        elif event_type == "tool_execution_start":
+            return self._handle_tool_start(raw)
+        elif event_type == "tool_execution_end":
+            return self._handle_tool_end(raw)
+        elif event_type == "turn_end":
+            return self._handle_turn_end(raw)
+        elif event_type == "agent_end":
+            return self._handle_agent_end(raw)
+        return []
+
+    @staticmethod
+    def _handle_session(raw: dict[str, Any]) -> list[IREvent]:
+        """Handle session event — emits SessionStartEvent."""
+        start: SessionStartEvent = {
+            "type": "session_start",
+            "session_id": raw.get("id", ""),
+            "agent": "pi",
+        }
+        cwd = raw.get("cwd")
+        if cwd:
+            start["working_dir"] = cwd
+        return [start]
+
+    @staticmethod
+    def _handle_turn_start() -> list[IREvent]:
+        """Handle turn_start — emits MessageStartEvent."""
+        msg_start: MessageStartEvent = {
+            "type": "message_start",
+            "role": "assistant",
+        }
+        return [msg_start]
+
+    def _handle_message_update(self, raw: dict[str, Any]) -> list[IREvent]:
+        """Handle message_update — emits MessageDeltaEvent for text deltas."""
+        assistant_event = raw.get("assistantMessageEvent", {})
+        event_subtype = assistant_event.get("type", "")
+
+        if event_subtype == "text_delta":
+            delta_text = assistant_event.get("delta", "")
+            if delta_text:
+                self._pending_text.append(delta_text)
+                delta: MessageDeltaEvent = {
+                    "type": "message_delta",
+                    "text": delta_text,
+                }
+                return [delta]
+        # Skip thinking_start, thinking_delta, thinking_end, text_start, text_end
+        return []
+
+    def _handle_message_end(self, raw: dict[str, Any]) -> list[IREvent]:
+        """Handle message_end — emits MessageEndEvent with accumulated text."""
+        message = raw.get("message", {})
+        role = message.get("role", "")
+
+        # Skip user message_end events
+        if role != "assistant":
+            return []
+
+        # Extract full text from content blocks
+        content = message.get("content", [])
+        full_text = ""
+        for block in content:
+            if block.get("type") == "text":
+                full_text += block.get("text", "")
+
+        end: MessageEndEvent = {
+            "type": "message_end",
+            "stop_reason": message.get("stopReason", ""),
+        }
+
+        # Prefer full text from content blocks, fallback to pending
+        if full_text:
+            end["text"] = full_text
+            self._pending_text = []
+        elif self._pending_text:
+            end["text"] = "".join(self._pending_text)
+            self._pending_text = []
+
+        return [end]
+
+    @staticmethod
+    def _handle_tool_start(raw: dict[str, Any]) -> list[IREvent]:
+        """Handle tool_execution_start — emits ToolUseEvent."""
+        tool_use: ToolUseEvent = {
+            "type": "tool_use",
+            "tool_use_id": raw.get("toolCallId", ""),
+            "tool_name": raw.get("toolName", ""),
+            "tool_input": raw.get("args", {}),
+        }
+        return [tool_use]
+
+    @staticmethod
+    def _handle_tool_end(raw: dict[str, Any]) -> list[IREvent]:
+        """Handle tool_execution_end — emits ToolResultEvent."""
+        result = raw.get("result", {})
+        content_blocks = result.get("content", [])
+        content_text = ""
+        for block in content_blocks:
+            if isinstance(block, dict) and block.get("type") == "text":
+                content_text += block.get("text", "")
+
+        tool_result: ToolResultEvent = {
+            "type": "tool_result",
+            "tool_use_id": raw.get("toolCallId", ""),
+            "content": content_text,
+        }
+        if raw.get("isError"):
+            tool_result["is_error"] = True
+        return [tool_result]
+
+    def _handle_turn_end(self, raw: dict[str, Any]) -> list[IREvent]:
+        """Handle turn_end — emits UsageEvent and MessageEndEvent."""
+        results: list[IREvent] = []
+        message = raw.get("message", {})
+
+        # Extract usage
+        raw_usage = message.get("usage", {})
+        usage: UsageInfo = {}
+        if raw_usage.get("input"):
+            usage["input_tokens"] = raw_usage["input"]
+        if raw_usage.get("output"):
+            usage["output_tokens"] = raw_usage["output"]
+        total = raw_usage.get("totalTokens", 0)
+        if total:
+            usage["total_tokens"] = total
+        if raw_usage.get("cacheRead"):
+            usage["cache_read_tokens"] = raw_usage["cacheRead"]
+        if raw_usage.get("cacheWrite"):
+            usage["cache_creation_tokens"] = raw_usage["cacheWrite"]
+
+        usage_event: UsageEvent = {"type": "usage", "usage": usage}
+
+        # Extract cost
+        cost = raw_usage.get("cost", {})
+        total_cost = cost.get("total")
+        if total_cost:
+            usage_event["cost_usd"] = total_cost
+
+        # Extract model
+        model = message.get("model")
+        if model:
+            usage_event["model"] = model
+
+        results.append(usage_event)
+        return results
+
+    @staticmethod
+    def _handle_agent_end(raw: dict[str, Any]) -> list[IREvent]:
+        """Handle agent_end — emits SessionEndEvent."""
+        end: SessionEndEvent = {"type": "session_end"}
+        return [end]
+
+
+__all__ = ["PiNativeProvider"]
