@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.2.2 (2026-07-01)
+
+Bug fixes, middleware pipeline, and provider reliability improvements.
+
+### Features
+
+- **Middleware pipeline** — Pluggable middleware system for `Session`. Stack `LoggingMiddleware`, `UsageMeterMiddleware`, and `TimeoutMiddleware` (or custom middleware) to intercept and transform the event stream. Middleware wraps `stream()` with an onion model; `run()` gets coverage for free.
+
+### Bug Fixes
+
+- **Codex/OpenCode result_text** — Codex (native + SDK) and OpenCode providers now correctly populate `result_text` on successful completion. Previously `message_end` events lacked the `text` field, causing `run()` to return empty `result_text` even on success. (#7)
+- **Capability declarations** — Codex native, Gemini native, and OpenCode native no longer falsely advertise `supports_system_prompt: True`
+- **Codex SDK temp file leak** — System prompt temp files are now cleaned up in a `try/finally` block
+
+### Improvements
+
+- **stderr capture** — All 4 native providers now read stderr after the subprocess exits and emit `ErrorEvent` if non-empty
+- **Exit code checking** — Non-zero subprocess exit codes now produce an `ErrorEvent`
+- **Timeout enforcement** — Native providers respect `TaskConfig.timeout`, killing the process and emitting a fatal error on expiry
+
+### Documentation
+
+- Rename `llmir` to `llm-rosetta` in ecosystem references
+
+### Testing
+
+- 231+ unit tests (up from 166 in v0.2.1)
+
 ## v0.2.1 (2026-06-25)
 
 Patch release fixing custom endpoint support for proxy workflows.
