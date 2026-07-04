@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.3.0 (2026-07-04)
+
+Fifth agent support (Pi) and documentation improvements.
+
+### Features
+
+- **Pi coding agent** — Add `PiNativeProvider` for the [Pi coding agent](https://pi.dev/) CLI. Supports streaming, system prompts, session resume, and tool filtering (`--tools`/`--exclude-tools`). Thinking events are skipped (no IR type yet). (#14)
+
+### Documentation
+
+- Add middleware usage guide (`docs/usage/middleware.md`) with built-in and custom middleware examples
+- Add `examples/middleware.py` demonstrating `LoggingMiddleware`, `UsageMeterMiddleware`, and `TimeoutMiddleware`
+- Update providers docs to include Pi in native provider and registry tables
+- Update session API docs with `middleware` constructor parameter and `add_middleware()` method
+- Update mkdocs navigation to include middleware guide
+
+### Testing
+
+- 265+ unit tests (up from 231 in v0.2.2)
+
 ## v0.2.2 (2026-07-01)
 
 Bug fixes, middleware pipeline, and provider reliability improvements.
