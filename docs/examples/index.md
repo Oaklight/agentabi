@@ -45,3 +45,17 @@ python examples/streaming.py --agent codex --prompt "Explain asyncio"
 | `usage` | Print token counts and cost |
 | `error` | Print error message |
 | `session_end` | Print end marker |
+
+## Middleware
+
+The [`examples/middleware.py`](https://github.com/oaklight/agentabi/blob/master/examples/middleware.py) script demonstrates the middleware pipeline:
+
+1. **Stack** `TimeoutMiddleware`, `LoggingMiddleware`, and `UsageMeterMiddleware`
+2. **Run** a task through the middleware-wrapped session
+3. **Inspect** accumulated usage via `UsageMeterMiddleware.summary()`
+4. **Add** middleware after construction with `session.add_middleware()`
+
+```bash
+python examples/middleware.py
+python examples/middleware.py --agent codex --timeout 10
+```

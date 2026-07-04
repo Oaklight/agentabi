@@ -13,13 +13,19 @@ session = Session(agent="claude_code", model="claude-sonnet-4-20250514")
 ### Constructor
 
 ```python
-Session(*, agent: str | None = None, model: str | None = None)
+Session(
+    *,
+    agent: str | None = None,
+    model: str | None = None,
+    middleware: list[Middleware] | None = None,
+)
 ```
 
 | Parameter | Description |
 |-----------|-------------|
-| `agent` | Agent type to use (e.g., `"claude_code"`, `"codex"`). Auto-detects if `None`. |
+| `agent` | Agent type to use (e.g., `"claude_code"`, `"codex"`, `"pi"`). Auto-detects if `None`. |
 | `model` | Default model to use. Can be overridden per-task. |
+| `middleware` | List of [middleware](../usage/middleware.md) to apply to the stream pipeline. |
 
 Raises `AgentNotAvailable` if no provider is available for the requested agent.
 
@@ -30,6 +36,15 @@ Raises `AgentNotAvailable` if no provider is available for the requested agent.
 | `agent` | `str` | The agent type being used |
 | `model` | `str \| None` | The default model, if set |
 | `provider` | `Provider` | The underlying provider instance |
+| `middleware` | `list[Middleware]` | Current middleware stack (returns a copy) |
+
+### add_middleware()
+
+```python
+session.add_middleware(middleware: Middleware) -> None
+```
+
+Append a middleware to the stack after construction. See [Middleware](../usage/middleware.md) for details.
 
 ### run()
 

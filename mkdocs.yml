@@ -61,6 +61,7 @@ plugins:
           - usage/streaming.md
           - usage/discovery.md
           - usage/native-vs-sdk.md
+          - usage/middleware.md
         API Reference:
           - api/index.md
           - api/session.md
@@ -117,6 +118,7 @@ nav:
       - Streaming: usage/streaming.md
       - Agent Discovery: usage/discovery.md
       - Native vs SDK: usage/native-vs-sdk.md
+      - Middleware: usage/middleware.md
   - API Reference:
       - Overview: api/index.md
       - Session: api/session.md
