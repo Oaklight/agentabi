@@ -1,5 +1,25 @@
 # 更新日志
 
+## v0.3.0 (2026-07-04)
+
+第五个 agent 支持（Pi）和文档改进。
+
+### 功能
+
+- **Pi coding agent** — 新增 `PiNativeProvider`，支持 [Pi coding agent](https://pi.dev/) CLI。支持流式输出、系统提示词、会话恢复和工具过滤（`--tools`/`--exclude-tools`）。Thinking 事件暂时跳过（IR 尚无对应类型）。(#14)
+
+### 文档
+
+- 新增中间件使用指南（`docs/usage/middleware.md`），包含内置和自定义中间件示例
+- 新增 `examples/middleware.py`，演示 `LoggingMiddleware`、`UsageMeterMiddleware` 和 `TimeoutMiddleware`
+- Providers 文档新增 Pi 的 native provider 和注册表条目
+- Session API 文档新增 `middleware` 构造函数参数和 `add_middleware()` 方法
+- mkdocs 导航新增中间件指南
+
+### 测试
+
+- 265+ 个单元测试（v0.2.2 为 231 个）
+
 ## v0.2.2 (2026-07-01)
 
 Bug 修复、中间件管道和 provider 可靠性改进。
