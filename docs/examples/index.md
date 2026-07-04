@@ -45,3 +45,17 @@ python examples/streaming.py --agent codex --prompt "Explain asyncio"
 | `usage` | 打印 token 数量和费用 |
 | `error` | 打印错误消息 |
 | `session_end` | 打印结束标记 |
+
+## 中间件
+
+[`examples/middleware.py`](https://github.com/oaklight/agentabi/blob/master/examples/middleware.py) 演示中间件管道：
+
+1. **堆叠** `TimeoutMiddleware`、`LoggingMiddleware` 和 `UsageMeterMiddleware`
+2. **运行**任务通过中间件包裹的 session
+3. **查看** `UsageMeterMiddleware.summary()` 累计用量
+4. **添加**构造后中间件 `session.add_middleware()`
+
+```bash
+python examples/middleware.py
+python examples/middleware.py --agent codex --timeout 10
+```

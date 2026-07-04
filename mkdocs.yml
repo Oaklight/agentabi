@@ -61,6 +61,7 @@ plugins:
           - usage/streaming.md
           - usage/discovery.md
           - usage/native-vs-sdk.md
+          - usage/middleware.md
         API 参考:
           - api/index.md
           - api/session.md
@@ -117,6 +118,7 @@ nav:
       - 流式输出: usage/streaming.md
       - Agent 发现: usage/discovery.md
       - Native vs SDK: usage/native-vs-sdk.md
+      - 中间件: usage/middleware.md
   - API 参考:
       - 概览: api/index.md
       - Session: api/session.md

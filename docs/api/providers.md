@@ -36,6 +36,7 @@ Native provider 将 agent CLI 作为子进程运行，解析其结构化输出�
 | `CodexNativeProvider` | `codex` | `codex exec --json --full-auto <prompt>` |
 | `GeminiNativeProvider` | `gemini_cli` | `gemini -o stream-json --approval-mode <mode> -p <prompt>` |
 | `OpenCodeNativeProvider` | `opencode` | `opencode run --format json -- <prompt>` |
+| `PiNativeProvider` | `pi` | `pi --print --mode json <prompt>` |
 
 Native provider **不需要额外的 Python 依赖** — 只需 CLI 可执行文件在 PATH 中。
 
@@ -61,6 +62,7 @@ SDK provider 需要安装对应的可选依赖（如 `pip install agentabi[claud
     "codex":       [CodexNativeProvider, CodexSDKProvider],
     "gemini_cli":  [GeminiNativeProvider, GeminiSDKProvider],
     "opencode":    [OpenCodeNativeProvider],
+    "pi":          [PiNativeProvider],
 }
 ```
 

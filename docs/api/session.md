@@ -13,13 +13,19 @@ session = Session(agent="claude_code", model="claude-sonnet-4-20250514")
 ### 构造函数
 
 ```python
-Session(*, agent: str | None = None, model: str | None = None)
+Session(
+    *,
+    agent: str | None = None,
+    model: str | None = None,
+    middleware: list[Middleware] | None = None,
+)
 ```
 
 | 参数 | 描述 |
 |-----|------|
-| `agent` | 要使用的 agent 类型（如 `"claude_code"`、`"codex"`）。`None` 时自动检测。 |
+| `agent` | 要使用的 agent 类型（如 `"claude_code"`、`"codex"`、`"pi"`）。`None` 时自动检测。 |
 | `model` | 默认模型。可在每次任务中覆盖。 |
+| `middleware` | 应用到 stream 管道的[中间件](../usage/middleware.md)列表。 |
 
 如果请求的 agent 没有可用的 provider，抛出 `AgentNotAvailable`。
 
@@ -30,6 +36,15 @@ Session(*, agent: str | None = None, model: str | None = None)
 | `agent` | `str` | 正在使用的 agent 类型 |
 | `model` | `str \| None` | 默认模型（如已设置） |
 | `provider` | `Provider` | 底层 provider 实例 |
+| `middleware` | `list[Middleware]` | 当前中间件栈（返回副本） |
+
+### add_middleware()
+
+```python
+session.add_middleware(middleware: Middleware) -> None
+```
+
+构造后追加中间件。详见[中间件](../usage/middleware.md)。
 
 ### run()
 
