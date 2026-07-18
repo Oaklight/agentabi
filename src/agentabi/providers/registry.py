@@ -25,6 +25,7 @@ class AgentNotAvailable(Exception):
 
 def _build_provider_chain() -> dict[str, list[type[Provider]]]:
     """Build the provider chain lazily to avoid circular imports."""
+    from .antigravity_native import AntigravityNativeProvider
     from .claude_native import ClaudeNativeProvider
 
     # SDK providers are imported lazily inside is_available(),
@@ -41,6 +42,7 @@ def _build_provider_chain() -> dict[str, list[type[Provider]]]:
         "claude_code": [ClaudeNativeProvider, ClaudeSDKProvider],
         "codex": [CodexNativeProvider, CodexSDKProvider],
         "gemini_cli": [GeminiNativeProvider, GeminiSDKProvider],
+        "antigravity": [AntigravityNativeProvider],
         "opencode": [OpenCodeNativeProvider],
         "pi": [PiNativeProvider],
     }

@@ -19,6 +19,7 @@ AgentType = Literal[
     "claude_code",
     "codex",
     "gemini_cli",
+    "antigravity",
     "opencode",
 ]
 
