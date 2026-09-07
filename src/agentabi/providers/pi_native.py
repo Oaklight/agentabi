@@ -76,6 +76,7 @@ class PiNativeProvider:
             "supports_streaming": True,
             "supports_mcp": True,
             "supports_thinking": True,
+            "supports_ephemeral": True,
             "supports_session_resume": True,
             "supports_system_prompt": True,
             "supports_tool_filtering": True,
@@ -174,7 +175,7 @@ class PiNativeProvider:
         cmd: list[str], task: TaskConfig, ext: dict[str, Any]
     ) -> None:
         """Append session flags to command."""
-        if ext.get("no_session"):
+        if task.get("ephemeral") or ext.get("no_session"):
             cmd.append("--no-session")
         elif "session_id" in task:
             if task.get("resume"):

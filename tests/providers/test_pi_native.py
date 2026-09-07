@@ -252,6 +252,12 @@ class TestBuildCommand:
         assert "--extension" in cmd
         assert "/path/to/mcp.json" in cmd
 
+    def test_ephemeral_from_task_config(self):
+        """ephemeral in TaskConfig maps to --no-session."""
+        task = self._task({"prompt": "Hi", "agent": "pi", "ephemeral": True})
+        cmd = PiNativeProvider._build_command(task)
+        assert "--no-session" in cmd
+
     def test_approve_and_no_approve_raises(self):
         """Setting both approve and no_approve raises ValueError."""
         import pytest
@@ -855,5 +861,6 @@ class TestCapabilities:
         assert caps["supports_permissions"] is False
         assert caps["supports_mcp"] is True
         assert caps["supports_thinking"] is True
+        assert caps["supports_ephemeral"] is True
         assert caps["supports_multi_turn"] is True
         assert caps["transport"] == "subprocess"

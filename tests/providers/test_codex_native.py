@@ -46,6 +46,29 @@ class TestBuildCommand:
         cmd = CodexNativeProvider._build_command(task)
         assert cmd[-1] == "What is 2+2?"
 
+    def test_output_schema_string(self):
+        cmd = CodexNativeProvider._build_command(
+            {"prompt": "hi", "output_schema": "/path/schema.json"}
+        )
+        assert "--output-schema" in cmd
+        assert "/path/schema.json" in cmd
+
+    def test_ephemeral(self):
+        cmd = CodexNativeProvider._build_command({"prompt": "hi", "ephemeral": True})
+        assert "--ephemeral" in cmd
+
+    def test_additional_dirs(self):
+        cmd = CodexNativeProvider._build_command(
+            {"prompt": "hi", "additional_dirs": ["/extra"]}
+        )
+        assert "--add-dir" in cmd
+        assert "/extra" in cmd
+
+    def test_files_as_images(self):
+        cmd = CodexNativeProvider._build_command({"prompt": "hi", "files": ["img.png"]})
+        assert "--image" in cmd
+        assert "img.png" in cmd
+
 
 class TestParseEvent:
     def setup_method(self):

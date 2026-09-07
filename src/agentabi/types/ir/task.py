@@ -79,6 +79,16 @@ class TaskConfig(TypedDict):
     # ========== MCP ==========
     mcp_config: NotRequired[str]  # path to MCP config file
 
+    # ========== Output Control ==========
+    output_schema: NotRequired[
+        str | dict[str, Any]
+    ]  # JSON Schema for structured output
+    ephemeral: NotRequired[bool]  # don't persist session state
+
+    # ========== Workspace ==========
+    additional_dirs: NotRequired[list[str]]  # extra directories for tool access
+    files: NotRequired[list[str]]  # file/image attachments
+
     # ========== Agent-Specific Extensions ==========
     agent_extensions: NotRequired[dict[str, Any]]
 

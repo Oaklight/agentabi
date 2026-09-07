@@ -66,6 +66,10 @@ class CodexNativeProvider:
             "supports_tool_filtering": False,
             "supports_permissions": True,
             "supports_multi_turn": True,
+            "supports_structured_output": True,
+            "supports_ephemeral": True,
+            "supports_additional_dirs": True,
+            "supports_file_attachments": True,
             "transport": "subprocess",
         }
 
@@ -173,6 +177,29 @@ class CodexNativeProvider:
                         f"model_providers.{provider}.api_key={api_key}",
                     ]
                 )
+
+        if "output_schema" in task:
+            schema = task["output_schema"]
+            if isinstance(schema, dict):
+                import json as _json
+                import tempfile
+
+                tmp = tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".json", delete=False
+                )
+                _json.dump(schema, tmp)
+                tmp.close()
+                schema = tmp.name
+            cmd.extend(["--output-schema", schema])
+
+        if task.get("ephemeral"):
+            cmd.append("--ephemeral")
+
+        for d in task.get("additional_dirs") or []:
+            cmd.extend(["--add-dir", d])
+
+        for f in task.get("files") or []:
+            cmd.extend(["--image", f])
 
         cmd.append(task["prompt"])
         return cmd
