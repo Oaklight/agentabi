@@ -23,6 +23,8 @@ AgentType = Literal[
     "pi",
 ]
 
+ThinkingLevel = Literal["off", "low", "medium", "high", "max"]
+
 # ============================================================================
 # Task configuration
 # ============================================================================
@@ -66,6 +68,7 @@ class TaskConfig(TypedDict):
     append_system_prompt: NotRequired[str]
     max_turns: NotRequired[int]
     timeout: NotRequired[float]  # seconds
+    thinking_level: NotRequired["ThinkingLevel"]
 
     # ========== Permission Control ==========
     permissions: NotRequired[PermissionConfig]
@@ -82,4 +85,5 @@ class TaskConfig(TypedDict):
 __all__ = [
     "AgentType",
     "TaskConfig",
+    "ThinkingLevel",
 ]

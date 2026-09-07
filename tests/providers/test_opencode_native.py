@@ -448,6 +448,39 @@ class TestResultTextAggregation:
         assert result["status"] == "success"
         assert result["result_text"] == "The answer is 18."
 
+    def test_thinking_level_high(self):
+        cmd = OpenCodeNativeProvider._build_command(
+            {"prompt": "hi", "thinking_level": "high"}
+        )
+        assert "--variant" in cmd
+        assert "high" in cmd
+
+    def test_thinking_level_max(self):
+        cmd = OpenCodeNativeProvider._build_command(
+            {"prompt": "hi", "thinking_level": "max"}
+        )
+        assert "--variant" in cmd
+        assert "max" in cmd
+
+    def test_thinking_level_low_maps_to_minimal(self):
+        cmd = OpenCodeNativeProvider._build_command(
+            {"prompt": "hi", "thinking_level": "low"}
+        )
+        assert "--variant" in cmd
+        assert "minimal" in cmd
+
+    def test_thinking_level_medium_omits_flag(self):
+        cmd = OpenCodeNativeProvider._build_command(
+            {"prompt": "hi", "thinking_level": "medium"}
+        )
+        assert "--variant" not in cmd
+
+    def test_thinking_level_off_omits_flag(self):
+        cmd = OpenCodeNativeProvider._build_command(
+            {"prompt": "hi", "thinking_level": "off"}
+        )
+        assert "--variant" not in cmd
+
 
 class TestCapabilities:
     def test_capabilities(self):

@@ -114,6 +114,47 @@ class TestBuildCommand:
         assert "--thinking" in cmd
         assert "high" in cmd
 
+    def test_thinking_level_from_task_config(self):
+        """thinking_level in TaskConfig maps to --thinking via level map."""
+        task = self._task({"prompt": "Hi", "agent": "pi", "thinking_level": "max"})
+        cmd = PiNativeProvider._build_command(task)
+        assert "--thinking" in cmd
+        assert "xhigh" in cmd
+
+    def test_thinking_level_off(self):
+        task = self._task({"prompt": "Hi", "agent": "pi", "thinking_level": "off"})
+        cmd = PiNativeProvider._build_command(task)
+        assert "--thinking" in cmd
+        assert "off" in cmd
+
+    def test_agent_extensions_thinking_fallback(self):
+        """agent_extensions.thinking is used when thinking_level is not set."""
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "pi",
+                "agent_extensions": {"thinking": "minimal"},
+            }
+        )
+        cmd = PiNativeProvider._build_command(task)
+        assert "--thinking" in cmd
+        assert "minimal" in cmd
+
+    def test_thinking_level_overrides_extensions(self):
+        """thinking_level takes precedence over agent_extensions.thinking."""
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "pi",
+                "thinking_level": "high",
+                "agent_extensions": {"thinking": "off"},
+            }
+        )
+        cmd = PiNativeProvider._build_command(task)
+        assert "--thinking" in cmd
+        idx = cmd.index("--thinking")
+        assert cmd[idx + 1] == "high"
+
     def test_approve_flag(self):
         task = self._task(
             {
@@ -813,5 +854,6 @@ class TestCapabilities:
         assert caps["supports_session_resume"] is True
         assert caps["supports_permissions"] is False
         assert caps["supports_mcp"] is True
+        assert caps["supports_thinking"] is True
         assert caps["supports_multi_turn"] is True
         assert caps["transport"] == "subprocess"

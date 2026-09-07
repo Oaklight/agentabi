@@ -28,6 +28,7 @@ class AgentCapabilities(TypedDict):
     supports_file_diffs: NotRequired[bool]
     supports_permissions: NotRequired[bool]
     supports_multi_turn: NotRequired[bool]
+    supports_thinking: NotRequired[bool]
 
     # ========== Transport ==========
     transport: NotRequired[str]  # "subprocess", "http", "websocket"
