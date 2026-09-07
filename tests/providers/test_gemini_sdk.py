@@ -1,5 +1,6 @@
 """Tests for GeminiSDKProvider event conversion."""
 
+import warnings
 from dataclasses import dataclass, field
 from typing import Any, Optional
 from unittest.mock import patch
@@ -209,3 +210,28 @@ class TestGeminiSDKCapabilities:
             assert caps["agent_type"] == "gemini_cli"
             assert caps["supports_streaming"] is True
             assert caps["supports_session_resume"] is False
+
+
+class TestGeminiSDKDeprecationWarning:
+    def test_warn_deprecated_emits_warning(self):
+        with _patch_gemini_modules():
+            from agentabi.providers.gemini_sdk import GeminiSDKProvider
+
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                GeminiSDKProvider._warn_deprecated()
+                assert len(w) == 1
+                assert issubclass(w[0].category, DeprecationWarning)
+                assert "discontinued" in str(w[0].message).lower()
+                assert "agy" in str(w[0].message).lower()
+
+    def test_warn_deprecated_message_content(self):
+        with _patch_gemini_modules():
+            from agentabi.providers.gemini_sdk import GeminiSDKProvider
+
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                GeminiSDKProvider._warn_deprecated()
+                msg = str(w[0].message)
+                assert "GeminiSDKProvider" in msg
+                assert "AgyNativeProvider" in msg

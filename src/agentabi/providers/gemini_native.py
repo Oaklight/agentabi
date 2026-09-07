@@ -11,6 +11,7 @@ import asyncio
 import json
 import os
 import shutil
+import warnings
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -34,6 +35,10 @@ from ..types.ir.task import TaskConfig
 
 class GeminiNativeProvider:
     """Native subprocess provider for Gemini CLI.
+
+    .. deprecated::
+        Gemini CLI was discontinued June 2026.
+        Use :class:`AgyNativeProvider` (agent ``"agy"``) instead.
 
     Runs `gemini -o stream-json -y -p <prompt>` as a subprocess
     and parses stream-json events into IR events.
@@ -65,8 +70,19 @@ class GeminiNativeProvider:
             "transport": "subprocess",
         }
 
+    @classmethod
+    def _warn_deprecated(cls) -> None:
+        """Emit a DeprecationWarning for this provider."""
+        warnings.warn(
+            "GeminiNativeProvider is deprecated. Gemini CLI was discontinued "
+            "June 2026. Use AgyNativeProvider ('agy') instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     async def stream(self, task: TaskConfig) -> AsyncIterator[IREvent]:
         """Run task via gemini CLI and yield IR events."""
+        self._warn_deprecated()
         from .base import collect_subprocess_errors
 
         cmd = self._build_command(task)

@@ -1,5 +1,6 @@
 """Tests for GeminiNativeProvider event parsing and command building."""
 
+import warnings
 from typing import Any, cast
 
 from agentabi.providers.gemini_native import GeminiNativeProvider
@@ -278,3 +279,22 @@ class TestCapabilities:
     def test_system_prompt_not_supported(self):
         caps = GeminiNativeProvider().capabilities()
         assert caps["supports_system_prompt"] is False
+
+
+class TestDeprecationWarning:
+    def test_warn_deprecated_emits_warning(self):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            GeminiNativeProvider._warn_deprecated()
+            assert len(w) == 1
+            assert issubclass(w[0].category, DeprecationWarning)
+            assert "discontinued" in str(w[0].message).lower()
+            assert "agy" in str(w[0].message).lower()
+
+    def test_warn_deprecated_message_content(self):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            GeminiNativeProvider._warn_deprecated()
+            msg = str(w[0].message)
+            assert "GeminiNativeProvider" in msg
+            assert "AgyNativeProvider" in msg
