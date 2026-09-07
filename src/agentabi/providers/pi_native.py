@@ -16,10 +16,13 @@ from typing import Any
 
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
+    ContentBlockEndEvent,
+    ContentBlockStartEvent,
     IREvent,
     MessageDeltaEvent,
     MessageEndEvent,
     MessageStartEvent,
+    ReasoningDeltaEvent,
     SessionEndEvent,
     SessionStartEvent,
     ToolResultEvent,
@@ -62,6 +65,7 @@ class PiNativeProvider:
 
     def __init__(self) -> None:
         self._pending_text: list[str] = []
+        self._block_index: int = 0
 
     @staticmethod
     def is_available() -> bool:
@@ -283,6 +287,7 @@ class PiNativeProvider:
         a previous turn if message_end was missed.
         """
         self._pending_text = []
+        self._block_index = 0
         msg_start: MessageStartEvent = {
             "type": "message_start",
             "role": "assistant",
@@ -290,7 +295,7 @@ class PiNativeProvider:
         return [msg_start]
 
     def _handle_message_update(self, raw: dict[str, Any]) -> list[IREvent]:
-        """Handle message_update — emits MessageDeltaEvent for text deltas."""
+        """Handle message_update — emits delta and content block events."""
         assistant_event = raw.get("assistantMessageEvent", {})
         event_subtype = assistant_event.get("type", "")
 
@@ -303,7 +308,42 @@ class PiNativeProvider:
                     "text": delta_text,
                 }
                 return [delta]
-        # Skip thinking_start, thinking_delta, thinking_end, text_start, text_end
+        elif event_subtype == "thinking_start":
+            block_start: ContentBlockStartEvent = {
+                "type": "content_block_start",
+                "block_index": self._block_index,
+                "block_type": "thinking",
+            }
+            self._block_index += 1
+            return [block_start]
+        elif event_subtype == "thinking_delta":
+            delta_text = assistant_event.get("delta", "")
+            if delta_text:
+                reasoning: ReasoningDeltaEvent = {
+                    "type": "reasoning_delta",
+                    "reasoning": delta_text,
+                }
+                return [reasoning]
+        elif event_subtype == "thinking_end":
+            block_end: ContentBlockEndEvent = {
+                "type": "content_block_end",
+                "block_index": self._block_index - 1,
+            }
+            return [block_end]
+        elif event_subtype == "text_start":
+            block_start_text: ContentBlockStartEvent = {
+                "type": "content_block_start",
+                "block_index": self._block_index,
+                "block_type": "text",
+            }
+            self._block_index += 1
+            return [block_start_text]
+        elif event_subtype == "text_end":
+            block_end_text: ContentBlockEndEvent = {
+                "type": "content_block_end",
+                "block_index": self._block_index - 1,
+            }
+            return [block_end_text]
         return []
 
     def _handle_message_end(self, raw: dict[str, Any]) -> list[IREvent]:

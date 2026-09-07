@@ -27,6 +27,7 @@ class UsageSummary(TypedDict, total=False):
     total_cache_read_tokens: int
     total_cache_creation_tokens: int
     total_tokens: int
+    total_reasoning_tokens: int
     total_cost_usd: float
 
 
@@ -62,6 +63,7 @@ class UsageMeterMiddleware:
         self._cache_read_tokens = 0
         self._cache_creation_tokens = 0
         self._total_tokens = 0
+        self._reasoning_tokens = 0
         self._cost_usd = 0.0
 
     @property
@@ -77,6 +79,7 @@ class UsageMeterMiddleware:
                 "total_input_tokens": self._input_tokens,
                 "total_output_tokens": self._output_tokens,
                 "total_tokens": self._total_tokens,
+                "total_reasoning_tokens": self._reasoning_tokens,
                 "total_cost_usd": self._cost_usd,
             }
             if self._cache_read_tokens:
@@ -94,6 +97,7 @@ class UsageMeterMiddleware:
             self._cache_read_tokens = 0
             self._cache_creation_tokens = 0
             self._total_tokens = 0
+            self._reasoning_tokens = 0
             self._cost_usd = 0.0
 
     def __call__(self, handler: StreamHandler) -> StreamHandler:
@@ -115,6 +119,7 @@ class UsageMeterMiddleware:
                             "cache_creation_tokens", 0
                         )
                         self._total_tokens += usage.get("total_tokens", 0)
+                        self._reasoning_tokens += usage.get("reasoning_tokens", 0)
                         if cost is not None:
                             self._cost_usd += cost
                 yield event
@@ -124,7 +129,8 @@ class UsageMeterMiddleware:
     def __repr__(self) -> str:
         return (
             f"UsageMeterMiddleware(calls={self._call_count}, "
-            f"tokens={self._total_tokens}, cost=${self._cost_usd:.4f})"
+            f"tokens={self._total_tokens}, "
+            f"reasoning={self._reasoning_tokens}, cost=${self._cost_usd:.4f})"
         )
 
 

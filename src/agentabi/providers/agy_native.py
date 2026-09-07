@@ -346,7 +346,8 @@ class AgyNativeProvider:
             usage["total_tokens"] = raw_usage["total_tokens"]
         if raw_usage.get("cache_read_tokens"):
             usage["cache_read_tokens"] = raw_usage["cache_read_tokens"]
-        # thinking_tokens not mapped to IR (no IR field for it)
+        if raw_usage.get("thinking_tokens"):
+            usage["reasoning_tokens"] = raw_usage["thinking_tokens"]
 
         usage_event: UsageEvent = {"type": "usage", "usage": usage}
         results.append(usage_event)

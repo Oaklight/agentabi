@@ -8,6 +8,8 @@ Follows the llmir is_part_type() pattern.
 from typing import Any, Union
 
 from .events import (
+    ContentBlockEndEvent,
+    ContentBlockStartEvent,
     ErrorEvent,
     FileDiffEvent,
     IREvent,
@@ -16,6 +18,8 @@ from .events import (
     MessageStartEvent,
     PermissionRequestEvent,
     PermissionResponseEvent,
+    ProviderPassthroughEvent,
+    ReasoningDeltaEvent,
     SessionEndEvent,
     SessionStartEvent,
     ToolResultEvent,
@@ -33,6 +37,9 @@ EVENT_TYPE_MAP: dict[str, type[IREvent]] = {
     "message_start": MessageStartEvent,
     "message_delta": MessageDeltaEvent,
     "message_end": MessageEndEvent,
+    "content_block_start": ContentBlockStartEvent,
+    "content_block_end": ContentBlockEndEvent,
+    "reasoning_delta": ReasoningDeltaEvent,
     "tool_use": ToolUseEvent,
     "tool_result": ToolResultEvent,
     "permission_request": PermissionRequestEvent,
@@ -40,6 +47,7 @@ EVENT_TYPE_MAP: dict[str, type[IREvent]] = {
     "usage": UsageEvent,
     "error": ErrorEvent,
     "file_diff": FileDiffEvent,
+    "provider_passthrough": ProviderPassthroughEvent,
 }
 
 

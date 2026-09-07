@@ -126,6 +126,7 @@ class _RunState:
     __slots__ = (
         "session_id",
         "delta_parts",
+        "reasoning_parts",
         "result_text",
         "status",
         "model",
@@ -137,6 +138,7 @@ class _RunState:
     def __init__(self) -> None:
         self.session_id = ""
         self.delta_parts: list[str] = []
+        self.reasoning_parts: list[str] = []
         self.result_text = ""
         self.status: SessionStatus = "success"
         self.model = ""
@@ -161,6 +163,10 @@ class _RunState:
             cost = event.get("cost_usd")
             if cost is not None:
                 self.cost_usd = cost
+        elif etype == "reasoning_delta":
+            reasoning = event.get("reasoning", "")
+            if reasoning:
+                self.reasoning_parts.append(reasoning)
         elif etype == "error":
             self.errors.append(event.get("error", ""))
             if event.get("is_fatal"):
@@ -187,6 +193,8 @@ class _RunState:
             result["usage"] = self.usage
         if self.cost_usd:
             result["cost_usd"] = self.cost_usd
+        if self.reasoning_parts:
+            result["reasoning_text"] = "".join(self.reasoning_parts)
         if self.errors:
             result["errors"] = self.errors
         return result

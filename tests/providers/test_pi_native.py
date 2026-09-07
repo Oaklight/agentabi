@@ -434,7 +434,7 @@ class TestParseEvent:
         events = self.provider._parse_event(raw)
         assert events == []
 
-    def test_thinking_delta_skipped(self):
+    def test_thinking_delta_emits_reasoning_event(self):
         raw = {
             "type": "message_update",
             "assistantMessageEvent": {
@@ -444,9 +444,11 @@ class TestParseEvent:
             },
         }
         events = self.provider._parse_event(raw)
-        assert events == []
+        assert len(events) == 1
+        assert events[0]["type"] == "reasoning_delta"
+        assert events[0]["reasoning"] == "Let me think..."
 
-    def test_thinking_start_skipped(self):
+    def test_thinking_start_emits_content_block(self):
         raw = {
             "type": "message_update",
             "assistantMessageEvent": {
@@ -455,7 +457,107 @@ class TestParseEvent:
             },
         }
         events = self.provider._parse_event(raw)
-        assert events == []
+        assert len(events) == 1
+        assert events[0]["type"] == "content_block_start"
+        assert events[0]["block_type"] == "thinking"
+        assert events[0]["block_index"] == 0
+
+    def test_thinking_end_emits_content_block_end(self):
+        self.provider._block_index = 1
+        raw = {
+            "type": "message_update",
+            "assistantMessageEvent": {
+                "type": "thinking_end",
+                "contentIndex": 0,
+                "content": "I figured it out.",
+            },
+        }
+        events = self.provider._parse_event(raw)
+        assert len(events) == 1
+        assert events[0]["type"] == "content_block_end"
+        assert events[0]["block_index"] == 0
+
+    def test_text_start_emits_content_block(self):
+        raw = {
+            "type": "message_update",
+            "assistantMessageEvent": {
+                "type": "text_start",
+                "contentIndex": 1,
+            },
+        }
+        events = self.provider._parse_event(raw)
+        assert len(events) == 1
+        assert events[0]["type"] == "content_block_start"
+        assert events[0]["block_type"] == "text"
+
+    def test_full_thinking_flow(self):
+        """Full thinking flow: start → deltas → end → text."""
+        all_events = []
+        raw_sequence = [
+            {
+                "type": "message_update",
+                "assistantMessageEvent": {"type": "thinking_start", "contentIndex": 0},
+            },
+            {
+                "type": "message_update",
+                "assistantMessageEvent": {
+                    "type": "thinking_delta",
+                    "contentIndex": 0,
+                    "delta": "Step 1. ",
+                },
+            },
+            {
+                "type": "message_update",
+                "assistantMessageEvent": {
+                    "type": "thinking_delta",
+                    "contentIndex": 0,
+                    "delta": "Step 2.",
+                },
+            },
+            {
+                "type": "message_update",
+                "assistantMessageEvent": {
+                    "type": "thinking_end",
+                    "contentIndex": 0,
+                    "content": "Step 1. Step 2.",
+                },
+            },
+            {
+                "type": "message_update",
+                "assistantMessageEvent": {"type": "text_start", "contentIndex": 1},
+            },
+            {
+                "type": "message_update",
+                "assistantMessageEvent": {
+                    "type": "text_delta",
+                    "contentIndex": 1,
+                    "delta": "Answer",
+                },
+            },
+            {
+                "type": "message_update",
+                "assistantMessageEvent": {
+                    "type": "text_end",
+                    "contentIndex": 1,
+                    "content": "Answer",
+                },
+            },
+        ]
+        for raw in raw_sequence:
+            all_events.extend(self.provider._parse_event(raw))
+
+        types = [e["type"] for e in all_events]
+        assert types == [
+            "content_block_start",  # thinking
+            "reasoning_delta",
+            "reasoning_delta",
+            "content_block_end",
+            "content_block_start",  # text
+            "message_delta",
+            "content_block_end",
+        ]
+        assert all_events[0]["block_type"] == "thinking"
+        assert all_events[4]["block_type"] == "text"
 
     def test_message_end_assistant(self):
         raw = {

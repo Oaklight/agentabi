@@ -16,11 +16,14 @@ from typing import Any, cast
 
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
+    ContentBlockEndEvent,
+    ContentBlockStartEvent,
     ErrorEvent,
     IREvent,
     MessageDeltaEvent,
     MessageEndEvent,
     MessageStartEvent,
+    ReasoningDeltaEvent,
     SessionEndEvent,
     SessionStartEvent,
     ToolResultEvent,
@@ -323,6 +326,14 @@ class ClaudeNativeProvider:
             block_type = block.get("type")
             if block_type == "text":
                 full_text += block.get("text", "")
+            elif block_type == "thinking":
+                thinking_text = block.get("thinking", "")
+                if thinking_text:
+                    rd: ReasoningDeltaEvent = {
+                        "type": "reasoning_delta",
+                        "reasoning": thinking_text,
+                    }
+                    results.append(rd)
             elif block_type == "tool_use":
                 tool_event: ToolUseEvent = {
                     "type": "tool_use",
@@ -373,13 +384,39 @@ class ClaudeNativeProvider:
     @staticmethod
     def _handle_stream_event(event: dict[str, Any]) -> list[IREvent]:
         inner = event.get("event", {})
-        if inner.get("type") == "content_block_delta":
+        inner_type = inner.get("type", "")
+
+        if inner_type == "content_block_delta":
             delta = inner.get("delta", {})
-            if delta.get("type") == "text_delta":
+            delta_type = delta.get("type", "")
+            if delta_type == "text_delta":
                 text = delta.get("text", "")
                 if text:
                     ir: MessageDeltaEvent = {"type": "message_delta", "text": text}
                     return [ir]
+            elif delta_type == "thinking_delta":
+                thinking = delta.get("thinking", "")
+                if thinking:
+                    rd: ReasoningDeltaEvent = {
+                        "type": "reasoning_delta",
+                        "reasoning": thinking,
+                    }
+                    return [rd]
+        elif inner_type == "content_block_start":
+            block = inner.get("content_block", {})
+            block_type = block.get("type", "text")
+            cbs: ContentBlockStartEvent = {
+                "type": "content_block_start",
+                "block_index": inner.get("index", 0),
+                "block_type": block_type,
+            }
+            return [cbs]
+        elif inner_type == "content_block_stop":
+            cbe: ContentBlockEndEvent = {
+                "type": "content_block_end",
+                "block_index": inner.get("index", 0),
+            }
+            return [cbe]
         return []
 
     @staticmethod
@@ -396,6 +433,11 @@ class ClaudeNativeProvider:
             usage["cache_read_tokens"] = raw_usage["cache_read_input_tokens"]
         if "cache_creation_input_tokens" in raw_usage:
             usage["cache_creation_tokens"] = raw_usage["cache_creation_input_tokens"]
+        thinking_details = raw_usage.get("output_tokens_details", {})
+        if thinking_details:
+            reasoning_tokens = thinking_details.get("thinking_tokens", 0)
+            if reasoning_tokens:
+                usage["reasoning_tokens"] = reasoning_tokens
 
         total = raw_usage.get("input_tokens", 0) + raw_usage.get("output_tokens", 0)
         if total:
