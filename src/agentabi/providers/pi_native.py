@@ -154,11 +154,8 @@ class PiNativeProvider:
 
         ext = task.get("agent_extensions") or {}
         PiNativeProvider._add_session_flags(cmd, task, ext)
-        PiNativeProvider._add_extension_flags(cmd, ext)
+        PiNativeProvider._add_extension_flags(cmd, task, ext)
         PiNativeProvider._add_tool_flags(cmd, task)
-
-        if "mcp_config" in task:
-            cmd.extend(["--extension", task["mcp_config"]])
 
         cmd.append(task["prompt"])
         return cmd
@@ -179,12 +176,16 @@ class PiNativeProvider:
             cmd.append("--continue")
 
     @staticmethod
-    def _add_extension_flags(cmd: list[str], ext: dict[str, Any]) -> None:
+    def _add_extension_flags(
+        cmd: list[str], task: TaskConfig, ext: dict[str, Any]
+    ) -> None:
         """Append Pi-specific flags from agent_extensions."""
         thinking = ext.get("thinking")
         if thinking:
             cmd.extend(["--thinking", thinking])
 
+        if ext.get("approve") and ext.get("no_approve"):
+            raise ValueError("approve and no_approve are mutually exclusive")
         if ext.get("approve"):
             cmd.append("--approve")
         elif ext.get("no_approve"):
@@ -192,16 +193,21 @@ class PiNativeProvider:
 
         if ext.get("no_extensions"):
             cmd.append("--no-extensions")
-        for e in ext.get("extensions") or []:
-            cmd.extend(["--extension", e])
+        else:
+            for e in ext.get("extensions") or []:
+                cmd.extend(["--extension", e])
 
-        for s in ext.get("skills") or []:
-            cmd.extend(["--skill", s])
         if ext.get("no_skills"):
             cmd.append("--no-skills")
+        else:
+            for s in ext.get("skills") or []:
+                cmd.extend(["--skill", s])
 
         if ext.get("no_context_files"):
             cmd.append("--no-context-files")
+
+        if "mcp_config" in task:
+            cmd.extend(["--extension", task["mcp_config"]])
 
     @staticmethod
     def _add_tool_flags(cmd: list[str], task: TaskConfig) -> None:

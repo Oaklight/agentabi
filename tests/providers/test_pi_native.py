@@ -65,9 +65,7 @@ class TestBuildCommand:
         cmd = PiNativeProvider._build_command(task)
         assert "--session-id" in cmd
         assert "abc-123" in cmd
-        assert (
-            "--session" not in cmd or cmd[cmd.index("--session-id") - 1] != "--session"
-        )
+        assert "--session" not in cmd
 
     def test_resume_without_session_id_uses_continue(self):
         """resume without session_id → --continue (resume latest)."""
@@ -102,7 +100,7 @@ class TestBuildCommand:
         cmd = PiNativeProvider._build_command(task)
         assert "--no-session" in cmd
         assert "--session-id" not in cmd
-        assert "--session" not in cmd or cmd.index("--no-session") < len(cmd)
+        assert "--session" not in cmd
 
     def test_thinking_level(self):
         task = self._task(
@@ -211,6 +209,69 @@ class TestBuildCommand:
         )
         cmd = PiNativeProvider._build_command(task)
         assert "--extension" in cmd
+        assert "/path/to/mcp.json" in cmd
+
+    def test_approve_and_no_approve_raises(self):
+        """Setting both approve and no_approve raises ValueError."""
+        import pytest
+
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "pi",
+                "agent_extensions": {"approve": True, "no_approve": True},
+            }
+        )
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            PiNativeProvider._build_command(task)
+
+    def test_no_extensions_skips_extension_paths(self):
+        """no_extensions suppresses individual --extension flags."""
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "pi",
+                "agent_extensions": {
+                    "no_extensions": True,
+                    "extensions": ["/path/to/ext"],
+                },
+            }
+        )
+        cmd = PiNativeProvider._build_command(task)
+        assert "--no-extensions" in cmd
+        assert "--extension" not in cmd
+
+    def test_no_skills_skips_skill_paths(self):
+        """no_skills suppresses individual --skill flags."""
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "pi",
+                "agent_extensions": {
+                    "no_skills": True,
+                    "skills": ["/path/to/skill"],
+                },
+            }
+        )
+        cmd = PiNativeProvider._build_command(task)
+        assert "--no-skills" in cmd
+        assert "--skill" not in cmd
+
+    def test_mcp_config_with_extensions(self):
+        """mcp_config and extensions both emit --extension flags."""
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "pi",
+                "mcp_config": "/path/to/mcp.json",
+                "agent_extensions": {
+                    "extensions": ["/path/to/ext"],
+                },
+            }
+        )
+        cmd = PiNativeProvider._build_command(task)
+        assert cmd.count("--extension") == 2
+        assert "/path/to/ext" in cmd
         assert "/path/to/mcp.json" in cmd
 
     def test_combined_pipeline_flags(self):
