@@ -187,10 +187,9 @@ class ClaudeNativeProvider:
         if "max_turns" in task:
             cmd.extend(["--max-turns", str(task["max_turns"])])
 
-        if "session_id" in task and task.get("resume"):
-            cmd.extend(["--resume", task["session_id"]])
-
+        ClaudeNativeProvider._add_session_flags(cmd, task)
         ClaudeNativeProvider._add_permission_flags(cmd, task)
+        ClaudeNativeProvider._add_tool_flags(cmd, task)
 
         if "mcp_config" in task:
             cmd.extend(["--mcp-config", task["mcp_config"]])
@@ -215,14 +214,30 @@ class ClaudeNativeProvider:
         return cmd
 
     @staticmethod
+    def _add_session_flags(cmd: list[str], task: TaskConfig) -> None:
+        """Append session/resume flags to command."""
+        if "session_id" in task:
+            if task.get("resume"):
+                cmd.extend(["--resume", task["session_id"]])
+            else:
+                cmd.extend(["--session-id", task["session_id"]])
+        elif task.get("resume"):
+            cmd.append("--continue")
+
+    @staticmethod
     def _add_permission_flags(cmd: list[str], task: TaskConfig) -> None:
-        """Append permission mode and tool allow/deny flags."""
+        """Append permission mode flag to command."""
         permissions = task.get("permissions")
         if permissions:
             level = permissions.get("level")
             cli_mode = _PERMISSION_LEVEL_MAP.get(level or "")
             if cli_mode:
                 cmd.extend(["--permission-mode", cli_mode])
+
+    @staticmethod
+    def _add_tool_flags(cmd: list[str], task: TaskConfig) -> None:
+        """Append tool allow/deny flags to command."""
+        permissions = task.get("permissions")
 
         if "allowed_tools" in task:
             cmd.extend(["--allowed-tools", ",".join(task["allowed_tools"])])

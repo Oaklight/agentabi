@@ -44,12 +44,27 @@ class TestBuildCommand:
         cmd = GeminiNativeProvider._build_command(task)
         assert "-r" in cmd
         assert "abc-123" in cmd
+        assert "--session-id" not in cmd
 
     def test_resume_latest(self):
         task = self._task({"prompt": "Continue", "agent": "gemini_cli", "resume": True})
         cmd = GeminiNativeProvider._build_command(task)
         assert "-r" in cmd
         assert "latest" in cmd
+        assert "--session-id" not in cmd
+
+    def test_session_id_only(self):
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "gemini_cli",
+                "session_id": "abc-123",
+            }
+        )
+        cmd = GeminiNativeProvider._build_command(task)
+        idx = cmd.index("--session-id")
+        assert cmd[idx + 1] == "abc-123"
+        assert "-r" not in cmd
 
     def test_prompt_in_command(self):
         task = self._task({"prompt": "What is 2+2?", "agent": "gemini_cli"})

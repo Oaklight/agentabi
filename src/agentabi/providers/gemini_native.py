@@ -174,9 +174,13 @@ class GeminiNativeProvider:
         if "model" in task:
             cmd.extend(["-m", task["model"]])
 
-        if task.get("resume"):
-            resume_val = task.get("session_id", "latest")
-            cmd.extend(["-r", str(resume_val)])
+        if "session_id" in task:
+            if task.get("resume"):
+                cmd.extend(["-r", task["session_id"]])
+            else:
+                cmd.extend(["--session-id", task["session_id"]])
+        elif task.get("resume"):
+            cmd.extend(["-r", "latest"])
 
         cmd.extend(["-p", task["prompt"]])
         return cmd

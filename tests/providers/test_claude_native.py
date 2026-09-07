@@ -39,6 +39,21 @@ class TestBuildCommand:
         idx = cmd.index("--resume")
         assert cmd[idx + 1] == "abc123"
 
+    def test_session_id_only(self):
+        cmd = ClaudeNativeProvider._build_command(
+            {"prompt": "hi", "session_id": "abc123"}
+        )
+        idx = cmd.index("--session-id")
+        assert cmd[idx + 1] == "abc123"
+        assert "--resume" not in cmd
+        assert "--continue" not in cmd
+
+    def test_resume_only(self):
+        cmd = ClaudeNativeProvider._build_command({"prompt": "hi", "resume": True})
+        assert "--continue" in cmd
+        assert "--resume" not in cmd
+        assert "--session-id" not in cmd
+
     def test_full_auto_permissions(self):
         cmd = ClaudeNativeProvider._build_command(
             {"prompt": "hi", "permissions": {"level": "full_auto"}}
