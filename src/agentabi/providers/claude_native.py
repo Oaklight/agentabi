@@ -100,6 +100,10 @@ class ClaudeNativeProvider:
             "supports_file_diffs": False,
             "supports_permissions": True,
             "supports_thinking": True,
+            "supports_structured_output": True,
+            "supports_ephemeral": True,
+            "supports_additional_dirs": True,
+            "supports_file_attachments": True,
             "supports_multi_turn": True,
             "transport": "subprocess",
         }
@@ -205,6 +209,23 @@ class ClaudeNativeProvider:
         effort = _THINKING_LEVEL_MAP.get(task.get("thinking_level", ""))
         if effort:
             cmd.extend(["--effort", effort])
+
+        if "output_schema" in task:
+            schema = task["output_schema"]
+            if isinstance(schema, dict):
+                import json as _json
+
+                schema = _json.dumps(schema)
+            cmd.extend(["--json-schema", schema])
+
+        if task.get("ephemeral"):
+            cmd.append("--no-session-persistence")
+
+        for d in task.get("additional_dirs") or []:
+            cmd.extend(["--add-dir", d])
+
+        for f in task.get("files") or []:
+            cmd.extend(["--file", f])
 
         _inject_settings_override(cmd, task)
 

@@ -64,6 +64,7 @@ class OpenCodeNativeProvider:
             "supports_permissions": True,
             "supports_multi_turn": False,
             "supports_thinking": True,
+            "supports_file_attachments": True,
             "transport": "subprocess",
         }
 
@@ -164,6 +165,9 @@ class OpenCodeNativeProvider:
         variant = _THINKING_LEVEL_MAP.get(task.get("thinking_level", ""))
         if variant:
             cmd.extend(["--variant", variant])
+
+        for f in task.get("files") or []:
+            cmd.extend(["--file", f])
 
         cmd.append("--")
         cmd.append(task["prompt"])

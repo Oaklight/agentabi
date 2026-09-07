@@ -300,6 +300,31 @@ class TestBuildEnv:
         # Should not crash, just return merged os.environ
         assert isinstance(env, dict)
 
+    def test_output_schema_from_task(self):
+        cmd = AgyNativeProvider._build_command(
+            {"prompt": "hi", "output_schema": '{"type":"object"}'}
+        )
+        assert "--json-schema" in cmd
+        assert '{"type":"object"}' in cmd
+
+    def test_output_schema_task_overrides_ext(self):
+        cmd = AgyNativeProvider._build_command(
+            {
+                "prompt": "hi",
+                "output_schema": '{"from":"task"}',
+                "agent_extensions": {"json_schema": '{"from":"ext"}'},
+            }
+        )
+        idx = cmd.index("--json-schema")
+        assert cmd[idx + 1] == '{"from":"task"}'
+
+    def test_additional_dirs_from_task(self):
+        cmd = AgyNativeProvider._build_command(
+            {"prompt": "hi", "additional_dirs": ["/a", "/b"]}
+        )
+        assert cmd.count("--add-dir") == 2
+        assert "/a" in cmd
+
 
 class TestParseEvent:
     def test_init_event(self):
@@ -668,5 +693,7 @@ class TestCapabilities:
         assert caps["supports_system_prompt"] is False
         assert caps["supports_tool_filtering"] is False
         assert caps["supports_permissions"] is True
+        assert caps["supports_structured_output"] is True
+        assert caps["supports_additional_dirs"] is True
         assert caps["supports_multi_turn"] is True
         assert caps["transport"] == "subprocess"

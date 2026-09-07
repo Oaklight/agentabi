@@ -66,6 +66,8 @@ class AgyNativeProvider:
             "supports_system_prompt": False,
             "supports_tool_filtering": False,
             "supports_permissions": True,
+            "supports_structured_output": True,
+            "supports_additional_dirs": True,
             "supports_multi_turn": True,
             "transport": "subprocess",
         }
@@ -168,7 +170,21 @@ class AgyNativeProvider:
         if "model" in task:
             cmd.extend(["--model", task["model"]])
 
-        # Permission mapping
+        AgyNativeProvider._add_permission_flags(cmd, task)
+        AgyNativeProvider._add_session_flags(cmd, task)
+
+        timeout = task.get("timeout")
+        if timeout is not None and timeout > 0:
+            cmd.extend(["--print-timeout", f"{int(timeout)}s"])
+
+        AgyNativeProvider._add_extension_flags(cmd, task)
+
+        cmd.extend(["-p", task["prompt"]])
+        return cmd
+
+    @staticmethod
+    def _add_permission_flags(cmd: list[str], task: TaskConfig) -> None:
+        """Append permission/mode flags."""
         permissions = task.get("permissions")
         if permissions:
             level = permissions.get("level")
@@ -178,20 +194,18 @@ class AgyNativeProvider:
                 cmd.extend(["--mode", "accept-edits"])
             elif level == "plan":
                 cmd.extend(["--mode", "plan"])
-            # "default" → omit
 
-        # Session management
+    @staticmethod
+    def _add_session_flags(cmd: list[str], task: TaskConfig) -> None:
+        """Append session resume flags."""
         if "session_id" in task and task.get("resume"):
             cmd.extend(["--conversation", task["session_id"]])
         elif task.get("resume"):
             cmd.append("--continue")
 
-        # Timeout → --print-timeout (convert seconds to "Ns" format)
-        timeout = task.get("timeout")
-        if timeout is not None and timeout > 0:
-            cmd.extend(["--print-timeout", f"{int(timeout)}s"])
-
-        # Agent-specific extensions
+    @staticmethod
+    def _add_extension_flags(cmd: list[str], task: TaskConfig) -> None:
+        """Append agent-specific extension flags."""
         ext = task.get("agent_extensions") or {}
 
         if "effort" in ext:
@@ -206,15 +220,16 @@ class AgyNativeProvider:
         if "agent" in ext:
             cmd.extend(["--agent", ext["agent"]])
 
-        if "json_schema" in ext:
-            cmd.extend(["--json-schema", ext["json_schema"]])
+        schema = task.get("output_schema") or ext.get("json_schema")
+        if schema:
+            if isinstance(schema, dict):
+                import json as _json
 
-        for d in ext.get("add_dirs") or []:
+                schema = _json.dumps(schema)
+            cmd.extend(["--json-schema", schema])
+
+        for d in task.get("additional_dirs") or ext.get("add_dirs") or []:
             cmd.extend(["--add-dir", d])
-
-        # Prompt must come last via -p flag
-        cmd.extend(["-p", task["prompt"]])
-        return cmd
 
     # ========== Private: event parsing ==========
 

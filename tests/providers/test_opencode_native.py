@@ -481,6 +481,13 @@ class TestResultTextAggregation:
         )
         assert "--variant" not in cmd
 
+    def test_files(self):
+        cmd = OpenCodeNativeProvider._build_command(
+            {"prompt": "hi", "files": ["doc.pdf"]}
+        )
+        assert "--file" in cmd
+        assert "doc.pdf" in cmd
+
 
 class TestCapabilities:
     def test_capabilities(self):
