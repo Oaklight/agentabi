@@ -224,6 +224,68 @@ class TestEventParsing:
         events = ClaudeNativeProvider._parse_event({"type": "unknown_type"})
         assert events == []
 
+    def test_stream_event_thinking_delta(self):
+        event = {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "thinking_delta", "thinking": "Let me reason..."},
+            },
+        }
+        events = ClaudeNativeProvider._parse_event(event)
+        assert len(events) == 1
+        assert events[0]["type"] == "reasoning_delta"
+        assert events[0]["reasoning"] == "Let me reason..."
+
+    def test_stream_event_content_block_start(self):
+        event = {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "thinking"},
+            },
+        }
+        events = ClaudeNativeProvider._parse_event(event)
+        assert len(events) == 1
+        assert events[0]["type"] == "content_block_start"
+        assert events[0]["block_index"] == 0
+        assert events[0]["block_type"] == "thinking"
+
+    def test_stream_event_content_block_stop(self):
+        event = {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_stop",
+                "index": 1,
+            },
+        }
+        events = ClaudeNativeProvider._parse_event(event)
+        assert len(events) == 1
+        assert events[0]["type"] == "content_block_end"
+        assert events[0]["block_index"] == 1
+
+    def test_assistant_with_thinking_blocks(self):
+        event = {
+            "type": "assistant",
+            "message": {
+                "id": "msg_1",
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": "I need to reason about this"},
+                    {"type": "text", "text": "The answer is 42"},
+                ],
+                "stop_reason": "end_turn",
+            },
+        }
+        events = ClaudeNativeProvider._parse_event(event)
+        types = [e["type"] for e in events]
+        assert "reasoning_delta" in types
+        assert "message_end" in types
+        reasoning_event = [e for e in events if e["type"] == "reasoning_delta"][0]
+        assert reasoning_event["reasoning"] == "I need to reason about this"
+
 
 class TestCapabilities:
     def test_capabilities(self):

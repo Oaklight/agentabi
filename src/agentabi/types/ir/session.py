@@ -46,6 +46,7 @@ class SessionResult(TypedDict):
 
     # ========== Output ==========
     result_text: NotRequired[str]
+    reasoning_text: NotRequired[str]
 
     # ========== File Changes ==========
     file_diffs: NotRequired[list[FileDiffEvent]]

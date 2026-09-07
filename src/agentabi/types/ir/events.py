@@ -7,10 +7,13 @@ Analogous to llmir's IRStreamEvent.
 Event categories:
     - Session lifecycle: session_start, session_end
     - Message streaming: message_start, message_delta, message_end
+    - Content blocks: content_block_start, content_block_end
+    - Reasoning: reasoning_delta
     - Tool calls: tool_use, tool_result
     - Permissions: permission_request, permission_response
     - Usage/errors: usage, error
     - File changes: file_diff
+    - Passthrough: provider_passthrough
 """
 
 from typing import Any, Literal, Union
@@ -78,6 +81,46 @@ class MessageEndEvent(TypedDict):
     text: NotRequired[str]  # full accumulated text
     stop_reason: NotRequired[str]
     message_id: NotRequired[str]
+
+
+# ============================================================================
+# Content block events (aligned with llm-rosetta ContentBlockStartEvent/EndEvent)
+# ============================================================================
+
+
+class ContentBlockStartEvent(TypedDict):
+    """Emitted when a content block begins within a message.
+
+    Tracks boundaries between different content types (text, thinking, tool_use).
+    """
+
+    type: Required[Literal["content_block_start"]]
+    block_index: Required[int]
+    block_type: Required[str]  # "text", "thinking", "tool_use"
+
+
+class ContentBlockEndEvent(TypedDict):
+    """Emitted when a content block ends."""
+
+    type: Required[Literal["content_block_end"]]
+    block_index: Required[int]
+
+
+# ============================================================================
+# Reasoning events (aligned with llm-rosetta ReasoningDeltaEvent)
+# ============================================================================
+
+
+class ReasoningDeltaEvent(TypedDict):
+    """Emitted when a reasoning/thinking text fragment arrives.
+
+    Captures the model's internal reasoning process (e.g., Claude's
+    extended thinking, Pi's thinking deltas).
+    """
+
+    type: Required[Literal["reasoning_delta"]]
+    reasoning: Required[str]
+    block_index: NotRequired[int]
 
 
 # ============================================================================
@@ -149,6 +192,7 @@ class UsageInfo(TypedDict):
     cache_read_tokens: NotRequired[int]
     cache_creation_tokens: NotRequired[int]
     total_tokens: NotRequired[int]
+    reasoning_tokens: NotRequired[int]
 
 
 class UsageEvent(TypedDict):
@@ -187,6 +231,22 @@ class FileDiffEvent(TypedDict):
 
 
 # ============================================================================
+# Provider passthrough (aligned with llm-rosetta ProviderPassthroughEvent)
+# ============================================================================
+
+
+class ProviderPassthroughEvent(TypedDict):
+    """Opaque escape hatch for provider-specific events that don't map to IR.
+
+    Allows consumers to opt into raw provider data without IR schema changes.
+    """
+
+    type: Required[Literal["provider_passthrough"]]
+    provider: Required[str]
+    payload: Required[dict[str, Any]]
+
+
+# ============================================================================
 # Union type
 # ============================================================================
 
@@ -196,6 +256,9 @@ IREvent = Union[
     MessageStartEvent,
     MessageDeltaEvent,
     MessageEndEvent,
+    ContentBlockStartEvent,
+    ContentBlockEndEvent,
+    ReasoningDeltaEvent,
     ToolUseEvent,
     ToolResultEvent,
     PermissionRequestEvent,
@@ -203,6 +266,7 @@ IREvent = Union[
     UsageEvent,
     ErrorEvent,
     FileDiffEvent,
+    ProviderPassthroughEvent,
 ]
 
 # ============================================================================
@@ -215,6 +279,9 @@ __all__ = [
     "MessageStartEvent",
     "MessageDeltaEvent",
     "MessageEndEvent",
+    "ContentBlockStartEvent",
+    "ContentBlockEndEvent",
+    "ReasoningDeltaEvent",
     "ToolUseEvent",
     "ToolResultEvent",
     "PermissionRequestEvent",
@@ -223,5 +290,6 @@ __all__ = [
     "UsageEvent",
     "ErrorEvent",
     "FileDiffEvent",
+    "ProviderPassthroughEvent",
     "IREvent",
 ]

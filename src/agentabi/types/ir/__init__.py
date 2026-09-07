@@ -7,6 +7,8 @@ All IR types are TypedDicts following the llmir pattern.
 
 from .capabilities import AgentCapabilities
 from .events import (
+    ContentBlockEndEvent,
+    ContentBlockStartEvent,
     ErrorEvent,
     FileDiffEvent,
     IREvent,
@@ -15,6 +17,8 @@ from .events import (
     MessageStartEvent,
     PermissionRequestEvent,
     PermissionResponseEvent,
+    ProviderPassthroughEvent,
+    ReasoningDeltaEvent,
     SessionEndEvent,
     SessionStartEvent,
     ToolResultEvent,
@@ -22,8 +26,11 @@ from .events import (
     UsageEvent,
 )
 from .helpers import (
+    create_content_block_end_event,
+    create_content_block_start_event,
     create_error_event,
     create_message_delta_event,
+    create_reasoning_delta_event,
     create_session_start_event,
     create_tool_use_event,
     create_usage_event,
@@ -47,6 +54,10 @@ __all__ = [
     "SessionEndEvent",
     "MessageStartEvent",
     "MessageDeltaEvent",
+    "ContentBlockStartEvent",
+    "ContentBlockEndEvent",
+    "ReasoningDeltaEvent",
+    "ProviderPassthroughEvent",
     "MessageEndEvent",
     "ToolUseEvent",
     "ToolResultEvent",
@@ -73,5 +84,8 @@ __all__ = [
     "create_message_delta_event",
     "create_tool_use_event",
     "create_usage_event",
+    "create_content_block_end_event",
+    "create_content_block_start_event",
     "create_error_event",
+    "create_reasoning_delta_event",
 ]

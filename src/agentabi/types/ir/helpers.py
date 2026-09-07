@@ -7,8 +7,11 @@ Convenience constructors for creating IR events and types.
 from typing import Any, Optional
 
 from .events import (
+    ContentBlockEndEvent,
+    ContentBlockStartEvent,
     ErrorEvent,
     MessageDeltaEvent,
+    ReasoningDeltaEvent,
     SessionStartEvent,
     ToolUseEvent,
     UsageEvent,
@@ -108,10 +111,36 @@ def create_error_event(
     return event
 
 
+def create_reasoning_delta_event(
+    reasoning: str, *, block_index: int | None = None
+) -> ReasoningDeltaEvent:
+    event: ReasoningDeltaEvent = {"type": "reasoning_delta", "reasoning": reasoning}
+    if block_index is not None:
+        event["block_index"] = block_index
+    return event
+
+
+def create_content_block_start_event(
+    block_index: int, block_type: str
+) -> ContentBlockStartEvent:
+    return {
+        "type": "content_block_start",
+        "block_index": block_index,
+        "block_type": block_type,
+    }
+
+
+def create_content_block_end_event(block_index: int) -> ContentBlockEndEvent:
+    return {"type": "content_block_end", "block_index": block_index}
+
+
 __all__ = [
     "create_session_start_event",
     "create_message_delta_event",
     "create_tool_use_event",
     "create_usage_event",
     "create_error_event",
+    "create_reasoning_delta_event",
+    "create_content_block_start_event",
+    "create_content_block_end_event",
 ]
