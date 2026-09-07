@@ -6,6 +6,7 @@ Wraps gemini-cli-sdk behind the Provider protocol.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -27,6 +28,10 @@ from ..types.ir.task import TaskConfig
 
 class GeminiSDKProvider:
     """Wraps gemini-cli-sdk behind Provider protocol.
+
+    .. deprecated::
+        Gemini CLI was discontinued June 2026.
+        Use :class:`AgyNativeProvider` (agent ``"agy"``) instead.
 
     Requires: pip install agentabi[gemini]
 
@@ -57,8 +62,19 @@ class GeminiSDKProvider:
             "supports_multi_turn": True,
         }
 
+    @classmethod
+    def _warn_deprecated(cls) -> None:
+        """Emit a DeprecationWarning for this provider."""
+        warnings.warn(
+            "GeminiSDKProvider is deprecated. Gemini CLI was discontinued "
+            "June 2026. Use AgyNativeProvider ('agy') instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     async def stream(self, task: TaskConfig) -> AsyncIterator[IREvent]:
         """Run task via gemini-cli-sdk and yield IR events."""
+        self._warn_deprecated()
         from gemini_cli_sdk import GeminiOptions, query
 
         options = GeminiOptions(

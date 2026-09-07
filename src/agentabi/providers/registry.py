@@ -41,6 +41,7 @@ def _build_provider_chain() -> dict[str, list[type[Provider]]]:
     return {
         "claude_code": [ClaudeNativeProvider, ClaudeSDKProvider],
         "codex": [CodexNativeProvider, CodexSDKProvider],
+        # deprecated — use "agy" instead
         "gemini_cli": [GeminiNativeProvider, GeminiSDKProvider],
         "opencode": [OpenCodeNativeProvider],
         "pi": [PiNativeProvider],
