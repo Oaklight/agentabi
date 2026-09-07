@@ -40,6 +40,13 @@ _PERMISSION_LEVEL_MAP: dict[str, str] = {
     "default": "default",
 }
 
+_THINKING_LEVEL_MAP: dict[str, str] = {
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    "max": "max",
+}
+
 
 def _inject_settings_override(cmd: list[str], task: TaskConfig) -> None:
     """Add --settings JSON when env overrides the Anthropic base URL.
@@ -92,6 +99,7 @@ class ClaudeNativeProvider:
             "supports_tool_filtering": True,
             "supports_file_diffs": False,
             "supports_permissions": True,
+            "supports_thinking": True,
             "supports_multi_turn": True,
             "transport": "subprocess",
         }
@@ -182,6 +190,33 @@ class ClaudeNativeProvider:
         if "session_id" in task and task.get("resume"):
             cmd.extend(["--resume", task["session_id"]])
 
+        ClaudeNativeProvider._add_permission_flags(cmd, task)
+
+        if "mcp_config" in task:
+            cmd.extend(["--mcp-config", task["mcp_config"]])
+
+        cmd.append("--include-partial-messages")
+
+        extensions = task.get("agent_extensions", {})
+        if "max_budget_usd" in extensions:
+            cmd.extend(["--max-budget-usd", str(extensions["max_budget_usd"])])
+        if extensions.get("continue_session"):
+            cmd.append("--continue")
+
+        effort = _THINKING_LEVEL_MAP.get(task.get("thinking_level", ""))
+        if effort:
+            cmd.extend(["--effort", effort])
+
+        _inject_settings_override(cmd, task)
+
+        cmd.append("--")
+        cmd.append(task["prompt"])
+
+        return cmd
+
+    @staticmethod
+    def _add_permission_flags(cmd: list[str], task: TaskConfig) -> None:
+        """Append permission mode and tool allow/deny flags."""
         permissions = task.get("permissions")
         if permissions:
             level = permissions.get("level")
@@ -200,24 +235,6 @@ class ClaudeNativeProvider:
             cmd.extend(
                 ["--disallowed-tools", ",".join(permissions["disallowed_tools"])]
             )
-
-        if "mcp_config" in task:
-            cmd.extend(["--mcp-config", task["mcp_config"]])
-
-        cmd.append("--include-partial-messages")
-
-        extensions = task.get("agent_extensions", {})
-        if "max_budget_usd" in extensions:
-            cmd.extend(["--max-budget-usd", str(extensions["max_budget_usd"])])
-        if extensions.get("continue_session"):
-            cmd.append("--continue")
-
-        _inject_settings_override(cmd, task)
-
-        cmd.append("--")
-        cmd.append(task["prompt"])
-
-        return cmd
 
     # ========== Private: event parsing ==========
 

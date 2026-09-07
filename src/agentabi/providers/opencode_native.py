@@ -30,6 +30,12 @@ from ..types.ir.events import (
 from ..types.ir.session import SessionResult
 from ..types.ir.task import TaskConfig
 
+_THINKING_LEVEL_MAP: dict[str, str] = {
+    "low": "minimal",
+    "high": "high",
+    "max": "max",
+}
+
 
 class OpenCodeNativeProvider:
     """Native subprocess provider for OpenCode CLI.
@@ -57,6 +63,7 @@ class OpenCodeNativeProvider:
             "supports_tool_filtering": False,
             "supports_permissions": True,
             "supports_multi_turn": False,
+            "supports_thinking": True,
             "transport": "subprocess",
         }
 
@@ -153,6 +160,10 @@ class OpenCodeNativeProvider:
             level = permissions.get("level")
             if level == "full_auto":
                 cmd.append("--dangerously-skip-permissions")
+
+        variant = _THINKING_LEVEL_MAP.get(task.get("thinking_level", ""))
+        if variant:
+            cmd.extend(["--variant", variant])
 
         cmd.append("--")
         cmd.append(task["prompt"])

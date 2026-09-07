@@ -31,6 +31,14 @@ from ..types.ir.session import SessionResult
 from ..types.ir.task import TaskConfig
 from .base import collect_subprocess_errors
 
+_THINKING_LEVEL_MAP: dict[str, str] = {
+    "off": "off",
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    "max": "xhigh",
+}
+
 
 class PiNativeProvider:
     """Native subprocess provider for Pi coding agent CLI.
@@ -67,6 +75,7 @@ class PiNativeProvider:
             "agent_type": "pi",
             "supports_streaming": True,
             "supports_mcp": True,
+            "supports_thinking": True,
             "supports_session_resume": True,
             "supports_system_prompt": True,
             "supports_tool_filtering": True,
@@ -180,7 +189,9 @@ class PiNativeProvider:
         cmd: list[str], task: TaskConfig, ext: dict[str, Any]
     ) -> None:
         """Append Pi-specific flags from agent_extensions."""
-        thinking = ext.get("thinking")
+        thinking = _THINKING_LEVEL_MAP.get(task.get("thinking_level", ""))
+        if not thinking:
+            thinking = ext.get("thinking")
         if thinking:
             cmd.extend(["--thinking", thinking])
 
