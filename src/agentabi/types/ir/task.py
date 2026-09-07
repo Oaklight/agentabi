@@ -21,6 +21,7 @@ AgentType = Literal[
     "gemini_cli",
     "opencode",
     "pi",
+    "agy",
 ]
 
 ThinkingLevel = Literal["off", "low", "medium", "high", "max"]

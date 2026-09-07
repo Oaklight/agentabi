@@ -5,6 +5,7 @@ Flat provider model: each provider implements the same Protocol
 for driving a specific agent CLI or SDK.
 """
 
+from .agy_native import AgyNativeProvider
 from .base import Provider
 from .registry import (
     AgentNotAvailable,
@@ -14,6 +15,7 @@ from .registry import (
 )
 
 __all__ = [
+    "AgyNativeProvider",
     "Provider",
     "AgentNotAvailable",
     "resolve_provider",
