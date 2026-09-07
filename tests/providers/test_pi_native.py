@@ -44,7 +44,8 @@ class TestBuildCommand:
         assert "--append-system-prompt" in cmd
         assert "Extra context" in cmd
 
-    def test_with_session_resume(self):
+    def test_session_resume_uses_session_flag(self):
+        """session_id + resume → --session (resume existing)."""
         task = self._task(
             {
                 "prompt": "Continue",
@@ -56,11 +57,186 @@ class TestBuildCommand:
         cmd = PiNativeProvider._build_command(task)
         assert "--session" in cmd
         assert "abc-123" in cmd
+        assert "--session-id" not in cmd
 
-    def test_no_session_without_resume(self):
+    def test_session_id_without_resume_uses_session_id_flag(self):
+        """session_id without resume → --session-id (create-if-missing)."""
         task = self._task({"prompt": "Hi", "agent": "pi", "session_id": "abc-123"})
         cmd = PiNativeProvider._build_command(task)
+        assert "--session-id" in cmd
+        assert "abc-123" in cmd
+        assert (
+            "--session" not in cmd or cmd[cmd.index("--session-id") - 1] != "--session"
+        )
+
+    def test_resume_without_session_id_uses_continue(self):
+        """resume without session_id → --continue (resume latest)."""
+        task = self._task({"prompt": "Hi", "agent": "pi", "resume": True})
+        cmd = PiNativeProvider._build_command(task)
+        assert "--continue" in cmd
         assert "--session" not in cmd
+        assert "--session-id" not in cmd
+
+    def test_no_session_flag(self):
+        """agent_extensions.no_session → --no-session (ephemeral)."""
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "pi",
+                "agent_extensions": {"no_session": True},
+            }
+        )
+        cmd = PiNativeProvider._build_command(task)
+        assert "--no-session" in cmd
+
+    def test_no_session_overrides_session_id(self):
+        """no_session takes precedence over session_id."""
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "pi",
+                "session_id": "abc",
+                "agent_extensions": {"no_session": True},
+            }
+        )
+        cmd = PiNativeProvider._build_command(task)
+        assert "--no-session" in cmd
+        assert "--session-id" not in cmd
+        assert "--session" not in cmd or cmd.index("--no-session") < len(cmd)
+
+    def test_thinking_level(self):
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "pi",
+                "agent_extensions": {"thinking": "high"},
+            }
+        )
+        cmd = PiNativeProvider._build_command(task)
+        assert "--thinking" in cmd
+        assert "high" in cmd
+
+    def test_approve_flag(self):
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "pi",
+                "agent_extensions": {"approve": True},
+            }
+        )
+        cmd = PiNativeProvider._build_command(task)
+        assert "--approve" in cmd
+
+    def test_no_approve_flag(self):
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "pi",
+                "agent_extensions": {"no_approve": True},
+            }
+        )
+        cmd = PiNativeProvider._build_command(task)
+        assert "--no-approve" in cmd
+
+    def test_no_extensions_flag(self):
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "pi",
+                "agent_extensions": {"no_extensions": True},
+            }
+        )
+        cmd = PiNativeProvider._build_command(task)
+        assert "--no-extensions" in cmd
+
+    def test_extension_paths(self):
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "pi",
+                "agent_extensions": {
+                    "extensions": ["/path/to/ext1", "/path/to/ext2"],
+                },
+            }
+        )
+        cmd = PiNativeProvider._build_command(task)
+        assert cmd.count("--extension") == 2
+        assert "/path/to/ext1" in cmd
+        assert "/path/to/ext2" in cmd
+
+    def test_skill_paths(self):
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "pi",
+                "agent_extensions": {
+                    "skills": ["/path/to/skill"],
+                },
+            }
+        )
+        cmd = PiNativeProvider._build_command(task)
+        assert "--skill" in cmd
+        assert "/path/to/skill" in cmd
+
+    def test_no_skills_flag(self):
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "pi",
+                "agent_extensions": {"no_skills": True},
+            }
+        )
+        cmd = PiNativeProvider._build_command(task)
+        assert "--no-skills" in cmd
+
+    def test_no_context_files_flag(self):
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "pi",
+                "agent_extensions": {"no_context_files": True},
+            }
+        )
+        cmd = PiNativeProvider._build_command(task)
+        assert "--no-context-files" in cmd
+
+    def test_mcp_config_maps_to_extension(self):
+        """mcp_config → --extension (Pi loads MCP via extensions)."""
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "pi",
+                "mcp_config": "/path/to/mcp.json",
+            }
+        )
+        cmd = PiNativeProvider._build_command(task)
+        assert "--extension" in cmd
+        assert "/path/to/mcp.json" in cmd
+
+    def test_combined_pipeline_flags(self):
+        """Typical pipeline invocation with multiple flags."""
+        task = self._task(
+            {
+                "prompt": "implement feature X",
+                "agent": "pi",
+                "model": "argo:claude-opus-4.6",
+                "session_id": "my-session",
+                "agent_extensions": {
+                    "thinking": "high",
+                    "approve": True,
+                    "no_extensions": True,
+                    "skills": ["/path/to/skill"],
+                },
+            }
+        )
+        cmd = PiNativeProvider._build_command(task)
+        assert "--model" in cmd
+        assert "--session-id" in cmd
+        assert "--thinking" in cmd
+        assert "high" in cmd
+        assert "--approve" in cmd
+        assert "--no-extensions" in cmd
+        assert "--skill" in cmd
 
     def test_with_allowed_tools(self):
         task = self._task(
@@ -575,6 +751,6 @@ class TestCapabilities:
         assert caps["supports_tool_filtering"] is True
         assert caps["supports_session_resume"] is True
         assert caps["supports_permissions"] is False
-        assert caps["supports_mcp"] is False
+        assert caps["supports_mcp"] is True
         assert caps["supports_multi_turn"] is True
         assert caps["transport"] == "subprocess"

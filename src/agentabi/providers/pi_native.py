@@ -66,7 +66,7 @@ class PiNativeProvider:
             "name": "Pi",
             "agent_type": "pi",
             "supports_streaming": True,
-            "supports_mcp": False,
+            "supports_mcp": True,
             "supports_session_resume": True,
             "supports_system_prompt": True,
             "supports_tool_filtering": True,
@@ -152,9 +152,60 @@ class PiNativeProvider:
         if "append_system_prompt" in task:
             cmd.extend(["--append-system-prompt", task["append_system_prompt"]])
 
-        if "session_id" in task and task.get("resume"):
-            cmd.extend(["--session", task["session_id"]])
+        ext = task.get("agent_extensions") or {}
+        PiNativeProvider._add_session_flags(cmd, task, ext)
+        PiNativeProvider._add_extension_flags(cmd, ext)
+        PiNativeProvider._add_tool_flags(cmd, task)
 
+        if "mcp_config" in task:
+            cmd.extend(["--extension", task["mcp_config"]])
+
+        cmd.append(task["prompt"])
+        return cmd
+
+    @staticmethod
+    def _add_session_flags(
+        cmd: list[str], task: TaskConfig, ext: dict[str, Any]
+    ) -> None:
+        """Append session flags to command."""
+        if ext.get("no_session"):
+            cmd.append("--no-session")
+        elif "session_id" in task:
+            if task.get("resume"):
+                cmd.extend(["--session", task["session_id"]])
+            else:
+                cmd.extend(["--session-id", task["session_id"]])
+        elif task.get("resume"):
+            cmd.append("--continue")
+
+    @staticmethod
+    def _add_extension_flags(cmd: list[str], ext: dict[str, Any]) -> None:
+        """Append Pi-specific flags from agent_extensions."""
+        thinking = ext.get("thinking")
+        if thinking:
+            cmd.extend(["--thinking", thinking])
+
+        if ext.get("approve"):
+            cmd.append("--approve")
+        elif ext.get("no_approve"):
+            cmd.append("--no-approve")
+
+        if ext.get("no_extensions"):
+            cmd.append("--no-extensions")
+        for e in ext.get("extensions") or []:
+            cmd.extend(["--extension", e])
+
+        for s in ext.get("skills") or []:
+            cmd.extend(["--skill", s])
+        if ext.get("no_skills"):
+            cmd.append("--no-skills")
+
+        if ext.get("no_context_files"):
+            cmd.append("--no-context-files")
+
+    @staticmethod
+    def _add_tool_flags(cmd: list[str], task: TaskConfig) -> None:
+        """Append tool allow/deny flags."""
         if "allowed_tools" in task:
             cmd.extend(["--tools", ",".join(task["allowed_tools"])])
         elif task.get("permissions") and "allowed_tools" in task["permissions"]:
@@ -169,9 +220,6 @@ class PiNativeProvider:
                     ",".join(task["permissions"]["disallowed_tools"]),
                 ]
             )
-
-        cmd.append(task["prompt"])
-        return cmd
 
     # ========== Private: event parsing ==========
 
