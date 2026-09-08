@@ -18,7 +18,6 @@ from .events import (
     MessageStartEvent,
     PermissionRequestEvent,
     PermissionResponseEvent,
-    ProviderPassthroughEvent,
     ReasoningDeltaEvent,
     SessionEndEvent,
     SessionStartEvent,
@@ -47,7 +46,6 @@ EVENT_TYPE_MAP: dict[str, type[IREvent]] = {
     "usage": UsageEvent,
     "error": ErrorEvent,
     "file_diff": FileDiffEvent,
-    "provider_passthrough": ProviderPassthroughEvent,
 }
 
 

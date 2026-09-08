@@ -322,12 +322,13 @@ class PiNativeProvider:
                 reasoning: ReasoningDeltaEvent = {
                     "type": "reasoning_delta",
                     "reasoning": delta_text,
+                    "block_index": max(0, self._block_index - 1),
                 }
                 return [reasoning]
         elif event_subtype == "thinking_end":
             block_end: ContentBlockEndEvent = {
                 "type": "content_block_end",
-                "block_index": self._block_index - 1,
+                "block_index": max(0, self._block_index - 1),
             }
             return [block_end]
         elif event_subtype == "text_start":
@@ -341,7 +342,7 @@ class PiNativeProvider:
         elif event_subtype == "text_end":
             block_end_text: ContentBlockEndEvent = {
                 "type": "content_block_end",
-                "block_index": self._block_index - 1,
+                "block_index": max(0, self._block_index - 1),
             }
             return [block_end_text]
         return []

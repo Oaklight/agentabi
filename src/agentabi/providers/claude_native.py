@@ -400,6 +400,7 @@ class ClaudeNativeProvider:
                     rd: ReasoningDeltaEvent = {
                         "type": "reasoning_delta",
                         "reasoning": thinking,
+                        "block_index": inner.get("index", 0),
                     }
                     return [rd]
         elif inner_type == "content_block_start":
