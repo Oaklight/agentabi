@@ -1,5 +1,30 @@
 # 更新日志
 
+## [未发布]
+
+### 新增
+
+- **Antigravity CLI (agy) 提供者** — Google 的新 AI 编程助手 CLI，替代已停止维护的 Gemini CLI
+- `ThinkingLevel` 类型和 `thinking_level` 字段 — 跨 Claude（`--effort`）、Pi（`--thinking`）、OpenCode（`--variant`）的统一推理控制
+- `output_schema` 字段 — 结构化输出支持（Claude `--json-schema`、Codex `--output-schema`、agy `--json-schema`）
+- `ephemeral` 字段 — 不持久化会话（Claude `--no-session-persistence`、Codex `--ephemeral`、Pi `--no-session`）
+- `additional_dirs` 字段 — 多目录工作空间（Claude/Codex/agy `--add-dir`）
+- `files` 字段 — 文件/图片附件（Claude `--file`、Codex `--image`、OpenCode `--file`）
+- `ReasoningDeltaEvent` — 思考/推理文本流式事件（对齐 llm-rosetta）
+- `ContentBlockStartEvent` / `ContentBlockEndEvent` — 内容块边界事件（对齐 llm-rosetta）
+- `reasoning_tokens` 字段 — UsageInfo 中的推理 token 统计
+- `reasoning_text` 字段 — SessionResult 中的推理文本
+
+### 修复
+
+- 修正 `session_id` 映射 — 区分 `--session-id`（创建）、`--session`（恢复）、`--continue`（最近会话）
+- 修正 Pi 的 `supports_mcp` 能力声明（Pi 通过 `--extension` 支持 MCP）
+- 添加 `"pi"` 到 `AgentType` 字面量类型
+
+### 废弃
+
+- Gemini CLI 提供者已标记为废弃（Gemini CLI 于 2026 年 6 月停止维护），请使用 agy 替代
+
 ## v0.3.0 (2026-07-04)
 
 第五个 agent 支持（Pi）和文档改进。

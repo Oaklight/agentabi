@@ -31,12 +31,13 @@ class Provider(Protocol):
 Native provider 将 agent CLI 作为子进程运行，解析其结构化输出（JSON/JSONL）为 IR 事件。
 
 | Provider | Agent | CLI 命令 |
-|----------|-------|---------|
+|----------|-------|---------| 
 | `ClaudeNativeProvider` | `claude_code` | `claude -p <prompt> --output-format stream-json` |
 | `CodexNativeProvider` | `codex` | `codex exec --json --full-auto <prompt>` |
-| `GeminiNativeProvider` | `gemini_cli` | `gemini -o stream-json --approval-mode <mode> -p <prompt>` |
+| `AgyNativeProvider` | `agy` | `agy --output-format stream-json ... -p <prompt>` |
 | `OpenCodeNativeProvider` | `opencode` | `opencode run --format json -- <prompt>` |
 | `PiNativeProvider` | `pi` | `pi --print --mode json <prompt>` |
+| ~~`GeminiNativeProvider`~~ | `gemini_cli` | ~~`gemini -o stream-json --approval-mode <mode> -p <prompt>`~~ *（已废弃）* |
 
 Native provider **不需要额外的 Python 依赖** — 只需 CLI 可执行文件在 PATH 中。
 
@@ -48,9 +49,12 @@ SDK provider 使用 agent 的官方 Python SDK 进行直接 API 集成。
 |----------|-------|--------|
 | `ClaudeSDKProvider` | `claude_code` | `claude-agent-sdk` |
 | `CodexSDKProvider` | `codex` | `codex-sdk-python` |
-| `GeminiSDKProvider` | `gemini_cli` | `gemini-cli-sdk` |
+| ~~`GeminiSDKProvider`~~ | `gemini_cli` | ~~`gemini-cli-sdk`~~ *（已废弃）* |
 
 SDK provider 需要安装对应的可选依赖（如 `pip install agentabi[claude]`）。
+
+!!! warning "Gemini CLI 已废弃"
+    `GeminiNativeProvider` 和 `GeminiSDKProvider` 已标记为废弃。Gemini CLI 于 2026 年 6 月停止维护，请迁移到 `AgyNativeProvider`（`agent="agy"`）。
 
 ## Provider 注册表
 
@@ -60,9 +64,10 @@ SDK provider 需要安装对应的可选依赖（如 `pip install agentabi[claud
 {
     "claude_code": [ClaudeNativeProvider, ClaudeSDKProvider],
     "codex":       [CodexNativeProvider, CodexSDKProvider],
-    "gemini_cli":  [GeminiNativeProvider, GeminiSDKProvider],
+    "gemini_cli":  [GeminiNativeProvider, GeminiSDKProvider],  # 已废弃
     "opencode":    [OpenCodeNativeProvider],
     "pi":          [PiNativeProvider],
+    "agy":         [AgyNativeProvider],
 }
 ```
 

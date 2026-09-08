@@ -14,7 +14,7 @@ hide:
 
 **Coding Agent CLI 的统一 Python 接口。**
 
-agentabi 将多个 coding agent CLI — [Claude Code](https://github.com/anthropics/claude-code)、[Codex](https://github.com/openai/codex)、[Gemini CLI](https://github.com/google-gemini/gemini-cli) 和 [OpenCode](https://github.com/opencode-ai/opencode) — 封装在统一的异步 Python API 之下，并提供流式事件支持。
+agentabi 将多个 coding agent CLI — [Claude Code](https://github.com/anthropics/claude-code)、[Codex](https://github.com/openai/codex)、[Antigravity (agy)](https://github.com/google/anthropic-agy)、[OpenCode](https://github.com/opencode-ai/opencode) 和 [Pi](https://pi.dev/) — 封装在统一的异步 Python API 之下，并提供流式事件支持。
 
 ## 为什么选择 agentabi？
 
@@ -52,12 +52,14 @@ asyncio.run(main())
 
 ## 支持的 Agent
 
-| Agent | Provider 类型 | 传输方式 |
-|-------|-------------|---------|
-| Claude Code | Native（子进程）+ SDK | 子进程 / SDK |
-| Codex | Native（子进程）+ SDK | 子进程 / SDK |
-| Gemini CLI | Native（子进程）+ SDK | 子进程 / SDK |
-| OpenCode | Native（子进程） | 子进程 |
+| 助手 | 供应商 | 状态 |
+|------|--------|------|
+| Claude Code | Anthropic | 已实现 |
+| Codex | OpenAI | 已实现 |
+| Antigravity (agy) | Google | 已实现 |
+| OpenCode | 社区 | 已实现 |
+| Pi | 社区 | 已实现 |
+| ~~Gemini CLI~~ | Google | 已废弃（请使用 agy） |
 
 ## 开始使用
 

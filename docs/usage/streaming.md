@@ -23,6 +23,9 @@ async def main():
         elif etype == "message_end":
             print()  # 消息结束换行
 
+        elif etype == "reasoning_delta":
+            print(f"[思考] {event['reasoning']}", end="", flush=True)
+
         elif etype == "tool_use":
             print(f"\n[工具] {event['tool_name']}({event['tool_input']})")
 
@@ -48,11 +51,14 @@ asyncio.run(main())
 所有 agent 产生统一的 IR 事件：
 
 | 事件类型 | 描述 | 关键字段 |
-|---------|------|---------|
+|---------|------|---------| 
 | `session_start` | 会话初始化 | `session_id`, `agent`, `model` |
 | `message_start` | 助手回复开始 | `role` |
 | `message_delta` | 流式文本片段 | `text` |
 | `message_end` | 助手回复结束 | `text`（可选完整文本）, `stop_reason` |
+| `content_block_start` | 内容块开始 | 块索引和类型 |
+| `content_block_end` | 内容块结束 | 块索引 |
+| `reasoning_delta` | 推理文本片段 | 思考/推理内容 |
 | `tool_use` | 工具调用 | `tool_use_id`, `tool_name`, `tool_input` |
 | `tool_result` | 工具输出 | `tool_use_id`, `content`, `is_error` |
 | `usage` | Token 使用统计 | `usage`（字典）, `cost_usd` |
@@ -83,6 +89,23 @@ session_start
     tool_use (name=read_file, input={path: "main.py"})
     tool_result (content="文件内容...")
     message_delta (文本)
+  message_end
+  usage
+session_end
+```
+
+包含推理/思考时：
+
+```
+session_start
+  message_start
+    content_block_start (block_type="thinking")
+      reasoning_delta (推理文本)
+      reasoning_delta (推理文本)
+    content_block_end
+    content_block_start (block_type="text")
+      message_delta (文本片段)
+    content_block_end
   message_end
   usage
 session_end

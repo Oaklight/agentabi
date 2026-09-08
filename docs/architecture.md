@@ -14,17 +14,23 @@ graph TD
     B --> C{Provider 注册表}
     C --> D[ClaudeNativeProvider]
     C --> E[CodexNativeProvider]
-    C --> F[GeminiNativeProvider]
+    C --> F[AgyNativeProvider]
     C --> G[OpenCodeNativeProvider]
-    D --> H[claude CLI]
-    E --> I[codex CLI]
-    F --> J[gemini CLI]
-    G --> K[opencode CLI]
-    D --> L[IR 事件]
-    E --> L
-    F --> L
-    G --> L
-    L --> B
+    C --> H[PiNativeProvider]
+    C --> I[GeminiNativeProvider ⚠️ 已废弃]
+    D --> J[claude CLI]
+    E --> K[codex CLI]
+    F --> L[agy CLI]
+    G --> M[opencode CLI]
+    H --> N[pi CLI]
+    I --> O[gemini CLI ⚠️]
+    D --> P[IR 事件]
+    E --> P
+    F --> P
+    G --> P
+    H --> P
+    I --> P
+    P --> B
 ```
 
 ## Provider 模型
@@ -51,8 +57,10 @@ graph TD
 ```
 claude_code → [ClaudeNativeProvider, ClaudeSDKProvider]
 codex       → [CodexNativeProvider, CodexSDKProvider]
-gemini_cli  → [GeminiNativeProvider, GeminiSDKProvider]
+agy         → [AgyNativeProvider]
 opencode    → [OpenCodeNativeProvider]
+pi          → [PiNativeProvider]
+gemini_cli  → [GeminiNativeProvider, GeminiSDKProvider]  # 已废弃
 ```
 
 如果 native provider 可用（CLI 在 PATH 中），优先使用。否则尝试 SDK provider。
@@ -74,6 +82,8 @@ IR 是一组 TypedDict 事件类型，将所有 agent 的输出归一化为通�
 |-----|------|------|
 | 会话生命周期 | `session_start`, `session_end` | 会话边界 |
 | 消息流 | `message_start`, `message_delta`, `message_end` | 文本流式输出 |
+| 内容块 | `content_block_start`, `content_block_end` | 内容类型边界（对齐 llm-rosetta） |
+| 推理 | `reasoning_delta` | 思考/推理文本流（对齐 llm-rosetta） |
 | 工具执行 | `tool_use`, `tool_result` | 工具调用追踪 |
 | 元数据 | `usage`, `error`, `file_diff` | 统计和诊断 |
 | 权限 | `permission_request`, `permission_response` | 审批流程 |
@@ -92,9 +102,11 @@ src/agentabi/
 │   ├── claude_sdk.py    # Claude SDK provider
 │   ├── codex_native.py  # Codex 子进程 provider
 │   ├── codex_sdk.py     # Codex SDK provider
-│   ├── gemini_native.py # Gemini 子进程 provider
-│   ├── gemini_sdk.py    # Gemini SDK provider
-│   └── opencode_native.py # OpenCode 子进程 provider
+│   ├── agy_native.py    # Antigravity (agy) 子进程 provider
+│   ├── opencode_native.py # OpenCode 子进程 provider
+│   ├── pi_native.py     # Pi 子进程 provider
+│   ├── gemini_native.py # Gemini 子进程 provider（已废弃）
+│   └── gemini_sdk.py    # Gemini SDK provider（已废弃）
 └── types/
     └── ir/
         ├── events.py       # IR 事件 TypedDict

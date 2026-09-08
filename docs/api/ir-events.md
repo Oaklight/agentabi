@@ -54,6 +54,72 @@
 }
 ```
 
+### 内容块事件
+
+内容块事件标记消息中不同内容类型（文本、思考、工具调用）的边界，对齐 llm-rosetta 的 `ContentBlockStartEvent` / `ContentBlockEndEvent`。
+
+#### ContentBlockStartEvent
+
+内容块开始。`block_type` 指明块的类型。
+
+```python
+{
+    "type": "content_block_start",
+    "block_index": 0,
+    "block_type": "text",  # "text" | "thinking" | "tool_use"
+}
+```
+
+**字段说明：**
+
+| 字段 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `type` | `Literal["content_block_start"]` | 是 | 事件类型标识 |
+| `block_index` | `int` | 是 | 块在消息中的索引（从 0 开始） |
+| `block_type` | `str` | 是 | 块类型：`"text"`、`"thinking"`、`"tool_use"` |
+
+#### ContentBlockEndEvent
+
+内容块结束。
+
+```python
+{
+    "type": "content_block_end",
+    "block_index": 0,
+}
+```
+
+**字段说明：**
+
+| 字段 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `type` | `Literal["content_block_end"]` | 是 | 事件类型标识 |
+| `block_index` | `int` | 是 | 对应的块索引 |
+
+### 推理事件
+
+推理事件捕获模型的内部推理/思考过程（如 Claude 的 extended thinking、Pi 的 thinking deltas），对齐 llm-rosetta 的 `ReasoningDeltaEvent`。
+
+#### ReasoningDeltaEvent
+
+推理/思考文本的流式片段。
+
+```python
+{
+    "type": "reasoning_delta",
+    "reasoning": "让我分析一下这个问题...",
+    "block_index": 0,  # 可选
+}
+```
+
+**字段说明：**
+
+| 字段 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `type` | `Literal["reasoning_delta"]` | 是 | 事件类型标识 |
+| `reasoning` | `str` | 是 | 推理/思考文本片段 |
+| `block_index` | `int` | 否 | 对应的内容块索引 |
+
 ### ToolUseEvent
 
 Agent 调用工具。
@@ -94,6 +160,7 @@ Agent 调用工具。
         "total_tokens": 1700,
         "cache_read_tokens": 500,       # 可选
         "cache_creation_tokens": 100,   # 可选
+        "reasoning_tokens": 50,         # 可选，推理 token 数
     },
     "cost_usd": 0.0042,  # 可选
 }
@@ -168,6 +235,9 @@ IREvent = Union[
     MessageStartEvent,
     MessageDeltaEvent,
     MessageEndEvent,
+    ContentBlockStartEvent,
+    ContentBlockEndEvent,
+    ReasoningDeltaEvent,
     ToolUseEvent,
     ToolResultEvent,
     PermissionRequestEvent,
