@@ -5,23 +5,24 @@
 [![CI](https://github.com/Oaklight/agentabi/actions/workflows/ci.yml/badge.svg)](https://github.com/Oaklight/agentabi/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-Agentic 编程 CLI 的统一接口层。
+AI 编程助手 CLI 的统一接口层。
 
-一套接口，任意 Agent。
+一套接口，任意编程助手。
 
 ## 什么是 agentabi？
 
-`agentabi` 为不同的 agentic 编程 CLI 提供稳定、统一的接口（一个"ABI"）。只需编写一次集成代码，通过配置切换不同的 agent 后端。
+`agentabi` 为各种 AI 编程助手 CLI 提供稳定、统一的接口（类似"ABI"）。编写一次集成代码，通过配置切换不同的编程助手。
 
-### 支持的 Agent
+### 支持的编程助手
 
-| Agent | 提供方 | 状态 |
-|-------|--------|------|
+| 助手 | 供应商 | 状态 |
+|------|--------|------|
 | [Claude Code](https://github.com/anthropics/claude-code) | Anthropic | 已实现 |
 | [Codex](https://github.com/openai/codex) | OpenAI | 已实现 |
-| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Google | 已实现 |
-| [OpenCode](https://opencode.ai) | 开源 | 已实现 |
-| [Pi](https://pi.dev/) | 开源 | 已实现 |
+| [Antigravity (agy)](https://github.com/google/anthropic-agy) | Google | 已实现 |
+| [OpenCode](https://github.com/opencode-ai/opencode) | 社区 | 已实现 |
+| [Pi](https://github.com/anthropics/pi) | 社区 | 已实现 |
+| ~~Gemini CLI~~ | Google | 已废弃（请使用 agy） |
 
 ## 安装
 
@@ -29,20 +30,16 @@ Agentic 编程 CLI 的统一接口层。
 pip install agentabi
 ```
 
-安装可选的 SDK 集成：
+> **注意：** 还需要安装至少一个编程助手 CLI：`claude`、`codex`、`agy`、`opencode` 或 `pi`。
+
+### 可选 SDK 依赖
 
 ```bash
-pip install agentabi[claude]   # Claude Code SDK 支持
-pip install agentabi[codex]    # Codex SDK 支持
-pip install agentabi[gemini]   # Gemini CLI SDK 支持
-pip install agentabi[all]      # 所有可选 SDK
+pip install agentabi[claude]    # Claude Agent SDK
+pip install agentabi[codex]     # Codex SDK
 ```
 
-> **注意：** 各 agent 的 CLI 需要单独安装（如 `claude`、`codex`、`gemini`、`opencode`、`pi`）。
-
 ## 快速开始
-
-### 运行任务
 
 ```python
 import asyncio
@@ -50,59 +47,43 @@ from agentabi import Session
 
 async def main():
     session = Session(agent="claude_code")
-    result = await session.run(prompt="Fix the bug in auth.py")
-    print(result["status"])       # "success"
-    print(result["result_text"])  # agent 的回复
+    result = await session.run(prompt="What is 2+2?")
+    print(result["result_text"])
 
 asyncio.run(main())
 ```
 
-### 流式事件
+## 核心特性
 
-```python
-async for event in session.stream(prompt="Explain this code"):
-    if event["type"] == "message_delta":
-        print(event["text"], end="")
-```
+### 统一的 TaskConfig
 
-### 同步便捷接口
+所有编程助手接受相同的 `TaskConfig`，包含以下字段：
 
-```python
-from agentabi import run_sync
+- **助手选择**：`agent`、`model`
+- **推理控制**：`thinking_level`（`"off"`、`"low"`、`"medium"`、`"high"`、`"max"`）
+- **结构化输出**：`output_schema`（JSON Schema）
+- **会话管理**：`session_id`、`resume`、`ephemeral`
+- **工作空间**：`working_dir`、`additional_dirs`、`files`
+- **权限控制**：`permissions`、`allowed_tools`、`disallowed_tools`
+- **系统提示**：`system_prompt`、`append_system_prompt`
 
-result = run_sync(prompt="List Python files", agent="codex")
-```
+### 统一的 IR 事件
 
-### 发现可用 agent
+所有编程助手发出相同的流式事件：
 
-```python
-from agentabi import detect_agents, get_agent_capabilities
+- `session_start` / `session_end` — 会话生命周期
+- `message_start` / `message_delta` / `message_end` — 文本流式输出
+- `content_block_start` / `content_block_end` — 内容块边界
+- `reasoning_delta` — 思考/推理文本（Claude、Pi）
+- `tool_use` / `tool_result` — 工具调用
+- `usage` — token 使用统计（包含 `reasoning_tokens`）
+- `error` — 错误报告
 
-agents = detect_agents()          # ["claude_code", "codex", ...]
-caps = get_agent_capabilities("claude_code")
-print(caps["supports_streaming"]) # True
-```
+## 文档
 
-## 使用场景
-
-- **Fleet 管理** — 多个编程 agent 的统一入口
-- **Agent 间调用** — 跨 agent 互操作的翻译层
-- **基准测试** — 同一任务分发给多个 agent，对比结果质量、速度、成本
-- **容错与路由** — 自动 failover 和基于成本的智能路由
-- **中间件管道** — 注入日志、计量、安全扫描、审计追踪
-- **CI/CD 集成** — 无供应商锁定的 agent 流水线集成
-
-## 生态系统
-
-`agentabi` 是分层架构栈的一部分：
-
-```
-agentabi  →  Agent CLI 统一接口    →  类似操作系统的 ABI
-llm-rosetta  →  LLM API 格式转换      →  类似编译器的 IR
-```
-
-- [llm-rosetta](https://github.com/Oaklight/llm-rosetta) — LLM API 格式转换层，用于在不同 LLM 提供商 API 格式之间转换（OpenAI、Anthropic、Google）
+- [English docs](https://agentabi-en.readthedocs.io/)
+- [中文文档](https://agentabi-zh.readthedocs.io/)
 
 ## 许可证
 
-[MIT](LICENSE)
+MIT

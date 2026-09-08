@@ -19,9 +19,10 @@ One interface. Any coding agent.
 |-------|----------|--------|
 | [Claude Code](https://github.com/anthropics/claude-code) | Anthropic | Implemented |
 | [Codex](https://github.com/openai/codex) | OpenAI | Implemented |
-| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Google | Implemented |
-| [OpenCode](https://opencode.ai) | Open Source | Implemented |
-| [Pi](https://pi.dev/) | Open Source | Implemented |
+| [Antigravity (agy)](https://github.com/google/anthropic-agy) | Google | Implemented |
+| [OpenCode](https://github.com/opencode-ai/opencode) | Community | Implemented |
+| [Pi](https://github.com/anthropics/pi) | Community | Implemented |
+| ~~Gemini CLI~~ | Google | Deprecated (use agy) |
 
 ## Installation
 
@@ -29,20 +30,16 @@ One interface. Any coding agent.
 pip install agentabi
 ```
 
-With optional SDK integrations:
+> **Note:** You also need at least one agent CLI installed: `claude`, `codex`, `agy`, `opencode`, or `pi`.
+
+### Optional SDK dependencies
 
 ```bash
-pip install agentabi[claude]   # Claude Code SDK support
-pip install agentabi[codex]    # Codex SDK support
-pip install agentabi[gemini]   # Gemini CLI SDK support
-pip install agentabi[all]      # All optional SDKs
+pip install agentabi[claude]    # Claude Agent SDK
+pip install agentabi[codex]     # Codex SDK
 ```
 
-> **Note:** Each agent's CLI must be installed separately (e.g., `claude`, `codex`, `gemini`, `opencode`, `pi`).
-
 ## Quick Start
-
-### Run a task
 
 ```python
 import asyncio
@@ -50,59 +47,43 @@ from agentabi import Session
 
 async def main():
     session = Session(agent="claude_code")
-    result = await session.run(prompt="Fix the bug in auth.py")
-    print(result["status"])       # "success"
-    print(result["result_text"])  # agent's response
+    result = await session.run(prompt="What is 2+2?")
+    print(result["result_text"])
 
 asyncio.run(main())
 ```
 
-### Stream events
+## Key Features
 
-```python
-async for event in session.stream(prompt="Explain this code"):
-    if event["type"] == "message_delta":
-        print(event["text"], end="")
-```
+### Unified TaskConfig
 
-### Sync convenience
+All agents accept the same `TaskConfig` with fields for:
 
-```python
-from agentabi import run_sync
+- **Agent selection**: `agent`, `model`
+- **Reasoning control**: `thinking_level` (`"off"`, `"low"`, `"medium"`, `"high"`, `"max"`)
+- **Structured output**: `output_schema` (JSON Schema)
+- **Session management**: `session_id`, `resume`, `ephemeral`
+- **Workspace**: `working_dir`, `additional_dirs`, `files`
+- **Permissions**: `permissions`, `allowed_tools`, `disallowed_tools`
+- **System prompts**: `system_prompt`, `append_system_prompt`
 
-result = run_sync(prompt="List Python files", agent="codex")
-```
+### Unified IR Events
 
-### Discover available agents
+All agents emit the same streaming events:
 
-```python
-from agentabi import detect_agents, get_agent_capabilities
+- `session_start` / `session_end` — session lifecycle
+- `message_start` / `message_delta` / `message_end` — text streaming
+- `content_block_start` / `content_block_end` — content block boundaries
+- `reasoning_delta` — thinking/reasoning text (Claude, Pi)
+- `tool_use` / `tool_result` — tool calls
+- `usage` — token counts (including `reasoning_tokens`)
+- `error` — error reporting
 
-agents = detect_agents()          # ["claude_code", "codex", ...]
-caps = get_agent_capabilities("claude_code")
-print(caps["supports_streaming"]) # True
-```
+## Documentation
 
-## Use Cases
-
-- **Fleet Management** — Unified entry point for managing multiple coding agents
-- **Agent-to-Agent Calls** — Translation layer for inter-agent invocation
-- **Benchmarking** — Run the same task across agents, compare results
-- **Fallback & Routing** — Automatic failover and cost-aware routing
-- **Middleware Pipeline** — Inject logging, metering, security scanning, audit trails
-- **CI/CD Integration** — Vendor-agnostic agent integration for pipelines
-
-## Ecosystem
-
-`agentabi` is part of a layered stack:
-
-```
-agentabi  →  Agent CLI unified interface  →  like an OS ABI
-llm-rosetta  →  LLM API format conversion    →  like a compiler IR
-```
-
-- [llm-rosetta](https://github.com/Oaklight/llm-rosetta) — LLM API format conversion layer for translating between LLM provider API formats (OpenAI, Anthropic, Google)
+- [English docs](https://agentabi-en.readthedocs.io/)
+- [中文文档](https://agentabi-zh.readthedocs.io/)
 
 ## License
 
-[MIT](LICENSE)
+MIT
