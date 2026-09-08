@@ -1,5 +1,7 @@
 # Gemini CLI
 
+> **⚠️ DEPRECATED**: Gemini CLI was discontinued on June 18, 2026. It has been replaced by [Antigravity CLI (agy)](agy.md). This file is preserved for historical reference.
+
 > **Vendor**: Google
 > **Command**: `gemini`
 > **Language**: TypeScript (Node.js)

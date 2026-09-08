@@ -1,169 +1,169 @@
-# Cursor CLI (cursor-agent)
+# Pi Coding Agent
 
-> **Vendor**: Anysphere (Cursor)
-> **Command**: `cursor-agent`
+> **Vendor**: Earendil Works (community)
+> **Command**: `pi`
+> **Package**: `@earendil-works/pi-coding-agent`
 > **Language**: TypeScript (Node.js)
-> **Install**: `curl https://cursor.com/install -fsS | bash`
-> **Docs**: https://docs.cursor.com/docs/cli/overview
-> **Note**: Originally known as "Pi" internally. The community project "anon-kode" was an unofficial fork of Claude Code that supported any OpenAI-compatible model; it was taken down via DMCA by Anthropic. Cursor CLI (`cursor-agent`) is Cursor's official terminal agent, distinct from anon-kode.
+> **Version tested**: 0.85.1
 
 ## Invocation
 
-- **Interactive mode**: `cursor-agent` or `cursor-agent "prompt"` (launches TUI)
-- **Headless/print mode**: `cursor-agent -p "prompt"` or `cursor-agent -p -m <model> "prompt"`
-- **Key CLI flags**:
-  - `-p` / `--print` — non-interactive mode (outputs result to stdout)
-  - `--output-format text|json|stream-json` — output format
-  - `--force` — allow file writes in print mode (otherwise changes are only proposed)
-  - `-m` / `--model <name>` — select model (any model in Cursor subscription)
-  - `--resume <id>` — resume a specific session
-- **Session management**:
-  - `cursor-agent ls` — list sessions
-  - `cursor-agent resume` — resume most recent or by ID
-- **Other commands**:
-  - `cursor-agent update` — manual upgrade
-  - `cursor-agent mcp ...` — manage MCP servers
-  - `cursor-agent chat "prompt"` — direct chat mode
+### Interactive mode
 
-## Output Format
-
-- **Default**: Human-readable text with progress lines
-- **JSON**: `--output-format json` — single result JSON object
-- **Streaming JSONL**: `--output-format stream-json` — NDJSON events (system init, deltas, tool calls, result)
-- **Plain text**: `--output-format text` — progress lines
-
-### Output format (JSON) example
-
-```json
-{
-  "type": "result",
-  "subtype": "success",
-  "result": "The code review found 3 issues...",
-  "session_id": "abc-123-def",
-  "usage": {
-    "input_tokens": 5000,
-    "output_tokens": 200
-  }
-}
+```bash
+pi                               # starts interactive TUI
+pi "initial prompt"              # interactive with initial prompt
+pi @prompt.md @image.png "msg"   # attach files to initial message
 ```
 
-## Input Format
+### Non-interactive (print) mode
 
-- **CLI argument**: `cursor-agent -p "prompt text"`
-- **Interactive input**: Type in the TUI editor, send with Ctrl+S
-- **Context selection**: Use `@` to include specific files or folders
-- **Follow-up**: Use `I` key in interactive mode to add instructions
-- **Compress**: `/compress` command to shrink context
+```bash
+pi -p "prompt"                   # print mode, text output
+pi -p --mode json "prompt"       # JSON streaming output
+pi -p --mode rpc "prompt"        # RPC mode
+```
+
+## CLI Flags
+
+### Core flags
+
+| Flag | Purpose |
+|------|---------|
+| `--print, -p` | Non-interactive mode |
+| `--mode <mode>` | Output mode: `text` (default), `json`, `rpc` |
+| `--model <pattern>` | Model pattern/ID (supports `provider/id` and `:<thinking>` suffix) |
+| `--provider <name>` | Provider name |
+| `--api-key <key>` | API key override |
+| `--system-prompt <text>` | System prompt |
+| `--append-system-prompt <text>` | Append to system prompt (repeatable) |
+| `--verbose` | Force verbose startup |
+
+### Reasoning control
+
+| Flag | Purpose |
+|------|---------|
+| `--thinking <level>` | Thinking level: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` |
+| `--models <patterns>` | Comma-separated model patterns for Ctrl+P cycling (supports globs, `:<thinking>` suffix) |
+
+### Session management
+
+| Flag | Purpose |
+|------|---------|
+| `--session <path\|id>` | Use specific session file or partial UUID (must exist) |
+| `--session-id <id>` | Use exact project session ID (create-if-missing) |
+| `--continue, -c` | Continue previous session |
+| `--resume, -r` | Select a session to resume |
+| `--fork <path\|id>` | Fork session into new session |
+| `--no-session` | Ephemeral mode (don't save) |
+| `--name, -n <name>` | Session display name |
+| `--session-dir <dir>` | Directory for session storage |
+| `--export <file>` | Export session to HTML |
+
+### Tool control
+
+| Flag | Purpose |
+|------|---------|
+| `--tools, -t <tools>` | Comma-separated allowlist of tool names |
+| `--exclude-tools, -xt <tools>` | Comma-separated denylist of tool names |
+| `--no-tools, -nt` | Disable all tools |
+| `--no-builtin-tools, -nbt` | Disable built-in tools only |
+
+### Extension/MCP control
+
+| Flag | Purpose |
+|------|---------|
+| `--extension, -e <path>` | Load extension file (repeatable) |
+| `--no-extensions, -ne` | Disable extension discovery |
+| `--skill <path>` | Load skill file/directory (repeatable) |
+| `--no-skills, -ns` | Disable skills discovery |
+| `--approve, -a` | Trust project-local files |
+| `--no-approve, -na` | Ignore project-local files |
+| `--no-context-files, -nc` | Disable AGENTS.md/CLAUDE.md discovery |
+
+### Theme/template control
+
+| Flag | Purpose |
+|------|---------|
+| `--prompt-template <path>` | Load prompt template (repeatable) |
+| `--no-prompt-templates, -np` | Disable template discovery |
+| `--theme <path>` | Load theme file (repeatable) |
+| `--use-theme <name>` | Set initial theme |
+| `--no-themes` | Disable theme discovery |
+| `--tui-mode <mode>` | TUI mode: `regular` or `fullscreen` |
+
+## Output Format (JSON mode)
+
+```jsonl
+{"type":"session","version":3,"id":"...","timestamp":"...","cwd":"..."}
+{"type":"agent_start"}
+{"type":"turn_start"}
+{"type":"message_start","message":{"role":"user","content":[...]}}
+{"type":"message_end","message":{"role":"user","content":[...]}}
+{"type":"message_start","message":{"role":"assistant","content":[],"api":"anthropic-messages","provider":"...","model":"..."}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_start","contentIndex":0}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":"..."}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_end","contentIndex":0,"content":"..."}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_start","contentIndex":1}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":1,"delta":"..."}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_end","contentIndex":1,"content":"..."}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"thinking",...},{"type":"text",...}],"stopReason":"stop"}}
+{"type":"tool_execution_start","toolCallId":"...","toolName":"bash","args":{...}}
+{"type":"tool_execution_end","toolCallId":"...","result":{"content":[{"type":"text","text":"..."}]},"isError":false}
+{"type":"turn_end","message":{"role":"assistant","model":"...","usage":{...},"stopReason":"stop"}}
+{"type":"agent_end","messages":[...],"willRetry":false}
+```
+
+### Message update subtypes
+
+| Subtype | Description |
+|---------|-------------|
+| `thinking_start` | Thinking block begins |
+| `thinking_delta` | Thinking text fragment |
+| `thinking_end` | Thinking block ends (includes full content) |
+| `text_start` | Text block begins |
+| `text_delta` | Text fragment |
+| `text_end` | Text block ends (includes full content) |
 
 ## Permission Model
 
-- **Interactive mode**: CLI asks for approval (Y/N) before shell commands
-- **Print mode**: File writes gated behind `--force` flag (without it, changes are proposed but not applied)
-- **Permission rules**: Configure in `.cursor/cli.json` or `~/.cursor/cli-config.json`
-  - Allow/deny tokens: `Shell(git)`, `Read(src/**/*.ts)`, `Write(package.json)`
-  - Similar syntax to Claude Code's `--allowedTools`
-- **Trust model**: MCP tools require the workspace to be "trusted" via an interactive session first before headless use
-- **Levels** (inferred from Claude Code heritage):
-  - Default: approve each action
-  - Restricted: deny rules limit available tools
-  - Full autonomy: for sandbox/CI environments
+Pi does not have a CLI-level permission mode flag. Project trust is controlled via:
 
-## Session Management
+- `--approve, -a` — Trust project-local files (AGENTS.md, skills, etc.) for this run
+- `--no-approve, -na` — Ignore project-local files
 
-- **Session creation**: Automatic on invocation
-- **List sessions**: `cursor-agent ls`
-- **Resume session**: `cursor-agent resume` (most recent) or `cursor-agent resume --resume <id>`
-- **Storage**: Local filesystem
-- **History model**: Linear conversation transcript
-- **Context management**: `/compress` to summarize and reduce token usage
+## MCP Support
 
-## Tool System
+Yes, via the extension system:
 
-### Built-in tools
+- `--extension, -e <path>` — Load MCP extension file
+- Extensions are discovered automatically unless `--no-extensions` is set
+- `pi install <source>` / `pi remove <source>` — Install/remove extension sources
+- `pi list` — List installed extensions
+- `pi config` — TUI for enabling/disabling package resources
 
-| Tool | Description |
-|------|-------------|
-| File read | Read file contents |
-| File write | Create/modify files (requires `--force` in print mode) |
-| File edit | Find-and-replace editing |
-| Shell execution | Run shell commands (with approval) |
-| Codebase search | Search across project files |
-| Web search | Search the web |
+## Built-in Tools
 
-### MCP support
-
-- **Yes**, via `mcp.json` configuration file
-- Auto-discovers MCP servers from project `mcp.json`
-- Can list servers/tools via `cursor-agent mcp ...`
-- **Limitation**: In headless mode, MCP tools require prior interactive trust of the workspace
-- Configuration format (same as Claude Code):
-```json
-{
-  "mcpServers": {
-    "playwright": {
-      "command": "npx",
-      "args": ["@playwright/mcp@latest"]
-    }
-  }
-}
-```
-
-### Custom tool extension
-
-- MCP servers provide the extension mechanism
-- Cursor also supports Plugins and Skills systems from the IDE
+`read`, `bash`, `edit`, `write`, `grep` (off by default), `find` (off by default), `ls` (off by default)
 
 ## Configuration
 
-- **Project config files**:
-  - `.cursor/rules/` — repo-scoped rules
-  - `AGENTS.md` — agent instructions (read by CLI)
-  - `CLAUDE.md` — also read by CLI (Claude Code compatibility)
-- **User/global config**: `~/.cursor/cli-config.json`
-- **Project config**: `.cursor/cli.json`
-- **Environment variables**:
-  - `CURSOR_API_KEY` — API key for headless/CI authentication
-- **Rules system**: Same `.cursor/rules` as Cursor IDE
+- Settings: `~/.pi/agent/settings.json` (provider, model, theme)
+- Models: `~/.pi/agent/models.json` (custom provider endpoints and model definitions)
+- Context files: AGENTS.md, CLAUDE.md (auto-discovered unless `--no-context-files`)
+- Auth: Provider-specific env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, etc.)
 
-## Streaming Events Schema
+### Supported providers
 
-When using `--output-format stream-json`, events are emitted as NDJSON. Based on the Claude Code heritage, the event schema is very similar:
+40+ providers including: Anthropic, OpenAI, Azure, Google, DeepSeek, Groq, AWS Bedrock, Cloudflare, and many more (via `models.json` configuration).
 
-### Event types
+## Subcommands
 
-| Event type | Description | Semantic Category |
-|---|---|---|
-| System init | Session metadata, tools, model | `session_lifecycle` |
-| Assistant message | Text + tool_use content blocks | `message_streaming` |
-| User/tool result | Tool execution results | `tool_call` |
-| Result | Final outcome with usage | `session_lifecycle` |
-| Stream event | Token-level deltas | `message_streaming` |
-
-### Example (result event from headless mode)
-
-```json
-{
-  "type": "result",
-  "subtype": "success",
-  "result": "Generated a txt file with top largest density materials",
-  "session_id": "...",
-  "is_error": false,
-  "duration_ms": 4500
-}
-```
-
-**Note**: The exact streaming event schema for cursor-agent is not fully documented publicly. Based on community reports, it closely mirrors Claude Code's `stream-json` format (system, assistant, user, result, stream_event types) since cursor-agent shares architectural heritage with Claude Code's CLI design.
-
-## Programmatic API / SDK
-
-- **CLI-based**: Primary programmatic interface is `cursor-agent -p --output-format json`
-- **Cloud Agent API**: Cursor offers a Cloud Agent API with REST endpoints for:
-  - Creating tasks
-  - Monitoring task status
-  - Retrieving results
-  - Documented at: https://docs.cursor.com/docs/cloud-agent/api/endpoints
-- **ACP (Agent Communication Protocol)**: Cursor CLI supports ACP for inter-agent communication
-  - `cursor-agent-acp` adapter available
-  - Documented at: https://docs.cursor.com/docs/cli/acp
-- **IDE integration**: Cursor CLI integrates with Cursor IDE, VS Code, JetBrains
-- **No standalone SDK package**: Unlike Claude Code, there is no published npm/pip package for programmatic cursor-agent control
+| Command | Purpose |
+|---------|---------|
+| `pi install <source>` | Install extension source |
+| `pi remove <source>` | Remove extension source |
+| `pi update [source\|self\|pi]` | Update Pi, extensions, or model catalogs |
+| `pi list` | List installed extensions |
+| `pi config` | TUI for package resource management |
+| `pi auth <command>` | Print credentials or check provider readiness |
