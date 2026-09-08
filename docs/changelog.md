@@ -1,5 +1,33 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Antigravity CLI (agy) provider** — Google's new agentic coding CLI, replacing the discontinued Gemini CLI. Full stream-json event parser, env bridging (OPENAI_BASE_URL → GOOGLE_GEMINI_BASE_URL), permission mapping. 43 unit tests. (#20, PR #35)
+- **`ThinkingLevel`** type and `thinking_level` field — Unified reasoning effort control across Claude (`--effort`), Pi (`--thinking`), and OpenCode (`--variant`). Values: `"off"`, `"low"`, `"medium"`, `"high"`, `"max"`. (#22, PR #33)
+- **`output_schema`** field — Structured output via JSON Schema. Maps to Claude `--json-schema`, Codex `--output-schema`, agy `--json-schema`. (#23, PR #37)
+- **`ephemeral`** field — Don't persist session state. Maps to Claude `--no-session-persistence`, Codex `--ephemeral`, Pi `--no-session`. (#24, PR #37)
+- **`additional_dirs`** field — Multi-directory workspace. Maps to Claude/Codex/agy `--add-dir`. (#30, PR #37)
+- **`files`** field — File/image attachments. Maps to Claude `--file`, Codex `--image`, OpenCode `--file`. (#30, PR #37)
+- **`ReasoningDeltaEvent`** — Thinking/reasoning text streaming event, aligned with llm-rosetta. Pi and Claude now emit thinking content instead of dropping it. (#32, PR #38)
+- **`ContentBlockStartEvent` / `ContentBlockEndEvent`** — Content block boundary events, aligned with llm-rosetta. (#32, PR #38)
+- **`reasoning_tokens`** in `UsageInfo` — Tracks reasoning/thinking token usage. (#32, PR #38)
+- **`reasoning_text`** in `SessionResult` — Accumulated reasoning text from `run()`. (#32, PR #38)
+
+### Fixed
+
+- **Session ID mapping** — Corrected `session_id` vs `resume` flag mapping for Claude (`--session-id` vs `--resume` vs `--continue`) and Gemini (`--session-id` vs `-r`). (#25, PR #34)
+- **Pi `supports_mcp`** — Corrected to `True` (Pi supports MCP via `--extension` flag). (#29, PR #31)
+- **Pi `AgentType`** — Added `"pi"` to `AgentType` Literal (was registered in registry but missing from type). (#29, PR #31)
+- **Pi session semantics** — `session_id` alone → `--session-id` (create-if-missing), `session_id` + `resume` → `--session` (must exist), `resume` alone → `--continue`. (#29, PR #31)
+- **Pi flag coverage** — Added `--thinking`, `--approve`, `--no-extensions`, `--skill`, `--no-session`, `--extension`, `--no-context-files`, `--no-skills`. (#29, PR #31)
+
+### Deprecated
+
+- **Gemini CLI provider** — `GeminiNativeProvider` and `GeminiSDKProvider` now emit `DeprecationWarning`. Gemini CLI was discontinued June 2026. Use `AgyNativeProvider` (`"agy"`) instead. (#21, PR #36)
+
+
 ## v0.3.0 (2026-07-04)
 
 Fifth agent support (Pi) and documentation improvements.

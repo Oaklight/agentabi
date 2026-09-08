@@ -92,6 +92,7 @@ src/agentabi/
 │   ├── claude_sdk.py    # Claude SDK provider
 │   ├── codex_native.py  # Codex subprocess provider
 │   ├── codex_sdk.py     # Codex SDK provider
+│   ├── agy_native.py
 │   ├── gemini_native.py # Gemini subprocess provider
 │   ├── gemini_sdk.py    # Gemini SDK provider
 │   └── opencode_native.py # OpenCode subprocess provider

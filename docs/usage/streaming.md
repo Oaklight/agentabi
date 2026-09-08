@@ -53,6 +53,9 @@ All agents produce a common set of IR events:
 | `message_start` | Assistant turn begins | `role` |
 | `message_delta` | Streamed text chunk | `text` |
 | `message_end` | Assistant turn ends | `text` (optional full text), `stop_reason` |
+| `content_block_start` | Content block begins | Block index, block type (text/thinking/tool_use) |
+| `content_block_end` | Content block ends | Block index |
+| `reasoning_delta` | Reasoning/thinking fragment | Thinking text, block index |
 | `tool_use` | Tool invocation | `tool_use_id`, `tool_name`, `tool_input` |
 | `tool_result` | Tool output | `tool_use_id`, `content`, `is_error` |
 | `usage` | Token usage stats | `usage` (dict), `cost_usd` |

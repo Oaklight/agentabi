@@ -52,12 +52,15 @@ asyncio.run(main())
 
 ## Supported Agents
 
-| Agent | Provider Types | Transport |
-|-------|---------------|-----------|
-| Claude Code | Native (subprocess) + SDK | subprocess / SDK |
-| Codex | Native (subprocess) + SDK | subprocess / SDK |
-| Gemini CLI | Native (subprocess) + SDK | subprocess / SDK |
-| OpenCode | Native (subprocess) | subprocess |
+| Agent | Provider | Status |
+|-------|----------|--------|
+| [Claude Code](https://github.com/anthropics/claude-code) | Anthropic | Implemented |
+| [Codex](https://github.com/openai/codex) | OpenAI | Implemented |
+| [Antigravity (agy)](https://github.com/google/anthropic-agy) | Google | Implemented |
+| [OpenCode](https://github.com/opencode-ai/opencode) | Community | Implemented |
+| [Pi](https://github.com/anthropics/pi) | Community | Implemented |
+| ~~Gemini CLI~~ | Google | Deprecated (use agy) |
+
 
 ## Getting Started
 

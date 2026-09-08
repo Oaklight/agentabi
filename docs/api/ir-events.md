@@ -54,7 +54,46 @@ Marks the end of an assistant message turn.
 }
 ```
 
-### ToolUseEvent
+#
+## Content Block Events
+
+Track boundaries between different content types within a message (text, thinking, tool_use). Aligned with llm-rosetta's `ContentBlockStartEvent`/`ContentBlockEndEvent`.
+
+```python
+class ContentBlockStartEvent(TypedDict):
+    type: Required[Literal["content_block_start"]]
+    block_index: Required[int]
+    block_type: Required[str]  # "text", "thinking", "tool_use"
+
+class ContentBlockEndEvent(TypedDict):
+    type: Required[Literal["content_block_end"]]
+    block_index: Required[int]
+```
+
+Emitted by:
+
+- **Claude**: from `content_block_start`/`content_block_stop` stream events
+- **Pi**: from `thinking_start`/`thinking_end`/`text_start`/`text_end` message update subtypes
+
+## Reasoning Events
+
+Capture the model's internal reasoning/thinking process. Aligned with llm-rosetta's `ReasoningDeltaEvent`.
+
+```python
+class ReasoningDeltaEvent(TypedDict):
+    type: Required[Literal["reasoning_delta"]]
+    reasoning: Required[str]
+    block_index: NotRequired[int]
+```
+
+Emitted by:
+
+- **Claude**: from `thinking_delta` in streaming, and `thinking` content blocks in non-streaming
+- **Pi**: from `thinking_delta` message update subtypes
+
+Previously, thinking data was silently dropped by both providers. Now it flows through to consumers via this event type.
+
+## ToolUseEvent
 
 An agent invokes a tool.
 
@@ -168,6 +207,9 @@ IREvent = Union[
     MessageStartEvent,
     MessageDeltaEvent,
     MessageEndEvent,
+    ContentBlockStartEvent,
+    ContentBlockEndEvent,
+    ReasoningDeltaEvent,
     ToolUseEvent,
     ToolResultEvent,
     PermissionRequestEvent,
