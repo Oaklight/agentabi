@@ -1,6 +1,7 @@
 # Codex CLI
 
 > **Vendor**: OpenAI
+> **Version**: 0.153.4
 > **Command**: `codex` (interactive), `codex exec` (non-interactive)
 > **Language**: Rust + TypeScript
 > **Package**: `@openai/codex` (npm)
@@ -8,36 +9,69 @@
 
 ## Invocation
 
-- **Interactive mode**: `codex` or `codex "prompt"` (launches TUI)
-- **Headless/non-interactive mode**: `codex exec "prompt"` (alias: `codex e "prompt"`)
-- **Quiet mode (legacy)**: `codex -q "prompt"` (deprecated in favor of `codex exec`)
+- **Interactive mode**: `codex` or `codex \"prompt\"` (launches TUI)
+- **Headless/non-interactive mode**: `codex exec \"prompt\"` (alias: `codex e \"prompt\"`)
+- **Quiet mode (legacy)**: `codex -q \"prompt\"` (deprecated in favor of `codex exec`)
 - **Key CLI flags** (global):
   - `--model, -m <model>` — override configured model (e.g., `gpt-5-codex`)
-  - `--sandbox, -s <policy>` — `read-only` | `workspace-write` | `danger-full-access`
-  - `--ask-for-approval, -a <mode>` — `untrusted` | `on-request` | `never`
+  - `--sandbox, -s <mode>` — `read-only` | `workspace-write` | `danger-full-access`
+  - `--ask-for-approval, -a <policy>` — `untrusted` | `on-failure` | `on-request` | `never`
   - `--full-auto` — shortcut for `--ask-for-approval on-request --sandbox workspace-write`
   - `--dangerously-bypass-approvals-and-sandbox` / `--yolo` — bypass everything
-  - `--image, -i <path>` — attach images to initial prompt
+  - `--dangerously-bypass-hook-trust` — skip hook trust checks
+  - `--image, -i <FILE>...` — attach images to initial prompt
   - `--profile, -p <name>` — configuration profile from `config.toml`
-  - `--oss` — use local Ollama provider
-  - `--search` — enable live web search
-  - `--add-dir <path>` — grant additional directory write access
+  - `--profile-v2` — enable config profile layering (v2 semantics)
+  - `--oss` / `--local-provider` — use open-source / local Ollama provider
+  - `--search` — enable live web search tool
+  - `--add-dir <DIR>` — grant additional directory write access
+  - `--no-alt-screen` — inline TUI (no alternate screen buffer)
+  - `--remote <URL>` — connect to a remote app server
+  - `--remote-auth-token-env <VAR>` — env var holding auth token for remote server
+  - `--strict-config` — error on unrecognized config fields
 - **Key CLI flags** (`codex exec` specific):
   - `--json` / `--experimental-json` — emit JSONL events instead of formatted text
-  - `--output-last-message, -o <path>` — write final message to file
-  - `--output-schema <path>` — JSON Schema for structured final response
+  - `--output-last-message, -o <FILE>` — write final message to file
+  - `--output-schema <FILE>` — JSON Schema for structured final response
   - `--ephemeral` — don't persist session to disk
   - `--color <mode>` — `always` | `never` | `auto`
   - `--skip-git-repo-check` — allow running outside a git repo
+  - `--ignore-user-config` — skip `config.toml` (use defaults only)
+  - `--ignore-rules` — skip `.rules` / `AGENTS.md` files
   - `--full-auto` — low-friction automation preset
   - `PROMPT` — accepts string or `-` for stdin
+
+## Subcommands
+
+| Subcommand | Description |
+|---|---|
+| `exec` / `e` | Non-interactive headless execution |
+| `resume` | Resume an existing session interactively or non-interactively |
+| `fork` | Fork an existing session into a new thread |
+| `agents` | Manage agent configurations |
+| `apply` | Apply a patch or rollout file |
+| `queue` | Manage queued tasks |
+| `archive` | Archive a session |
+| `unarchive` | Unarchive a session |
+| `delete` | Delete a session |
+| `cloud` | Submit tasks to Codex Cloud |
+| `exec-server` | Start a headless exec server (JSONL protocol) |
+| `app-server` | Start the app server (JSONL-over-stdio or WebSocket) |
+| `mcp` | Manage MCP server integrations |
+| `mcp-server` | Run Codex as an MCP server |
+| `sandbox` | Sandbox management and inspection |
+| `features` | List / enable / disable feature flags |
+| `login` | Authenticate (ChatGPT OAuth, device auth, or API key) |
+| `migrate-rollouts` | Migrate legacy rollout files to new format |
+| `debug` | Debug utilities and diagnostics |
+| `execpolicy` | Inspect and test exec policy / rule files |
 
 ## Output Format
 
 - **Default**: Formatted text to stderr (progress), final message to stdout
-- **Structured JSON**: `codex exec --json "prompt"` — newline-delimited JSON events (JSONL) to stdout
-- **Final message file**: `codex exec -o result.txt "prompt"` — writes final message to a file
-- **Structured output**: `codex exec --output-schema ./schema.json "prompt"` — validates final response against JSON Schema
+- **Structured JSON**: `codex exec --json \"prompt\"` — newline-delimited JSON events (JSONL) to stdout
+- **Final message file**: `codex exec -o result.txt \"prompt\"` — writes final message to a file
+- **Structured output**: `codex exec --output-schema ./schema.json \"prompt\"` — validates final response against JSON Schema
 
 ### JSONL event types
 
@@ -84,16 +118,18 @@ When using `--json`, stdout becomes a JSONL stream with these event types:
 
 ## Permission Model
 
-- **Approval modes** (via `--ask-for-approval` / `-a`):
-  - `untrusted` — ask before every action (most restrictive, legacy name: `suggest`)
-  - `on-request` — ask when the agent requests approval
-  - `never` — never ask (legacy name: `full-auto` approval side)
-- **Sandbox modes** (via `--sandbox` / `-s`):
+- **Approval policy** (via `--ask-for-approval` / `-a`), 4 levels:
+  - `untrusted` — ask before every action (most restrictive; legacy name: `suggest`)
+  - `on-failure` — ask only when a command exits with a non-zero status
+  - `on-request` — ask when the agent explicitly requests approval
+  - `never` — never ask (least restrictive; legacy name: `full-auto` approval side)
+- **Sandbox mode** (via `--sandbox` / `-s`), 3 levels:
   - `read-only` — no writes allowed (default for `codex exec`)
   - `workspace-write` — writes allowed in workspace + /tmp
   - `danger-full-access` — full filesystem access
 - **Combined shortcut**: `--full-auto` = `--ask-for-approval on-request --sandbox workspace-write`
 - **Bypass everything**: `--yolo` / `--dangerously-bypass-approvals-and-sandbox`
+- **Bypass hook trust**: `--dangerously-bypass-hook-trust` — skip hook trust verification only
 - **Exec policy**: `codex execpolicy check` to test command allowability against rule files
 - **Configuration**: Per-tool approval overrides in `~/.codex/config.toml`
 
@@ -103,7 +139,9 @@ When using `--json`, stdout becomes a JSONL stream with these event types:
 - **Resume interactive**: `codex resume [SESSION_ID]` or `codex resume --last`
 - **Resume non-interactive**: `codex exec resume [SESSION_ID]` or `codex exec resume --last`
 - **Fork session**: `codex fork [SESSION_ID]` — create new thread from existing session
-- **Storage format**: Session rollout files on disk
+- **Archive / unarchive**: `codex archive <SESSION_ID>` / `codex unarchive <SESSION_ID>`
+- **Delete**: `codex delete <SESSION_ID>` — permanently remove a session
+- **Storage format**: Session rollout files on disk (migrate with `codex migrate-rollouts`)
 - **Storage location**: Local filesystem (managed by Codex)
 - **History model**: Linear with fork capability
 - **Ephemeral mode**: `--ephemeral` to skip persisting session files
@@ -140,10 +178,11 @@ When using `--json`, stdout becomes a JSONL stream with these event types:
 
 ## Configuration
 
-- **Project config file**: `AGENTS.md` at repo root
-- **User/global config**: `~/.codex/config.toml`
-- **Profiles**: `--profile <name>` to select config profile
+- **Project config file**: `AGENTS.md` at repo root (skipped with `--ignore-rules`)
+- **User/global config**: `~/.codex/config.toml` (skipped with `--ignore-user-config`)
+- **Profiles**: `--profile <name>` to select config profile; `--profile-v2` for layered profile semantics
 - **Inline overrides**: `-c key=value` for per-invocation config
+- **Strict mode**: `--strict-config` causes an error on any unrecognized config field
 - **Feature flags**: `codex features list|enable|disable`
 - **Environment variables**:
   - `OPENAI_API_KEY` / `CODEX_API_KEY` — API key
@@ -228,6 +267,8 @@ When using `codex exec --json`, events are emitted as JSONL.
 - **App server** (experimental): `codex app-server` — JSONL-over-stdio or WebSocket transport
   - `codex app-server --listen stdio://` — stdio transport
   - `codex app-server --listen ws://IP:PORT` — WebSocket (experimental)
+- **Exec server**: `codex exec-server` — headless exec server with JSONL protocol
+- **Remote server**: `codex --remote <URL> --remote-auth-token-env <VAR>` — connect to a hosted app server
 - **Desktop app**: `codex app` — macOS desktop app
 - **Cloud tasks**: `codex cloud exec "prompt"` — submit to Codex Cloud
 - **As MCP server**: `codex mcp-server` — run Codex as an MCP server for other tools

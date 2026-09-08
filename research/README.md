@@ -17,10 +17,11 @@ This directory contains structured research on the CLI interfaces of major codin
 |-------|------|---------|--------|----------|--------|
 | Claude Code | [claude_code.md](claude_code.md) | `claude` | Anthropic | TypeScript | Active |
 | Codex CLI | [codex.md](codex.md) | `codex` | OpenAI | Rust/TS | Active |
-| Cursor CLI | [pi.md](pi.md) | `cursor-agent` | Cursor/Anysphere | TypeScript | Active (Beta) |
+| Pi | [pi.md](pi.md) | `pi` | Earendil Works | TypeScript | Active |
 | OpenCode | [opencode.md](opencode.md) | `opencode` | opencode-ai | Go | Archived (moved to Crush) |
 | OpenClaw | [openclaw.md](openclaw.md) | `openclaw` | OpenClaw (steipete) | TypeScript | Active |
-| Gemini CLI | [gemini_cli.md](gemini_cli.md) | `gemini` | Google | TypeScript | Active |
+| Antigravity (agy) | [agy.md](agy.md) | `agy` | Google | Go | Active |
+| ~~Gemini CLI~~ | [gemini_cli.md](gemini_cli.md) | `gemini` | Google | TypeScript | Deprecated (June 2026) |
 
 ## Synthesis
 
@@ -36,7 +37,7 @@ The [synthesis.md](synthesis.md) file contains cross-agent comparison tables cov
 
 ## Comparison Summary
 
-| Capability | Claude Code | Codex CLI | Cursor CLI | OpenCode | OpenClaw | Gemini CLI |
+| Capability | Claude Code | Codex CLI | Pi | OpenCode | OpenClaw | Gemini CLI |
 |---|---|---|---|---|---|---|
 | Headless/print mode | `-p` | `codex exec` | `-p` | `-p` | `openclaw agent` | positional arg |
 | JSON output | `--output-format json` | `--json` | `--output-format json` | `-f json` | N/A (WS) | `--output-format json` |
