@@ -79,13 +79,14 @@ class UsageMeterMiddleware:
                 "total_input_tokens": self._input_tokens,
                 "total_output_tokens": self._output_tokens,
                 "total_tokens": self._total_tokens,
-                "total_reasoning_tokens": self._reasoning_tokens,
                 "total_cost_usd": self._cost_usd,
             }
             if self._cache_read_tokens:
                 result["total_cache_read_tokens"] = self._cache_read_tokens
             if self._cache_creation_tokens:
                 result["total_cache_creation_tokens"] = self._cache_creation_tokens
+            if self._reasoning_tokens:
+                result["total_reasoning_tokens"] = self._reasoning_tokens
             return result
 
     def reset(self) -> None:

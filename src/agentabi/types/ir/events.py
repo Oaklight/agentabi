@@ -13,7 +13,6 @@ Event categories:
     - Permissions: permission_request, permission_response
     - Usage/errors: usage, error
     - File changes: file_diff
-    - Passthrough: provider_passthrough
 """
 
 from typing import Any, Literal, Union
@@ -231,22 +230,6 @@ class FileDiffEvent(TypedDict):
 
 
 # ============================================================================
-# Provider passthrough (aligned with llm-rosetta ProviderPassthroughEvent)
-# ============================================================================
-
-
-class ProviderPassthroughEvent(TypedDict):
-    """Opaque escape hatch for provider-specific events that don't map to IR.
-
-    Allows consumers to opt into raw provider data without IR schema changes.
-    """
-
-    type: Required[Literal["provider_passthrough"]]
-    provider: Required[str]
-    payload: Required[dict[str, Any]]
-
-
-# ============================================================================
 # Union type
 # ============================================================================
 
@@ -266,7 +249,6 @@ IREvent = Union[
     UsageEvent,
     ErrorEvent,
     FileDiffEvent,
-    ProviderPassthroughEvent,
 ]
 
 # ============================================================================
@@ -290,6 +272,5 @@ __all__ = [
     "UsageEvent",
     "ErrorEvent",
     "FileDiffEvent",
-    "ProviderPassthroughEvent",
     "IREvent",
 ]
