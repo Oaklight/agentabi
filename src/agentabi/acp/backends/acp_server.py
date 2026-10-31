@@ -82,8 +82,9 @@ class ACPBackend:
         text, extra = split_prompt_blocks(params.prompt)
         async for raw in self._client.prompt(params.session_id, text, extra):
             yield raw.get("update", raw)
-        if self._client.last_prompt_result is not None:
-            self._prompt_results[params.session_id] = self._client.last_prompt_result
+        result = self._client.prompt_result(params.session_id)
+        if result is not None:
+            self._prompt_results[params.session_id] = result
 
     def prompt_result(self, session_id: str) -> PromptResult | None:
         return self._prompt_results.get(session_id)

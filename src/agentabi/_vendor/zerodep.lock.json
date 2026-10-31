@@ -4,11 +4,11 @@
   "modules": {
     "acp": {
       "files": {
-        "acp/acp.py": "6fbb0671f641f8b3348cddf60b5d8e77e94cc788c2bda4a4f99f037a3bc749d3"
+        "acp/acp.py": "a7665b285cc2ec8982f24705d709b391d87a9359c9519350fabc845bc86359d9"
       },
       "requested": true,
-      "upstream_hash": "9d2de4a42a5acdeffb1eeaf139d2311b5bbf771117a419870b6d46610f0a0b88",
-      "version": "0.3.5"
+      "upstream_hash": "da8beaa9c658986bd44bc82c4047bdb7b5b4be83d76cc77eeb09804a9f7bc794",
+      "version": "0.3.6"
     },
     "jsonrpc": {
       "files": {
