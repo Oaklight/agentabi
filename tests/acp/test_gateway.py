@@ -155,9 +155,11 @@ async def test_gateway_rejects_authenticate_and_logout():
     agent = GatewayAgent(FakeBackend())
     with pytest.raises(JSONRPCException) as auth_exc:
         await agent.on_authenticate(AuthenticateParams(method_id="login"))
+    assert isinstance(auth_exc.value, JSONRPCException)
     assert auth_exc.value.error.code == METHOD_NOT_FOUND
     with pytest.raises(JSONRPCException) as logout_exc:
         await agent.on_logout(LogoutParams())
+    assert isinstance(logout_exc.value, JSONRPCException)
     assert logout_exc.value.error.code == METHOD_NOT_FOUND
 
 
