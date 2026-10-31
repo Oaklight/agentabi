@@ -4,29 +4,29 @@ Verifies that all available agent CLIs produce consistent IR output
 through the agentabi unified interface.
 """
 
+from typing import get_args
+
 import pytest
 
 from agentabi import Session, detect_agents
+from agentabi.types.ir.events import IREvent
 
 from .conftest import SIMPLE_PROMPT
 
 pytestmark = [pytest.mark.integration, pytest.mark.cross_cli]
 
+
+def _valid_event_types() -> set[str]:
+    """Derive the event-type set from the ``IREvent`` union."""
+    values: set[str] = set()
+    for event_cls in get_args(IREvent):
+        for literal in get_args(event_cls.__annotations__["type"]):
+            values.update(get_args(literal))
+    return values
+
+
 # All valid IR event type values
-VALID_EVENT_TYPES = {
-    "session_start",
-    "session_end",
-    "message_start",
-    "message_delta",
-    "message_end",
-    "tool_use",
-    "tool_result",
-    "permission_request",
-    "permission_response",
-    "usage",
-    "error",
-    "file_diff",
-}
+VALID_EVENT_TYPES = _valid_event_types()
 
 
 def _get_available_sessions() -> list[tuple[str, Session]]:

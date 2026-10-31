@@ -1,7 +1,11 @@
 """Tests for CodexNativeProvider event parsing and command building."""
 
+import subprocess
 from typing import Any, cast
 
+import pytest
+
+from agentabi.providers import codex_native
 from agentabi.providers.codex_native import CodexNativeProvider
 from agentabi.types.ir.task import TaskConfig
 
@@ -11,10 +15,15 @@ class TestBuildCommand:
     def _task(d: dict[str, Any]) -> TaskConfig:
         return cast(TaskConfig, d)
 
+    @pytest.fixture(autouse=True)
+    def _pin_approval_flags(self, monkeypatch):
+        """Pin the probed flag so command tests do not depend on the CLI."""
+        monkeypatch.setattr(codex_native, "_AUTO_APPROVAL_FLAGS", ["--approve-for-me"])
+
     def test_basic_command(self):
         task = self._task({"prompt": "Hello", "agent": "codex"})
         cmd = CodexNativeProvider._build_command(task)
-        assert cmd == ["codex", "exec", "--json", "--full-auto", "Hello"]
+        assert cmd == ["codex", "exec", "--json", "--approve-for-me", "Hello"]
 
     def test_with_model(self):
         task = self._task({"prompt": "Hi", "agent": "codex", "model": "o3"})
@@ -40,6 +49,7 @@ class TestBuildCommand:
         )
         cmd = CodexNativeProvider._build_command(task)
         assert "--dangerously-bypass-approvals-and-sandbox" in cmd
+        assert "--approve-for-me" not in cmd
 
     def test_prompt_is_last(self):
         task = self._task({"prompt": "What is 2+2?", "agent": "codex"})
@@ -68,6 +78,43 @@ class TestBuildCommand:
         cmd = CodexNativeProvider._build_command({"prompt": "hi", "files": ["img.png"]})
         assert "--image" in cmd
         assert "img.png" in cmd
+
+
+class TestAutoApprovalProbe:
+    """The probe adapts to the installed Codex CLI's flag spelling."""
+
+    @staticmethod
+    def _patch_help(monkeypatch, help_text: str):
+        def fake_run(*args, **kwargs):
+            return subprocess.CompletedProcess(
+                args=["codex", "exec", "--help"],
+                returncode=0,
+                stdout=help_text,
+                stderr="",
+            )
+
+        monkeypatch.setattr(codex_native.subprocess, "run", fake_run)
+        monkeypatch.setattr(codex_native, "_AUTO_APPROVAL_FLAGS", None)
+
+    def test_prefers_approve_for_me(self, monkeypatch):
+        self._patch_help(monkeypatch, "  --approve-for-me\n  --full-auto\n")
+        assert codex_native._auto_approval_flags() == ["--approve-for-me"]
+
+    def test_falls_back_to_full_auto(self, monkeypatch):
+        self._patch_help(monkeypatch, "  --full-auto\n")
+        assert codex_native._auto_approval_flags() == ["--full-auto"]
+
+    def test_falls_back_to_workspace_write(self, monkeypatch):
+        self._patch_help(monkeypatch, "  --json\n")
+        assert codex_native._auto_approval_flags() == ["-s", "workspace-write"]
+
+    def test_probe_failure_uses_workspace_write(self, monkeypatch):
+        def boom(*args, **kwargs):
+            raise OSError("codex missing")
+
+        monkeypatch.setattr(codex_native.subprocess, "run", boom)
+        monkeypatch.setattr(codex_native, "_AUTO_APPROVAL_FLAGS", None)
+        assert codex_native._auto_approval_flags() == ["-s", "workspace-write"]
 
 
 class TestParseEvent:
@@ -300,6 +347,27 @@ class TestParseEvent:
         events = self.provider._parse_event(raw)
         usage = events[0]["usage"]
         assert usage["cache_read_tokens"] == 50
+
+    def test_turn_failed_emits_error_and_session_end(self):
+        raw = {
+            "type": "turn.failed",
+            "error": {"message": "model overloaded"},
+        }
+        events = self.provider._parse_event(raw)
+        assert [e["type"] for e in events] == ["error", "session_end"]
+        assert events[0]["error"] == "model overloaded"
+
+    def test_turn_failed_without_message_uses_default(self):
+        events = self.provider._parse_event({"type": "turn.failed"})
+        assert events[0]["error"] == "Codex turn failed"
+
+    def test_top_level_error(self):
+        events = self.provider._parse_event(
+            {"type": "error", "message": "stream disconnected"}
+        )
+        assert len(events) == 1
+        assert events[0]["type"] == "error"
+        assert events[0]["error"] == "stream disconnected"
 
     def test_unknown_event_type(self):
         raw = {"type": "unknown.thing", "data": "whatever"}

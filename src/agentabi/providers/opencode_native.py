@@ -16,6 +16,7 @@ from typing import Any
 
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
+    ErrorEvent,
     IREvent,
     MessageDeltaEvent,
     MessageEndEvent,
@@ -160,7 +161,7 @@ class OpenCodeNativeProvider:
         if permissions:
             level = permissions.get("level")
             if level == "full_auto":
-                cmd.append("--dangerously-skip-permissions")
+                cmd.append("--auto")
 
         variant = _THINKING_LEVEL_MAP.get(task.get("thinking_level", ""))
         if variant:
@@ -194,7 +195,29 @@ class OpenCodeNativeProvider:
             return self._handle_tool_use(part)
         elif event_type == "step_finish":
             return self._handle_step_finish(part, session_id)
+        elif event_type == "error":
+            return self._handle_error(raw)
         return []
+
+    @staticmethod
+    def _handle_error(raw: dict[str, Any]) -> list[IREvent]:
+        """Convert a top-level OpenCode error event."""
+        error = raw.get("error") or {}
+        message = ""
+        if isinstance(error, dict):
+            data = error.get("data")
+            if isinstance(data, dict) and data.get("message"):
+                message = data["message"]
+            else:
+                message = error.get("message") or error.get("name") or ""
+        elif error:
+            message = str(error)
+        err: ErrorEvent = {
+            "type": "error",
+            "error": message or "OpenCode error",
+            "is_fatal": True,
+        }
+        return [err]
 
     @staticmethod
     def _handle_step_start(part: dict[str, Any], session_id: str) -> list[IREvent]:

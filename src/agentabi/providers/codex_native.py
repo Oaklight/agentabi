@@ -2,7 +2,11 @@
 agentabi - Codex CLI Native Provider
 
 Native subprocess provider for Codex CLI.
-Runs `codex exec --json --full-auto <prompt>` and parses JSONL output.
+Runs `codex exec --json <prompt>` and parses JSONL output.
+
+The automatic-approval flag differs across Codex versions (`--approve-for-me`
+replaced `--full-auto`); the provider probes `codex exec --help` once and
+picks a flag the installed CLI accepts.
 """
 
 from __future__ import annotations
@@ -11,6 +15,7 @@ import asyncio
 import json
 import os
 import shutil
+import subprocess
 from collections.abc import AsyncIterator
 from typing import Any, Literal, cast
 
@@ -32,12 +37,48 @@ from ..types.ir.events import (
 from ..types.ir.session import SessionResult
 from ..types.ir.task import TaskConfig
 
+# Cached result of the one-time `codex exec --help` probe.
+_AUTO_APPROVAL_FLAGS: list[str] | None = None
+
+
+def _auto_approval_flags() -> list[str]:
+    """Return automatic-approval flags the installed Codex CLI accepts.
+
+    Codex renamed the non-interactive auto-approval flag: older releases
+    document ``--full-auto``, current releases document ``--approve-for-me``.
+    Probing the help text keeps both working without pinning a version.
+
+    Returns:
+        Flag list for ``codex exec``.
+    """
+    global _AUTO_APPROVAL_FLAGS
+    if _AUTO_APPROVAL_FLAGS is None:
+        try:
+            help_text = subprocess.run(
+                ["codex", "exec", "--help"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            ).stdout
+        except (OSError, subprocess.SubprocessError):
+            help_text = ""
+        if "--approve-for-me" in help_text:
+            _AUTO_APPROVAL_FLAGS = ["--approve-for-me"]
+        elif "--full-auto" in help_text:
+            _AUTO_APPROVAL_FLAGS = ["--full-auto"]
+        else:
+            # Every version with `codex exec` supports an explicit sandbox.
+            _AUTO_APPROVAL_FLAGS = ["-s", "workspace-write"]
+    return list(_AUTO_APPROVAL_FLAGS)
+
 
 class CodexNativeProvider:
     """Native subprocess provider for Codex CLI.
 
-    Runs `codex exec --json --full-auto <prompt>` as a subprocess
-    and parses JSONL events into IR events.
+    Runs `codex exec --json <prompt>` as a subprocess and parses JSONL
+    events into IR events. The auto-approval flag is chosen from the
+    installed CLI's help text (``--approve-for-me`` or ``--full-auto``).
 
     Codex CLI JSONL event types:
     - thread.started  — session metadata (thread_id)
@@ -139,19 +180,20 @@ class CodexNativeProvider:
     @staticmethod
     def _build_command(task: TaskConfig) -> list[str]:
         """Convert TaskConfig to codex CLI arguments."""
-        cmd = ["codex", "exec", "--json", "--full-auto"]
+        cmd = ["codex", "exec", "--json"]
+
+        permissions = task.get("permissions")
+        level = permissions.get("level") if permissions else None
+        if level == "full_auto":
+            cmd.append("--dangerously-bypass-approvals-and-sandbox")
+        else:
+            cmd.extend(_auto_approval_flags())
 
         if "model" in task:
             cmd.extend(["-m", task["model"]])
 
         if task.get("working_dir"):
             cmd.extend(["-C", task["working_dir"]])
-
-        permissions = task.get("permissions")
-        if permissions:
-            level = permissions.get("level")
-            if level == "full_auto":
-                cmd.append("--dangerously-bypass-approvals-and-sandbox")
 
         # Override codex config.toml provider when env specifies a
         # custom base URL — codex ignores OPENAI_BASE_URL env var
@@ -218,7 +260,37 @@ class CodexNativeProvider:
             return self._handle_item(raw, started=False)
         elif event_type == "turn.completed":
             return self._handle_turn_completed(raw)
+        elif event_type == "turn.failed":
+            return self._handle_turn_failed(raw)
+        elif event_type == "error":
+            return self._handle_error(raw)
         return []
+
+    @staticmethod
+    def _handle_turn_failed(raw: dict[str, Any]) -> list[IREvent]:
+        """Convert a failed turn into an error plus a session end."""
+        error = raw.get("error")
+        if isinstance(error, dict):
+            message = error.get("message", "")
+        elif error:
+            message = str(error)
+        else:
+            message = ""
+        err: ErrorEvent = {
+            "type": "error",
+            "error": message or "Codex turn failed",
+        }
+        session_end: SessionEndEvent = {"type": "session_end"}
+        return [err, session_end]
+
+    @staticmethod
+    def _handle_error(raw: dict[str, Any]) -> list[IREvent]:
+        """Convert a top-level error event."""
+        err: ErrorEvent = {
+            "type": "error",
+            "error": raw.get("message", "Unknown error"),
+        }
+        return [err]
 
     @staticmethod
     def _handle_thread_started(raw: dict[str, Any]) -> list[IREvent]:

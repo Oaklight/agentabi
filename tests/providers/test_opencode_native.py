@@ -41,12 +41,13 @@ class TestBuildCommand:
             {"prompt": "Hi", "agent": "opencode", "permissions": {"level": "full_auto"}}
         )
         cmd = OpenCodeNativeProvider._build_command(task)
-        assert "--dangerously-skip-permissions" in cmd
+        assert "--auto" in cmd
+        assert "--dangerously-skip-permissions" not in cmd
 
     def test_no_permissions_flag_by_default(self):
         task = self._task({"prompt": "Hi", "agent": "opencode"})
         cmd = OpenCodeNativeProvider._build_command(task)
-        assert "--dangerously-skip-permissions" not in cmd
+        assert "--auto" not in cmd
 
     def test_with_working_dir(self):
         task = self._task(
@@ -228,6 +229,30 @@ class TestParseEvent:
         events = self.provider._parse_event(raw)
         types = [e["type"] for e in events]
         assert "session_end" not in types
+
+    def test_error_event_is_fatal(self):
+        raw = {
+            "type": "error",
+            "timestamp": 1793460930326,
+            "sessionID": "ses_abc",
+            "error": {
+                "name": "UnknownError",
+                "data": {
+                    "message": "Unexpected server error.",
+                    "ref": "err_e044979a",
+                },
+            },
+        }
+        events = self.provider._parse_event(raw)
+        assert len(events) == 1
+        assert events[0]["type"] == "error"
+        assert events[0]["error"] == "Unexpected server error."
+        assert events[0]["is_fatal"] is True
+
+    def test_error_event_falls_back_to_name(self):
+        raw = {"type": "error", "error": {"name": "AbortedError"}}
+        events = self.provider._parse_event(raw)
+        assert events[0]["error"] == "AbortedError"
 
     def test_unknown_event_type(self):
         raw = {"type": "unknown_event", "data": "whatever"}

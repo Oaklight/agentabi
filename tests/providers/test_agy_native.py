@@ -327,6 +327,9 @@ class TestBuildEnv:
 
 
 class TestParseEvent:
+    def setup_method(self):
+        self.provider = AgyNativeProvider()
+
     def test_init_event(self):
         raw = {
             "event": "init",
@@ -337,7 +340,7 @@ class TestParseEvent:
                 "permission_mode": "full_auto",
             },
         }
-        events = AgyNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 1
         assert events[0]["type"] == "session_start"
         assert events[0]["session_id"] == "conv-abc-123"
@@ -351,7 +354,7 @@ class TestParseEvent:
             "conversation_id": "conv-123",
             "init": {},
         }
-        events = AgyNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 1
         assert events[0]["type"] == "session_start"
         assert events[0]["session_id"] == "conv-123"
@@ -377,7 +380,7 @@ class TestParseEvent:
                 },
             },
         }
-        events = AgyNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 3
         assert events[0]["type"] == "message_start"
         assert events[0]["role"] == "assistant"
@@ -385,6 +388,55 @@ class TestParseEvent:
         assert events[1]["text"] == "HELLO\n"
         assert events[2]["type"] == "message_end"
         assert events[2]["text"] == "HELLO\n"
+
+    def test_agent_response_streams_one_message_per_step(self):
+        active = {
+            "event": "step_update",
+            "step_update": {
+                "conversation_id": "conv-123",
+                "step_index": 1,
+                "state": "ACTIVE",
+                "step_type": "agent_response",
+                "text_delta": "4",
+            },
+        }
+        done = {
+            "event": "step_update",
+            "step_update": {
+                "conversation_id": "conv-123",
+                "step_index": 1,
+                "state": "DONE",
+                "step_type": "agent_response",
+                "text_delta": "\n",
+            },
+        }
+
+        first = self.provider._parse_event(active)
+        assert [e["type"] for e in first] == ["message_start", "message_delta"]
+        assert first[1]["text"] == "4"
+
+        second = self.provider._parse_event(done)
+        assert [e["type"] for e in second] == ["message_delta", "message_end"]
+        assert second[1]["text"] == "4\n"
+
+    def test_agent_response_next_step_starts_new_message(self):
+        def update(step_index, state, text):
+            return {
+                "event": "step_update",
+                "step_update": {
+                    "conversation_id": "conv-123",
+                    "step_index": step_index,
+                    "state": state,
+                    "step_type": "agent_response",
+                    "text_delta": text,
+                },
+            }
+
+        self.provider._parse_event(update(1, "DONE", "first"))
+        events = self.provider._parse_event(update(2, "DONE", "second"))
+        assert events[0]["type"] == "message_start"
+        assert events[-1]["type"] == "message_end"
+        assert events[-1]["text"] == "second"
 
     def test_step_update_agent_response_no_text(self):
         raw = {
@@ -396,7 +448,7 @@ class TestParseEvent:
                 "step_type": "agent_response",
             },
         }
-        events = AgyNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 2  # message_start + message_end, no delta
         assert events[0]["type"] == "message_start"
         assert events[1]["type"] == "message_end"
@@ -412,7 +464,7 @@ class TestParseEvent:
                 "step_type": "user_input",
             },
         }
-        events = AgyNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert events == []
 
     def test_step_update_checkpoint_skipped(self):
@@ -425,7 +477,7 @@ class TestParseEvent:
                 "step_type": "checkpoint",
             },
         }
-        events = AgyNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert events == []
 
     def test_step_update_tool_use(self):
@@ -441,7 +493,7 @@ class TestParseEvent:
                 "tool_input": {"command": "ls -la"},
             },
         }
-        events = AgyNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 1
         assert events[0]["type"] == "tool_use"
         assert events[0]["tool_use_id"] == "tool_call_1"
@@ -462,7 +514,7 @@ class TestParseEvent:
                 "tool_result": "hello\n",
             },
         }
-        events = AgyNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 2
         assert events[0]["type"] == "tool_use"
         assert events[1]["type"] == "tool_result"
@@ -484,7 +536,7 @@ class TestParseEvent:
                 "is_error": True,
             },
         }
-        events = AgyNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 2
         assert events[1]["type"] == "tool_result"
         assert events[1]["is_error"] is True
@@ -507,7 +559,7 @@ class TestParseEvent:
                 },
             },
         }
-        events = AgyNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 2  # usage + session_end
         assert events[0]["type"] == "usage"
         assert events[0]["usage"]["input_tokens"] == 14158
@@ -526,7 +578,7 @@ class TestParseEvent:
                 "usage": {},
             },
         }
-        events = AgyNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert len(events) == 3  # usage + error + session_end
         assert events[0]["type"] == "usage"
         assert events[1]["type"] == "error"
@@ -543,7 +595,7 @@ class TestParseEvent:
                 "usage": {},
             },
         }
-        events = AgyNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         error_events = [e for e in events if e["type"] == "error"]
         assert len(error_events) == 1
         assert "TIMEOUT" in error_events[0]["error"]
@@ -562,23 +614,26 @@ class TestParseEvent:
                 },
             },
         }
-        events = AgyNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         usage = events[0]["usage"]
         assert usage["cache_read_tokens"] == 80
 
     def test_unknown_event_type(self):
         raw = {"event": "unknown_type", "data": "whatever"}
-        events = AgyNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert events == []
 
     def test_missing_event_key(self):
         raw = {"some_other_key": "value"}
-        events = AgyNativeProvider._parse_event(raw)
+        events = self.provider._parse_event(raw)
         assert events == []
 
 
 class TestResultTextAggregation:
     """End-to-end: full event flow through _RunState produces result_text."""
+
+    def setup_method(self):
+        self.provider = AgyNativeProvider()
 
     def test_agy_simple_flow(self):
         from agentabi.providers.base import _RunState
@@ -643,7 +698,7 @@ class TestResultTextAggregation:
         ]
 
         for raw in raw_events:
-            for event in AgyNativeProvider._parse_event(raw):
+            for event in self.provider._parse_event(raw):
                 state.handle(event)
 
         result = state.build()
@@ -674,7 +729,7 @@ class TestResultTextAggregation:
         ]
 
         for raw in raw_events:
-            for event in AgyNativeProvider._parse_event(raw):
+            for event in self.provider._parse_event(raw):
                 state.handle(event)
 
         result = state.build()
