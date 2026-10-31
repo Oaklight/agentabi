@@ -15,7 +15,7 @@ Event categories:
     - File changes: file_diff
 """
 
-from typing import Any, Literal, Union
+from typing import Any, Literal
 
 from typing_extensions import NotRequired, Required, TypedDict
 
@@ -233,23 +233,23 @@ class FileDiffEvent(TypedDict):
 # Union type
 # ============================================================================
 
-IREvent = Union[
-    SessionStartEvent,
-    SessionEndEvent,
-    MessageStartEvent,
-    MessageDeltaEvent,
-    MessageEndEvent,
-    ContentBlockStartEvent,
-    ContentBlockEndEvent,
-    ReasoningDeltaEvent,
-    ToolUseEvent,
-    ToolResultEvent,
-    PermissionRequestEvent,
-    PermissionResponseEvent,
-    UsageEvent,
-    ErrorEvent,
-    FileDiffEvent,
-]
+IREvent = (
+    SessionStartEvent
+    | SessionEndEvent
+    | MessageStartEvent
+    | MessageDeltaEvent
+    | MessageEndEvent
+    | ContentBlockStartEvent
+    | ContentBlockEndEvent
+    | ReasoningDeltaEvent
+    | ToolUseEvent
+    | ToolResultEvent
+    | PermissionRequestEvent
+    | PermissionResponseEvent
+    | UsageEvent
+    | ErrorEvent
+    | FileDiffEvent
+)
 
 # ============================================================================
 # Exports

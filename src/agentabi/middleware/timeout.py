@@ -8,8 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import AsyncIterator
-from typing import Callable
+from collections.abc import AsyncIterator, Callable
 
 from ..types.ir.events import IREvent
 from ..types.ir.task import TaskConfig

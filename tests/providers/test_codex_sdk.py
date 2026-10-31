@@ -1,7 +1,7 @@
 """Tests for CodexSDKProvider event conversion."""
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 from unittest.mock import patch
 
 
@@ -54,7 +54,7 @@ class MockCommandExecutionItem:
     type: Literal["command_execution"] = "command_execution"
     command: str = "ls -la"
     aggregated_output: str = "total 0\ndrwxr-xr-x 2 user user 40 Jan 1 00:00 ."
-    exit_code: Optional[int] = 0
+    exit_code: int | None = 0
     status: str = "completed"
 
 
@@ -91,8 +91,8 @@ class MockMcpToolCallItem:
     tool: str = "my-tool"
     status: str = "completed"
     arguments: Any = None
-    result: Optional[MockMcpToolCallItemResult] = None
-    error: Optional[MockMcpToolCallItemError] = None
+    result: MockMcpToolCallItemResult | None = None
+    error: MockMcpToolCallItemError | None = None
 
 
 @dataclass

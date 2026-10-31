@@ -5,7 +5,7 @@ Type guard functions for discriminating IREvent union types.
 Follows the llmir is_part_type() pattern.
 """
 
-from typing import Any, Union
+from typing import Any
 
 from .events import (
     ContentBlockEndEvent,
@@ -84,7 +84,7 @@ def is_event_type(event: Any, event_class: type) -> bool:
     return event_type == expected_type
 
 
-def get_event_type(event: Any) -> Union[type[IREvent], None]:
+def get_event_type(event: Any) -> type[IREvent] | None:
     """Get the TypedDict class for an event dict.
 
     Args:
