@@ -324,6 +324,8 @@ class ClaudeNativeProvider:
 
         full_text = ""
         for block in content:
+            if not isinstance(block, dict):
+                continue
             block_type = block.get("type")
             if block_type == "text":
                 full_text += block.get("text", "")
@@ -363,6 +365,8 @@ class ClaudeNativeProvider:
         content = message.get("content", [])
 
         for block in content:
+            if not isinstance(block, dict):
+                continue
             if block.get("type") == "tool_result":
                 tool_result: ToolResultEvent = {
                     "type": "tool_result",

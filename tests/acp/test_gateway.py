@@ -258,3 +258,33 @@ async def test_cli_opencode_handshake(tmp_path: Path):
         assert session.session_id
     finally:
         await client.stop()
+
+
+def test_cli_passes_prefer_to_backend(monkeypatch):
+    from agentabi import cli
+
+    seen: dict[str, object] = {}
+
+    def fake_create(name, **kwargs):
+        seen.update(name=name, **kwargs)
+        return object()
+
+    async def fake_serve(backend):
+        seen["served"] = True
+
+    monkeypatch.setattr(cli, "create_backend", fake_create)
+    monkeypatch.setattr(cli, "serve", fake_serve)
+    assert cli.main(["acp", "--agent", "claude", "--prefer", "pty"]) == 0
+    assert seen == {
+        "name": "claude",
+        "acp_command": None,
+        "prefer": "pty",
+        "served": True,
+    }
+
+
+def test_cli_rejects_prefer_for_opencode():
+    from agentabi import cli
+
+    with pytest.raises(SystemExit):
+        cli.main(["acp", "--agent", "opencode", "--prefer", "pty"])
