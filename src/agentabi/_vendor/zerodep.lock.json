@@ -1,0 +1,26 @@
+{
+  "generated_by": "zerodep 2026.10.25",
+  "lock_version": 1,
+  "modules": {
+    "acp": {
+      "files": {
+        "acp/acp.py": "6fbb0671f641f8b3348cddf60b5d8e77e94cc788c2bda4a4f99f037a3bc749d3"
+      },
+      "requested": true,
+      "upstream_hash": "9d2de4a42a5acdeffb1eeaf139d2311b5bbf771117a419870b6d46610f0a0b88",
+      "version": "0.3.5"
+    },
+    "jsonrpc": {
+      "files": {
+        "jsonrpc/jsonrpc.py": "5d12ec39205bde2d49d2d7642b717626bb83c69335fde66151f4b102c36c190b"
+      },
+      "requested": false,
+      "upstream_hash": "55c81cdfe08177a5c61e2505a1ce8c9248842f8fc36089a2e81c80491cf6be5b",
+      "version": "0.4.0"
+    }
+  },
+  "source": {
+    "ref": "master",
+    "repo": "Oaklight/zerodep"
+  }
+}

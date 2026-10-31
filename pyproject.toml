@@ -8,7 +8,7 @@ dynamic = ["version"]
 authors = [{name = "Peng Ding", email = "pding.dp@foxmail.com"}]
 description = "Unified async Python API for driving coding agent CLIs — Claude Code, Codex, Gemini CLI, and more"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "MIT"
 keywords = [
     "ai",
@@ -31,7 +31,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -44,6 +43,9 @@ classifiers = [
 dependencies = [
     "typing_extensions>=4.0.0",
 ]
+
+[project.scripts]
+agentabi = "agentabi.cli:main"
 
 [project.optional-dependencies]
 claude = ["claude-agent-sdk>=0.1.0"]
@@ -81,6 +83,7 @@ where = ["src"]
 [tool.ruff]
 line-length = 88
 target-version = "py39"
+extend-exclude = ["src/agentabi/_vendor"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP", "C901"]
@@ -102,10 +105,11 @@ markers = [
 ]
 
 [tool.ty.environment]
-python-version = "3.9"
+python-version = "3.10"
 
 [tool.ty.src]
 include = ["src", "tests"]
+exclude = ["src/agentabi/_vendor"]
 
 [tool.ty.rules]
 # Optional SDK deps are not installed during type checking
