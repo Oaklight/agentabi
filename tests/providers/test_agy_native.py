@@ -419,6 +419,24 @@ class TestParseEvent:
         assert [e["type"] for e in second] == ["message_delta", "message_end"]
         assert second[1]["text"] == "4\n"
 
+    def test_agent_response_without_step_index_still_opens_message(self):
+        def update(state, text):
+            return {
+                "event": "step_update",
+                "step_update": {
+                    "conversation_id": "conv-123",
+                    "state": state,
+                    "step_type": "agent_response",
+                    "text_delta": text,
+                },
+            }
+
+        first = self.provider._parse_event(update("ACTIVE", "4"))
+        assert first[0]["type"] == "message_start"
+        second = self.provider._parse_event(update("DONE", "\n"))
+        assert [e["type"] for e in second] == ["message_delta", "message_end"]
+        assert second[1]["text"] == "4\n"
+
     def test_agent_response_next_step_starts_new_message(self):
         def update(step_index, state, text):
             return {
