@@ -53,6 +53,17 @@ async def main():
 asyncio.run(main())
 ```
 
+## ACP 网关
+
+把 agentabi 暴露为单一的 ACP 端点。网关对客户端说 ACP，对内委托给每个 CLI 的原生接口：
+
+```bash
+pip install agentabi
+agentabi acp --agent opencode
+```
+
+ACP 传输层从 [zerodep](https://github.com/Oaklight/zerodep) vendor（`acp` + `jsonrpc`），不依赖官方 ACP SDK。当前 backend：`opencode`（原生 ACP）。更多 backend 见 [ACP gateway epic](https://github.com/Oaklight/agentabi/issues/43)。
+
 ## 核心特性
 
 ### 统一的 TaskConfig
