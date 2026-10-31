@@ -64,6 +64,14 @@ agentabi acp --agent opencode
 
 ACP 传输层从 [zerodep](https://github.com/Oaklight/zerodep) vendor（`acp` + `jsonrpc`），不依赖官方 ACP SDK。当前 backend：`opencode`（原生 ACP）、`agy`/`claude`/`codex`/`pi`（经由 agentabi IR 流）。更多 backend 见 [ACP gateway epic](https://github.com/Oaklight/agentabi/issues/43)。
 
+任何自带 ACP server 的 CLI 都可以不写 provider 直接接入：
+
+```bash
+agentabi acp --agent acp --acp-command "npx -y @agentclientprotocol/claude-agent-acp"
+```
+
+网关对该进程说 ACP，并把其 `session/update` 原样转发。
+
 ## 核心特性
 
 ### 统一的 TaskConfig

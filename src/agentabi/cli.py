@@ -28,14 +28,22 @@ def main(argv: list[str] | None = None) -> int:
     acp_parser.add_argument(
         "--agent",
         required=True,
-        choices=sorted(BACKENDS),
+        choices=sorted([*BACKENDS, "acp"]),
         help="Agent backend to expose",
+    )
+    acp_parser.add_argument(
+        "--acp-command",
+        help=("Command line of an external ACP server; required with --agent acp"),
     )
 
     args = parser.parse_args(argv)
 
     if args.command == "acp":
-        backend = create_backend(args.agent)
+        if args.agent == "acp" and not args.acp_command:
+            acp_parser.error("--agent acp requires --acp-command")
+        if args.agent != "acp" and args.acp_command:
+            acp_parser.error("--acp-command is only valid with --agent acp")
+        backend = create_backend(args.agent, acp_command=args.acp_command)
         try:
             asyncio.run(serve(backend))
         except KeyboardInterrupt:
