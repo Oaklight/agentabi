@@ -7,12 +7,16 @@ from typing import Any
 from agentabi import __version__
 from agentabi._vendor.acp import (
     ACPAgent,
+    AuthenticateParams,
     CancelParams,
     CloseSessionParams,
     ImplementationInfo,
     InitializeParams,
     InitializeResult,
+    JSONRPCError,
+    JSONRPCException,
     LoadSessionParams,
+    LogoutParams,
     NewSessionParams,
     NewSessionResult,
     PromptParams,
@@ -20,6 +24,7 @@ from agentabi._vendor.acp import (
     StopReason,
     negotiate_protocol_version,
 )
+from agentabi._vendor.jsonrpc import METHOD_NOT_FOUND
 
 from .backends.base import Backend
 
@@ -40,6 +45,9 @@ class GatewayAgent(ACPAgent):
             version=__version__,
             title="agentabi ACP gateway",
         )
+        # Auth is not proxied to backends yet, so do not advertise methods the
+        # gateway cannot honour (see on_authenticate / on_logout).
+        result.auth_methods = None
         return result
 
     async def on_new_session(self, params: NewSessionParams) -> NewSessionResult:
@@ -53,7 +61,7 @@ class GatewayAgent(ACPAgent):
         async for update in self._backend.prompt(params):
             await self._send_raw_update(params.session_id, update)
         return self._backend.last_prompt_result or PromptResult(
-            stop_reason=StopReason.END_TURN
+            stop_reason=StopReason.UNKNOWN
         )
 
     async def on_cancel(self, params: CancelParams) -> None:
@@ -62,8 +70,32 @@ class GatewayAgent(ACPAgent):
     async def on_close_session(self, params: CloseSessionParams) -> None:
         await self._backend.close_session(params.session_id)
 
+    async def on_authenticate(self, params: AuthenticateParams) -> None:
+        """Reject ``authenticate``: the gateway does not proxy backend auth."""
+        raise JSONRPCException(
+            JSONRPCError(
+                code=METHOD_NOT_FOUND,
+                message="authenticate is not proxied by the agentabi gateway",
+            )
+        )
+
+    async def on_logout(self, params: LogoutParams) -> None:
+        """Reject ``logout``: the gateway does not proxy backend auth."""
+        raise JSONRPCException(
+            JSONRPCError(
+                code=METHOD_NOT_FOUND,
+                message="logout is not proxied by the agentabi gateway",
+            )
+        )
+
     async def _send_raw_update(self, session_id: str, update: dict[str, Any]) -> None:
-        """Forward a raw ACP ``session/update`` payload unchanged."""
+        """Forward a raw ACP ``session/update`` payload unchanged.
+
+        Capability-gated updates are dropped when the client did not
+        advertise the matching capability in ``initialize``.
+        """
+        if not self.supports_update(update.get("sessionUpdate", "")):
+            return
         assert self._transport is not None
         await self._transport.send_notification(
             "session/update",

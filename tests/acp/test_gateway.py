@@ -13,18 +13,25 @@ import pytest
 from agentabi._vendor.acp import (
     ACPClient,
     AgentCapabilities,
+    AuthenticateParams,
+    AuthMethod,
     CancelParams,
+    ClientCapabilities,
     CloseSessionParams,
     InitializeParams,
     InitializeResult,
+    JSONRPCException,
     LoadSessionParams,
+    LogoutParams,
     NewSessionParams,
     NewSessionResult,
     PromptParams,
     PromptResult,
+    SessionClientCapabilities,
     StopReason,
     TextContent,
 )
+from agentabi._vendor.jsonrpc import METHOD_NOT_FOUND
 from agentabi.acp.backends import OpenCodeBackend, create_backend
 from agentabi.acp.gateway import GatewayAgent
 
@@ -38,7 +45,10 @@ class FakeBackend:
         self.started = False
         self.cancelled: list[str] = []
         self.closed: list[str] = []
-        self._last_result = PromptResult(stop_reason=StopReason.END_TURN)
+        self.auth_methods: list[AuthMethod] | None = None
+        self._last_result: PromptResult | None = PromptResult(
+            stop_reason=StopReason.END_TURN
+        )
 
     async def start(self) -> None:
         self.started = True
@@ -50,6 +60,7 @@ class FakeBackend:
         return InitializeResult(
             protocol_version=params.protocol_version,
             agent_capabilities=AgentCapabilities(load_session=True),
+            auth_methods=self.auth_methods,
         )
 
     async def new_session(self, params: NewSessionParams) -> NewSessionResult:
@@ -68,7 +79,7 @@ class FakeBackend:
         }
 
     @property
-    def last_prompt_result(self) -> PromptResult:
+    def last_prompt_result(self) -> PromptResult | None:
         return self._last_result
 
     async def cancel(self, session_id: str) -> None:
@@ -118,7 +129,7 @@ async def test_gateway_negotiates_its_own_protocol_version():
 
 
 @pytest.mark.asyncio
-async def test_gateway_defaults_missing_prompt_result_to_end_turn():
+async def test_gateway_defaults_missing_prompt_result_to_unknown():
     backend = FakeBackend()
     backend._last_result = None  # type: ignore[assignment]
     agent = GatewayAgent(backend)
@@ -127,7 +138,60 @@ async def test_gateway_defaults_missing_prompt_result_to_end_turn():
     result = await agent.on_prompt(
         PromptParams(session_id="s1", prompt=[TextContent(text="hi")])
     )
-    assert result.stop_reason == StopReason.END_TURN
+    assert result.stop_reason == StopReason.UNKNOWN
+
+
+@pytest.mark.asyncio
+async def test_gateway_does_not_advertise_unhandled_auth_methods():
+    backend = FakeBackend()
+    backend.auth_methods = [AuthMethod(id="login", name="Login")]
+    agent = GatewayAgent(backend)
+    result = await agent.on_initialize(InitializeParams())
+    assert result.auth_methods is None
+
+
+@pytest.mark.asyncio
+async def test_gateway_rejects_authenticate_and_logout():
+    agent = GatewayAgent(FakeBackend())
+    with pytest.raises(JSONRPCException) as auth_exc:
+        await agent.on_authenticate(AuthenticateParams(method_id="login"))
+    assert auth_exc.value.error.code == METHOD_NOT_FOUND
+    with pytest.raises(JSONRPCException) as logout_exc:
+        await agent.on_logout(LogoutParams())
+    assert logout_exc.value.error.code == METHOD_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_gateway_drops_updates_the_client_did_not_advertise():
+    backend = FakeBackend()
+    agent = GatewayAgent(backend)
+    transport = FakeTransport()
+    agent._transport = transport  # type: ignore[assignment]
+    agent._client_capabilities = ClientCapabilities()
+
+    await agent._send_raw_update("s1", {"sessionUpdate": "notice", "title": "x"})
+    await agent._send_raw_update(
+        "s1", {"sessionUpdate": "agent_message_chunk", "content": {"text": "hi"}}
+    )
+    assert len(transport.notifications) == 1
+    assert transport.notifications[0][1]["update"]["sessionUpdate"] == (
+        "agent_message_chunk"
+    )
+
+
+@pytest.mark.asyncio
+async def test_gateway_forwards_gated_updates_when_advertised():
+    backend = FakeBackend()
+    agent = GatewayAgent(backend)
+    transport = FakeTransport()
+    agent._transport = transport  # type: ignore[assignment]
+    agent._client_capabilities = ClientCapabilities(
+        session=SessionClientCapabilities(notices={})
+    )
+
+    await agent._send_raw_update("s1", {"sessionUpdate": "notice", "title": "x"})
+    assert len(transport.notifications) == 1
+    assert transport.notifications[0][1]["update"]["sessionUpdate"] == "notice"
 
 
 @pytest.mark.asyncio
