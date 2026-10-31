@@ -17,7 +17,27 @@ from agentabi._vendor.acp import (
     NewSessionResult,
     PromptParams,
     PromptResult,
+    TextContent,
 )
+
+
+def split_prompt_blocks(blocks: list[Any]) -> tuple[str, list[Any]]:
+    """Split ACP prompt blocks into joined text and non-text blocks.
+
+    Args:
+        blocks: ACP content blocks from ``session/prompt``.
+
+    Returns:
+        A tuple of joined text and the remaining content blocks.
+    """
+    text_parts: list[str] = []
+    extra: list[Any] = []
+    for block in blocks:
+        if isinstance(block, TextContent):
+            text_parts.append(block.text)
+        else:
+            extra.append(block)
+    return "\n".join(text_parts), extra
 
 
 @runtime_checkable
@@ -50,9 +70,12 @@ class Backend(Protocol):
         """Run a prompt turn and yield ACP ``session/update`` payloads."""
         ...
 
-    @property
-    def last_prompt_result(self) -> PromptResult | None:
-        """Result of the most recent prompt turn, if any."""
+    def prompt_result(self, session_id: str) -> PromptResult | None:
+        """Result of the most recent prompt turn for *session_id*."""
+        ...
+
+    def prompt_error(self, session_id: str) -> str | None:
+        """Fatal error from the most recent prompt turn for *session_id*."""
         ...
 
     async def cancel(self, session_id: str) -> None:

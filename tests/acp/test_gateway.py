@@ -49,6 +49,7 @@ class FakeBackend:
         self._last_result: PromptResult | None = PromptResult(
             stop_reason=StopReason.END_TURN
         )
+        self._last_error: str | None = None
 
     async def start(self) -> None:
         self.started = True
@@ -78,9 +79,11 @@ class FakeBackend:
             "content": {"type": "text", "text": "hello"},
         }
 
-    @property
-    def last_prompt_result(self) -> PromptResult | None:
+    def prompt_result(self, session_id: str) -> PromptResult | None:
         return self._last_result
+
+    def prompt_error(self, session_id: str) -> str | None:
+        return self._last_error
 
     async def cancel(self, session_id: str) -> None:
         self.cancelled.append(session_id)

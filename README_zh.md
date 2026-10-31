@@ -62,7 +62,7 @@ pip install agentabi
 agentabi acp --agent opencode
 ```
 
-ACP 传输层从 [zerodep](https://github.com/Oaklight/zerodep) vendor（`acp` + `jsonrpc`），不依赖官方 ACP SDK。当前 backend：`opencode`（原生 ACP）。更多 backend 见 [ACP gateway epic](https://github.com/Oaklight/agentabi/issues/43)。
+ACP 传输层从 [zerodep](https://github.com/Oaklight/zerodep) vendor（`acp` + `jsonrpc`），不依赖官方 ACP SDK。当前 backend：`opencode`（原生 ACP）、`agy`/`claude`/`codex`/`pi`（经由 agentabi IR 流）。更多 backend 见 [ACP gateway epic](https://github.com/Oaklight/agentabi/issues/43)。
 
 ## 核心特性
 
