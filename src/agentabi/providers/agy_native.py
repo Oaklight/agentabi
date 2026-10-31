@@ -50,6 +50,13 @@ class AgyNativeProvider:
     - event: "result"      — final result with status, response, usage
     """
 
+    def __init__(self) -> None:
+        # agy streams one agent_response step as several step_update events
+        # (ACTIVE text, then DONE with trailing text and usage). Track the
+        # current step so the whole response is one message.
+        self._step_index: int | None = None
+        self._step_text: list[str] = []
+
     @staticmethod
     def is_available() -> bool:
         """Check if `agy` CLI is available."""
@@ -233,15 +240,14 @@ class AgyNativeProvider:
 
     # ========== Private: event parsing ==========
 
-    @staticmethod
-    def _parse_event(raw: dict[str, Any]) -> list[IREvent]:
+    def _parse_event(self, raw: dict[str, Any]) -> list[IREvent]:
         """Convert an agy stream-json event to IR events."""
         event_type = raw.get("event")
 
         if event_type == "init":
             return AgyNativeProvider._handle_init(raw)
         elif event_type == "step_update":
-            return AgyNativeProvider._handle_step_update(raw)
+            return self._handle_step_update(raw)
         elif event_type == "result":
             return AgyNativeProvider._handle_result(raw)
         return []
@@ -263,42 +269,54 @@ class AgyNativeProvider:
             start["tools"] = tools
         return [start]
 
-    @staticmethod
-    def _handle_step_update(raw: dict[str, Any]) -> list[IREvent]:
+    def _handle_step_update(self, raw: dict[str, Any]) -> list[IREvent]:
         """Handle step_update event — dispatches by step_type."""
         step = raw.get("step_update", {})
         step_type = step.get("step_type", "")
 
         if step_type == "agent_response":
-            return AgyNativeProvider._handle_agent_response(step)
+            return self._handle_agent_response(step)
         elif step_type == "tool_use":
             return AgyNativeProvider._handle_tool_use_step(step)
         # user_input, checkpoint, error_message — skip
         return []
 
-    @staticmethod
-    def _handle_agent_response(step: dict[str, Any]) -> list[IREvent]:
-        """Handle agent_response step — emits message events."""
+    def _handle_agent_response(self, step: dict[str, Any]) -> list[IREvent]:
+        """Handle agent_response step — emits message events.
+
+        agy sends several updates for one step: ``ACTIVE`` with the first
+        text, then ``DONE`` with the remaining text. Emit ``message_start``
+        once per step, accumulate deltas, and close the message on ``DONE``.
+        """
         results: list[IREvent] = []
-
-        msg_start: MessageStartEvent = {
-            "type": "message_start",
-            "role": "assistant",
-        }
-        results.append(msg_start)
-
+        step_index = step.get("step_index")
+        state = step.get("state", "")
         text_delta = step.get("text_delta", "")
+
+        if step_index != self._step_index:
+            self._step_index = step_index
+            self._step_text = []
+            msg_start: MessageStartEvent = {
+                "type": "message_start",
+                "role": "assistant",
+            }
+            results.append(msg_start)
+
         if text_delta:
+            self._step_text.append(text_delta)
             delta: MessageDeltaEvent = {
                 "type": "message_delta",
                 "text": text_delta,
             }
             results.append(delta)
 
-        end: MessageEndEvent = {"type": "message_end"}
-        if text_delta:
-            end["text"] = text_delta
-        results.append(end)
+        if state == "DONE":
+            end: MessageEndEvent = {"type": "message_end"}
+            if self._step_text:
+                end["text"] = "".join(self._step_text)
+            results.append(end)
+            self._step_index = None
+            self._step_text = []
 
         return results
 
