@@ -75,29 +75,40 @@ class _SessionState:
     session: Any = None
 
 
-def _text_update(kind: str, text: str) -> dict[str, Any]:
-    return {
+def _text_update(kind: str, text: str, message_id: str | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "sessionUpdate": kind,
         "content": {"type": "text", "text": text},
     }
+    if message_id is not None:
+        payload["messageId"] = message_id
+    return payload
 
 
-def _to_acp_update(event: dict[str, Any]) -> dict[str, Any] | None:
+def _to_acp_update(
+    event: dict[str, Any],
+    *,
+    version: int = 1,
+    message_id: str | None = None,
+) -> dict[str, Any] | None:
     """Translate one IR event into an ACP ``session/update`` payload."""
     etype = event.get("type")
+    chunk_id = message_id if version >= 2 else None
 
     if etype == "message_delta":
         text = event.get("text", "")
-        return _text_update("agent_message_chunk", text) if text else None
+        return _text_update("agent_message_chunk", text, chunk_id) if text else None
 
     if etype == "reasoning_delta":
         text = event.get("reasoning", "")
-        return _text_update("agent_thought_chunk", text) if text else None
+        return _text_update("agent_thought_chunk", text, chunk_id) if text else None
 
     if etype == "tool_use":
         name = event.get("tool_name", "")
         return {
-            "sessionUpdate": "tool_call",
+            # ACP v2 removed tool_call; tool_call_update is an upsert and
+            # creates the tool call on first sight.
+            "sessionUpdate": "tool_call_update" if version >= 2 else "tool_call",
             "toolCallId": event.get("tool_use_id", ""),
             "title": name,
             "kind": _TOOL_KINDS.get(name, "other"),
@@ -148,9 +159,14 @@ class IRBackend:
         self._cancelled: set[str] = set()
         self._results: dict[str, PromptResult] = {}
         self._errors: dict[str, str] = {}
+        self._protocol_version = 1
 
     async def start(self) -> None:
         """Nothing to start; the provider is launched per prompt."""
+
+    def set_protocol_version(self, version: int) -> None:
+        """Select the ACP update shapes this backend emits."""
+        self._protocol_version = version
 
     async def stop(self) -> None:
         """Cancel any in-flight prompt."""
@@ -217,6 +233,7 @@ class IRBackend:
         task = asyncio.create_task(pump())
         self._tasks[params.session_id] = task
         self._queues[params.session_id] = queue
+        message_id = f"msg_{uuid.uuid4().hex}"
         try:
             while True:
                 item = await queue.get()
@@ -226,7 +243,11 @@ class IRBackend:
                     self._errors[params.session_id] = str(item)
                     break
                 self._observe(item, state, params.session_id)
-                update = _to_acp_update(item)
+                update = _to_acp_update(
+                    item,
+                    version=self._protocol_version,
+                    message_id=message_id,
+                )
                 if update is not None:
                     yield update
         finally:
