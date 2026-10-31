@@ -82,12 +82,12 @@ where = ["src"]
 
 [tool.ruff]
 line-length = 88
-target-version = "py39"
+target-version = "py310"
 extend-exclude = ["src/agentabi/_vendor"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP", "C901"]
-ignore = ["UP007"]  # Allow Union[X, Y] syntax for Python 3.9 compat
+ignore = []  # Python 3.10+ allows X | Y syntax
 
 [tool.ruff.lint.mccabe]
 max-complexity = 15

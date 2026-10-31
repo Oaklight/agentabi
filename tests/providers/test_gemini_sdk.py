@@ -2,7 +2,7 @@
 
 import warnings
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 from unittest.mock import patch
 
 
@@ -62,9 +62,9 @@ class MockResultMessage:
     is_error: bool = False
     session_id: str = "gemini-sess-1"
     num_turns: int = 1
-    total_cost_usd: Optional[float] = None
-    usage: Optional[dict] = None
-    result: Optional[str] = None
+    total_cost_usd: float | None = None
+    usage: dict | None = None
+    result: str | None = None
     type: str = "result"
 
 

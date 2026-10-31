@@ -1,7 +1,7 @@
 """Tests for ClaudeSDKProvider event conversion."""
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 from unittest.mock import patch
 
 
@@ -35,13 +35,13 @@ class MockToolResultBlock:
 class MockAssistantMessage:
     content: list[Any] = field(default_factory=list)
     model: str = "claude-sonnet-4-20250514"
-    message_id: Optional[str] = None
-    stop_reason: Optional[str] = None
-    session_id: Optional[str] = None
-    usage: Optional[dict] = None
-    parent_tool_use_id: Optional[str] = None
-    error: Optional[str] = None
-    uuid: Optional[str] = None
+    message_id: str | None = None
+    stop_reason: str | None = None
+    session_id: str | None = None
+    usage: dict | None = None
+    parent_tool_use_id: str | None = None
+    error: str | None = None
+    uuid: str | None = None
 
 
 @dataclass
@@ -53,9 +53,9 @@ class MockSystemMessage:
 @dataclass
 class MockUserMessage:
     content: Any = ""
-    uuid: Optional[str] = None
-    parent_tool_use_id: Optional[str] = None
-    tool_use_result: Optional[dict] = None
+    uuid: str | None = None
+    parent_tool_use_id: str | None = None
+    tool_use_result: dict | None = None
 
 
 @dataclass
@@ -66,15 +66,15 @@ class MockResultMessage:
     is_error: bool = False
     num_turns: int = 1
     session_id: str = "sess-123"
-    stop_reason: Optional[str] = "end_turn"
-    total_cost_usd: Optional[float] = 0.01
-    usage: Optional[dict] = None
-    result: Optional[str] = None
+    stop_reason: str | None = "end_turn"
+    total_cost_usd: float | None = 0.01
+    usage: dict | None = None
+    result: str | None = None
     structured_output: Any = None
-    model_usage: Optional[dict] = None
-    permission_denials: Optional[list] = None
-    errors: Optional[list] = None
-    uuid: Optional[str] = None
+    model_usage: dict | None = None
+    permission_denials: list | None = None
+    errors: list | None = None
+    uuid: str | None = None
 
 
 @dataclass
@@ -82,7 +82,7 @@ class MockStreamEvent:
     uuid: str = "uuid-1"
     session_id: str = "sess-123"
     event: dict = field(default_factory=dict)
-    parent_tool_use_id: Optional[str] = None
+    parent_tool_use_id: str | None = None
 
 
 class TestClaudeSDKConvert:

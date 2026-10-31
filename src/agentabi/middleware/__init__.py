@@ -34,8 +34,7 @@ Custom middleware::
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Sequence
-from typing import Callable
+from collections.abc import AsyncIterator, Callable, Sequence
 
 from ..types.ir.events import IREvent
 from ..types.ir.task import TaskConfig

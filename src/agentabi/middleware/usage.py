@@ -7,8 +7,7 @@ Tracks cumulative token usage and cost across multiple task executions.
 from __future__ import annotations
 
 import threading
-from collections.abc import AsyncIterator
-from typing import Callable
+from collections.abc import AsyncIterator, Callable
 
 from typing_extensions import TypedDict
 
