@@ -64,6 +64,14 @@ agentabi acp --agent opencode
 
 The ACP transport is vendored from [zerodep](https://github.com/Oaklight/zerodep) (`acp` + `jsonrpc`), so no external ACP SDK is required. Current backends: `opencode` (native ACP) and `agy`, `claude`, `codex`, `pi` (via the agentabi IR stream). More backends are tracked in the [ACP gateway epic](https://github.com/Oaklight/agentabi/issues/43).
 
+Any CLI that ships an ACP server can be used without an agentabi provider:
+
+```bash
+agentabi acp --agent acp --acp-command "npx -y @agentclientprotocol/claude-agent-acp"
+```
+
+The gateway speaks ACP to that process and forwards its `session/update` payloads unchanged.
+
 ## Key Features
 
 ### Unified TaskConfig
