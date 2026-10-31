@@ -79,6 +79,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "agentabi" = ["py.typed"]
+"agentabi._vendor" = ["VENDORED.md", "zerodep.lock.json"]
 
 [tool.ruff]
 line-length = 88
