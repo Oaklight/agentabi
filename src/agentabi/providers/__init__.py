@@ -7,6 +7,7 @@ for driving a specific agent CLI or SDK.
 
 from .agy_native import AgyNativeProvider
 from .base import Provider
+from .claude_tui import ClaudeTuiProvider
 from .registry import (
     AgentNotAvailable,
     get_provider,
@@ -16,6 +17,7 @@ from .registry import (
 
 __all__ = [
     "AgyNativeProvider",
+    "ClaudeTuiProvider",
     "Provider",
     "AgentNotAvailable",
     "resolve_provider",

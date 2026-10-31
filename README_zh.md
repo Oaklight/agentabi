@@ -53,6 +53,26 @@ async def main():
 asyncio.run(main())
 ```
 
+### Claude 订阅额度（PTY 传输）
+
+默认情况下 Claude Code 以 `claude -p` 运行。Anthropic 把该入口标记为
+`sdk-cli`，消耗的额度约为交互式 `cli` 模式的两倍。要改用真正的交互式
+TUI：
+
+```python
+session = Session(agent="claude_code", prefer="pty")
+```
+
+PTY provider 需要显式启用，且仅支持 POSIX。它会等待 TUI 提示符、粘贴消息、
+并跟踪会话 transcript，因此输出整条消息而非 token 增量。如果 Claude Code
+要求信任目录或尚未登录，它会返回明确的错误，而不会修改你的配置。
+
+ACP 网关使用同一个选项：
+
+```bash
+agentabi acp --agent claude --prefer pty
+```
+
 ## ACP 网关
 
 把 agentabi 暴露为单一的 ACP 端点。网关对客户端说 ACP，对内委托给每个 CLI 的原生接口：

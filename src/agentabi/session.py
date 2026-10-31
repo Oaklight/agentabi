@@ -69,7 +69,9 @@ class Session:
             model: Default model to use. Can be overridden per-task.
             prefer: Preferred provider type. "native" (default) tries
                 native subprocess providers first; "sdk" tries SDK
-                providers first. Falls back if preferred is unavailable.
+                providers first; "pty" tries the interactive-terminal
+                transport first (Claude Code only). Falls back if the
+                preferred provider is unavailable.
             middleware: Optional sequence of middleware to apply to the
                 stream pipeline. The first middleware in the sequence
                 is the outermost wrapper.

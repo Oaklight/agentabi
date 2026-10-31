@@ -35,6 +35,14 @@ def main(argv: list[str] | None = None) -> int:
         "--acp-command",
         help=("Command line of an external ACP server; required with --agent acp"),
     )
+    acp_parser.add_argument(
+        "--prefer",
+        choices=["native", "sdk", "pty"],
+        help=(
+            "Preferred provider type for agy, claude, codex, and pi "
+            "(claude supports 'pty' for its interactive TUI)"
+        ),
+    )
 
     args = parser.parse_args(argv)
 
@@ -43,7 +51,13 @@ def main(argv: list[str] | None = None) -> int:
             acp_parser.error("--agent acp requires --acp-command")
         if args.agent != "acp" and args.acp_command:
             acp_parser.error("--acp-command is only valid with --agent acp")
-        backend = create_backend(args.agent, acp_command=args.acp_command)
+        if args.prefer and args.agent in {"acp", "opencode"}:
+            acp_parser.error("--prefer is only valid for agy, claude, codex, and pi")
+        backend = create_backend(
+            args.agent,
+            acp_command=args.acp_command,
+            prefer=args.prefer,
+        )
         try:
             asyncio.run(serve(backend))
         except KeyboardInterrupt:
