@@ -24,7 +24,7 @@ from agentabi._vendor.acp import (
     StopReason,
     negotiate_protocol_version,
 )
-from agentabi._vendor.jsonrpc import METHOD_NOT_FOUND
+from agentabi._vendor.jsonrpc import INTERNAL_ERROR, METHOD_NOT_FOUND
 
 from .backends.base import Backend
 
@@ -60,7 +60,10 @@ class GatewayAgent(ACPAgent):
     async def on_prompt(self, params: PromptParams) -> PromptResult:
         async for update in self._backend.prompt(params):
             await self._send_raw_update(params.session_id, update)
-        return self._backend.last_prompt_result or PromptResult(
+        error = self._backend.prompt_error(params.session_id)
+        if error:
+            raise JSONRPCException(JSONRPCError(code=INTERNAL_ERROR, message=error))
+        return self._backend.prompt_result(params.session_id) or PromptResult(
             stop_reason=StopReason.UNKNOWN
         )
 

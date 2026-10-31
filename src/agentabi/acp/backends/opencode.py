@@ -14,29 +14,9 @@ from agentabi._vendor.acp import (
     NewSessionResult,
     PromptParams,
     PromptResult,
-    TextContent,
 )
 
-
-def _split_prompt_blocks(
-    blocks: list[Any],
-) -> tuple[str, list[Any]]:
-    """Split prompt blocks into text and non-text content.
-
-    Args:
-        blocks: ACP content blocks from ``session/prompt``.
-
-    Returns:
-        A tuple of joined text and the remaining content blocks.
-    """
-    text_parts: list[str] = []
-    extra: list[Any] = []
-    for block in blocks:
-        if isinstance(block, TextContent):
-            text_parts.append(block.text)
-        else:
-            extra.append(block)
-    return "\n".join(text_parts), extra
+from .base import split_prompt_blocks
 
 
 class OpenCodeBackend:
@@ -47,7 +27,7 @@ class OpenCodeBackend:
     def __init__(self) -> None:
         self._client = ACPClient(["opencode", "acp"])
         self._started = False
-        self._last_prompt_result: PromptResult | None = None
+        self._prompt_results: dict[str, PromptResult] = {}
 
     async def start(self) -> None:
         if not self._started:
@@ -87,21 +67,25 @@ class OpenCodeBackend:
 
     async def prompt(self, params: PromptParams) -> AsyncIterator[dict[str, Any]]:
         await self.start()
-        self._last_prompt_result = None
-        text, extra = _split_prompt_blocks(params.prompt)
+        self._prompt_results.pop(params.session_id, None)
+        text, extra = split_prompt_blocks(params.prompt)
         async for raw in self._client.prompt(params.session_id, text, extra):
             update = raw.get("update", raw)
             yield update
-        self._last_prompt_result = self._client.last_prompt_result
+        if self._client.last_prompt_result is not None:
+            self._prompt_results[params.session_id] = self._client.last_prompt_result
 
-    @property
-    def last_prompt_result(self) -> PromptResult | None:
-        return self._last_prompt_result
+    def prompt_result(self, session_id: str) -> PromptResult | None:
+        return self._prompt_results.get(session_id)
+
+    def prompt_error(self, session_id: str) -> str | None:
+        return None
 
     async def cancel(self, session_id: str) -> None:
         await self._client.cancel(session_id)
 
     async def close_session(self, session_id: str) -> None:
+        self._prompt_results.pop(session_id, None)
         await self._client.close_session(session_id)
 
 

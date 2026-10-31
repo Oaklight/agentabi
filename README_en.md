@@ -62,7 +62,7 @@ pip install agentabi
 agentabi acp --agent opencode
 ```
 
-The ACP transport is vendored from [zerodep](https://github.com/Oaklight/zerodep) (`acp` + `jsonrpc`), so no external ACP SDK is required. Current backends: `opencode` (native ACP). More backends are tracked in the [ACP gateway epic](https://github.com/Oaklight/agentabi/issues/43).
+The ACP transport is vendored from [zerodep](https://github.com/Oaklight/zerodep) (`acp` + `jsonrpc`), so no external ACP SDK is required. Current backends: `opencode` (native ACP) and `agy`, `claude`, `codex`, `pi` (via the agentabi IR stream). More backends are tracked in the [ACP gateway epic](https://github.com/Oaklight/agentabi/issues/43).
 
 ## Key Features
 
