@@ -23,7 +23,14 @@ class TestBuildCommand:
     def test_basic_command(self):
         task = self._task({"prompt": "Hello", "agent": "codex"})
         cmd = CodexNativeProvider._build_command(task)
-        assert cmd == ["codex", "exec", "--json", "--approve-for-me", "Hello"]
+        assert cmd == [
+            "codex",
+            "exec",
+            "--json",
+            "--skip-git-repo-check",
+            "--approve-for-me",
+            "Hello",
+        ]
 
     def test_with_model(self):
         task = self._task({"prompt": "Hi", "agent": "codex", "model": "o3"})

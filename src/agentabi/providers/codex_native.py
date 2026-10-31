@@ -76,9 +76,11 @@ def _auto_approval_flags() -> list[str]:
 class CodexNativeProvider:
     """Native subprocess provider for Codex CLI.
 
-    Runs `codex exec --json <prompt>` as a subprocess and parses JSONL
-    events into IR events. The auto-approval flag is chosen from the
-    installed CLI's help text (``--approve-for-me`` or ``--full-auto``).
+    Runs `codex exec --json --skip-git-repo-check <prompt>` as a
+    subprocess and parses JSONL events into IR events. The skip flag lets
+    the provider run in any working directory, not only a git tree. The
+    auto-approval flag is chosen from the installed CLI's help text
+    (``--approve-for-me`` or ``--full-auto``).
 
     Codex CLI JSONL event types:
     - thread.started  — session metadata (thread_id)
@@ -180,7 +182,7 @@ class CodexNativeProvider:
     @staticmethod
     def _build_command(task: TaskConfig) -> list[str]:
         """Convert TaskConfig to codex CLI arguments."""
-        cmd = ["codex", "exec", "--json"]
+        cmd = ["codex", "exec", "--json", "--skip-git-repo-check"]
 
         permissions = task.get("permissions")
         level = permissions.get("level") if permissions else None

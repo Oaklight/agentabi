@@ -56,6 +56,7 @@ class AgyNativeProvider:
         # current step so the whole response is one message.
         self._step_index: int | None = None
         self._step_text: list[str] = []
+        self._step_open = False
 
     @staticmethod
     def is_available() -> bool:
@@ -293,9 +294,10 @@ class AgyNativeProvider:
         state = step.get("state", "")
         text_delta = step.get("text_delta", "")
 
-        if step_index != self._step_index:
+        if not self._step_open or step_index != self._step_index:
             self._step_index = step_index
             self._step_text = []
+            self._step_open = True
             msg_start: MessageStartEvent = {
                 "type": "message_start",
                 "role": "assistant",
@@ -317,6 +319,7 @@ class AgyNativeProvider:
             results.append(end)
             self._step_index = None
             self._step_text = []
+            self._step_open = False
 
         return results
 
