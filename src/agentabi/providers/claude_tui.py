@@ -25,7 +25,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
-from ..transport.pty import PtyProcess, PtyStartupError
+from ..transport import PtyProcess, PtyStartupError
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
     ErrorEvent,
@@ -88,6 +88,16 @@ def strip_ansi(text: str) -> str:
     return _ANSI_RE.sub(" ", text)
 
 
+def _slug_from_resolved(resolved: str) -> str:
+    """Return Claude Code's ``projects/`` directory name for a path.
+
+    Claude Code replaces every path separator and the drive colon with a
+    hyphen: ``C:\\Users\\user\\probe`` becomes
+    ``C--Users-user-probe``, and ``/home/x`` becomes ``-home-x``.
+    """
+    return re.sub(r"[:\\/]", "-", resolved)
+
+
 def transcript_path(cwd: str, session_id: str, config_dir: str | None = None) -> Path:
     """Return the JSONL transcript path Claude Code uses for a session.
 
@@ -100,7 +110,7 @@ def transcript_path(cwd: str, session_id: str, config_dir: str | None = None) ->
         Path to ``<config>/projects/<slug>/<session_id>.jsonl``.
     """
     base = Path(config_dir).expanduser() if config_dir else Path.home() / ".claude"
-    slug = str(Path(cwd).resolve()).replace(os.sep, "-")
+    slug = _slug_from_resolved(str(Path(cwd).resolve()))
     return base / "projects" / slug / f"{session_id}.jsonl"
 
 
@@ -232,8 +242,8 @@ class ClaudeTuiProvider:
 
     @staticmethod
     def is_available() -> bool:
-        """Return whether a POSIX PTY and the ``claude`` CLI exist."""
-        return os.name == "posix" and shutil.which("claude") is not None
+        """Return whether a supported PTY and the ``claude`` CLI exist."""
+        return os.name in ("posix", "nt") and shutil.which("claude") is not None
 
     def capabilities(self) -> AgentCapabilities:
         """Declare Claude Code capabilities for the PTY transport."""
@@ -253,7 +263,7 @@ class ClaudeTuiProvider:
             "supports_additional_dirs": True,
             "supports_file_attachments": False,
             "supports_multi_turn": True,
-            "transport": "pty",
+            "transport": "conpty" if os.name == "nt" else "pty",
         }
 
     async def stream(self, task: TaskConfig) -> AsyncIterator[IREvent]:

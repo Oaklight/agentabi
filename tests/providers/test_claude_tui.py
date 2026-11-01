@@ -12,6 +12,7 @@ from agentabi.providers.claude_sdk import ClaudeSDKProvider
 from agentabi.providers.claude_tui import (
     ClaudeTuiProvider,
     _build_command,
+    _slug_from_resolved,
     transcript_path,
 )
 from agentabi.types.ir.task import TaskConfig
@@ -156,6 +157,11 @@ def test_build_command_resumes_session():
 def test_transcript_path_uses_config_dir(tmp_path):
     path = transcript_path("/home/x/proj", "sid-3", str(tmp_path))
     assert path == tmp_path / "projects" / "-home-x-proj" / "sid-3.jsonl"
+
+
+def test_transcript_slug_handles_windows_paths():
+    assert _slug_from_resolved("/home/x/proj") == "-home-x-proj"
+    assert _slug_from_resolved(r"C:\Users\user\probe") == "C--Users-user-probe"
 
 
 def test_prefer_pty_selects_tui(monkeypatch):
