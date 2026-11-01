@@ -31,6 +31,7 @@ def _build_provider_chain() -> dict[str, list[type[Provider]]]:
     # SDK providers are imported lazily inside is_available(),
     # so we can always list them here.
     from .claude_sdk import ClaudeSDKProvider
+    from .claude_tui import ClaudeTuiProvider
     from .codex_native import CodexNativeProvider
     from .codex_sdk import CodexSDKProvider
     from .gemini_native import GeminiNativeProvider
@@ -39,7 +40,7 @@ def _build_provider_chain() -> dict[str, list[type[Provider]]]:
     from .pi_native import PiNativeProvider
 
     return {
-        "claude_code": [ClaudeNativeProvider, ClaudeSDKProvider],
+        "claude_code": [ClaudeNativeProvider, ClaudeSDKProvider, ClaudeTuiProvider],
         "codex": [CodexNativeProvider, CodexSDKProvider],
         # deprecated — use "agy" instead
         "gemini_cli": [GeminiNativeProvider, GeminiSDKProvider],
@@ -69,8 +70,9 @@ def resolve_provider(
     Args:
         agent: Agent identifier (e.g., "claude_code", "codex").
         prefer: Preferred provider type. "native" tries native first (default),
-            "sdk" tries SDK first. If the preferred type is unavailable,
-            falls back to the other.
+            "sdk" tries SDK first, and "pty" tries the interactive-terminal
+            transport first (useful for Claude subscription quota). If the
+            preferred type is unavailable, falls back to the others.
 
     Returns:
         An instantiated Provider.
@@ -84,7 +86,11 @@ def resolve_provider(
 
     providers = list(chain[agent])
 
-    if prefer == "sdk":
+    if prefer == "pty":
+        pty = [p for p in providers if "Tui" in p.__name__]
+        rest = [p for p in providers if "Tui" not in p.__name__]
+        providers = pty + rest
+    elif prefer == "sdk":
         # Move SDK providers to front
         sdk = [p for p in providers if "SDK" in p.__name__]
         native = [p for p in providers if "SDK" not in p.__name__]

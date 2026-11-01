@@ -334,3 +334,9 @@ def test_registry_exposes_ir_backends(name, agent):
     backend = create_backend(name)
     assert isinstance(backend, IRBackend)
     assert backend.name == agent
+
+
+def test_create_backend_passes_prefer():
+    backend = create_backend("claude", prefer="pty")
+    assert isinstance(backend, IRBackend)
+    assert backend._prefer == "pty"

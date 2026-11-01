@@ -130,6 +130,7 @@ class IRBackend:
         agent: str,
         *,
         session_factory: Callable[[], Any] | None = None,
+        prefer: str | None = None,
     ) -> None:
         """Create a backend for *agent*.
 
@@ -138,10 +139,13 @@ class IRBackend:
             session_factory: Optional factory returning an object with an
                 async ``stream(prompt, **kwargs)`` method. Defaults to
                 ``agentabi.Session(agent=agent)``.
+            prefer: Preferred provider type for the default session, such
+                as ``"pty"`` for Claude Code's interactive transport.
         """
         self.name = agent
         self._agent = agent
         self._session_factory = session_factory
+        self._prefer = prefer
         self._states: dict[str, _SessionState] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._queues: dict[str, asyncio.Queue[Any]] = {}
@@ -164,7 +168,7 @@ class IRBackend:
             else:
                 from agentabi import Session
 
-                state.session = Session(agent=self._agent)
+                state.session = Session(agent=self._agent, prefer=self._prefer)
         return state.session
 
     async def initialize(self, params: InitializeParams) -> InitializeResult:
