@@ -37,9 +37,22 @@ class GatewayAgent(ACPAgent):
         self._backend = backend
 
     async def on_initialize(self, params: InitializeParams) -> InitializeResult:
-        result = await self._backend.initialize(params)
-        # The gateway speaks its own vendored ACP version, not the backend's.
-        result.protocol_version = negotiate_protocol_version(params.protocol_version)
+        requested = negotiate_protocol_version(params.protocol_version)
+        # Ask the backend for the same version the client asked for.  The
+        # backend may negotiate lower (for example an external v1-only
+        # agent), and the gateway must not advertise more than the backend
+        # can produce.
+        backend_params = InitializeParams(
+            protocol_version=requested,
+            client_capabilities=params.client_capabilities,
+            client_info=params.client_info,
+        )
+        result = await self._backend.initialize(backend_params)
+        negotiated = min(requested, result.protocol_version)
+        set_version = getattr(self._backend, "set_protocol_version", None)
+        if callable(set_version):
+            set_version(negotiated)
+        result.protocol_version = negotiated
         result.agent_info = ImplementationInfo(
             name="agentabi",
             version=__version__,

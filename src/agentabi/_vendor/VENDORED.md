@@ -5,12 +5,17 @@ This directory contains zero-dependency modules copied from
 
 | Module | Version | License |
 |---|---|---|
-| `acp` | 0.3.6 | MIT |
+| `acp` | 0.3.7 | MIT |
 | `jsonrpc` | 0.4.0 | MIT |
 
-`acp` 0.3.6 comes from `Oaklight/zerodep@f525a9d` on `master`; it is not in a
+`acp` 0.3.7 comes from `Oaklight/zerodep@490323b` on `master`; it is not in a
 tagged release yet (the newest tag carries 0.3.2). Re-vendor from that commit
 or later until zerodep tags a release, otherwise `zerodep add acp` downgrades.
+
+`acp` 0.3.7 speaks ACP v1 and v2. `ACPClient` opens with its highest supported
+version (2) and retries once with the v1 field names when an agent rejects it,
+so v1-only agents keep working. An agent negotiates down to the highest version
+at or below the client's request.
 
 They are copied by the zerodep CLI and tracked in `zerodep.lock.json`.
 Do not edit `acp/acp.py` or `jsonrpc/jsonrpc.py` by hand.
