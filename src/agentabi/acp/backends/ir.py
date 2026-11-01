@@ -75,6 +75,33 @@ class _SessionState:
     session: Any = None
 
 
+def _new_message_id() -> str:
+    return f"msg_{uuid.uuid4().hex}"
+
+
+class _MessageIds:
+    """Track the ACP v2 message ids for one prompt turn."""
+
+    def __init__(self) -> None:
+        self.text: str | None = None
+        self.thought: str | None = None
+
+    def observe(self, event: dict[str, Any], *, version: int) -> None:
+        """Update the ids for *event*; no-op below ACP v2."""
+        if version < 2:
+            return
+        etype = event.get("type")
+        if etype == "message_start":
+            self.text = event.get("message_id") or _new_message_id()
+            self.thought = _new_message_id()
+        elif etype == "message_end":
+            self.text = self.thought = None
+        elif etype == "message_delta" and self.text is None:
+            self.text = _new_message_id()
+        elif etype == "reasoning_delta" and self.thought is None:
+            self.thought = _new_message_id()
+
+
 def _text_update(kind: str, text: str, message_id: str | None = None) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "sessionUpdate": kind,
@@ -89,18 +116,25 @@ def _to_acp_update(
     event: dict[str, Any],
     *,
     version: int = 1,
-    message_id: str | None = None,
+    text_message_id: str | None = None,
+    thought_message_id: str | None = None,
 ) -> dict[str, Any] | None:
-    """Translate one IR event into an ACP ``session/update`` payload."""
+    """Translate one IR event into an ACP ``session/update`` payload.
+
+    ACP v2 scopes ``messageId`` per message, and a thought stream is a
+    different message from the assistant text.  The caller therefore
+    supplies one id for text chunks and another for thought chunks.
+    """
     etype = event.get("type")
-    chunk_id = message_id if version >= 2 else None
 
     if etype == "message_delta":
         text = event.get("text", "")
+        chunk_id = text_message_id if version >= 2 else None
         return _text_update("agent_message_chunk", text, chunk_id) if text else None
 
     if etype == "reasoning_delta":
         text = event.get("reasoning", "")
+        chunk_id = thought_message_id if version >= 2 else None
         return _text_update("agent_thought_chunk", text, chunk_id) if text else None
 
     if etype == "tool_use":
@@ -233,7 +267,10 @@ class IRBackend:
         task = asyncio.create_task(pump())
         self._tasks[params.session_id] = task
         self._queues[params.session_id] = queue
-        message_id = f"msg_{uuid.uuid4().hex}"
+        # ACP v2 scopes messageId per message, not per prompt.  Mint on
+        # message_start (reusing the provider's id when it has one) and
+        # keep the thought stream separate from the assistant text.
+        ids = _MessageIds()
         try:
             while True:
                 item = await queue.get()
@@ -243,10 +280,12 @@ class IRBackend:
                     self._errors[params.session_id] = str(item)
                     break
                 self._observe(item, state, params.session_id)
+                ids.observe(item, version=self._protocol_version)
                 update = _to_acp_update(
                     item,
                     version=self._protocol_version,
-                    message_id=message_id,
+                    text_message_id=ids.text,
+                    thought_message_id=ids.thought,
                 )
                 if update is not None:
                     yield update
