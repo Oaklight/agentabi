@@ -63,9 +63,11 @@ entrypoint as `sdk-cli` and counts it at roughly twice the interactive
 session = Session(agent="claude_code", prefer="pty")
 ```
 
-The PTY provider is opt-in and POSIX-only. It waits for the TUI prompt,
-pastes the message, and tails the session transcript, so it emits whole
-messages rather than token deltas. If Claude Code asks to trust the
+The PTY provider is opt-in. It uses a POSIX PTY on Linux and macOS and the
+Windows pseudoconsole (ConPTY) on Windows; both come from the vendored
+`ptyx` module, so there is no extra dependency. It waits for the TUI
+prompt, pastes the message, and tails the session transcript, so it emits
+whole messages rather than token deltas. If Claude Code asks to trust the
 folder or is not signed in, it returns a clear error instead of changing
 your configuration.
 

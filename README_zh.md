@@ -63,9 +63,11 @@ TUI：
 session = Session(agent="claude_code", prefer="pty")
 ```
 
-PTY provider 需要显式启用，且仅支持 POSIX。它会等待 TUI 提示符、粘贴消息、
-并跟踪会话 transcript，因此输出整条消息而非 token 增量。如果 Claude Code
-要求信任目录或尚未登录，它会返回明确的错误，而不会修改你的配置。
+PTY provider 需要显式启用。Linux 和 macOS 使用 POSIX PTY，Windows 使用
+ConPTY；两者都来自 vendored 的 `ptyx` 模块，无需额外依赖。它会等待 TUI
+提示符、粘贴消息、并跟踪会话 transcript，因此输出整条消息而非 token
+增量。如果 Claude Code 要求信任目录或尚未登录，它会返回明确的错误，
+而不会修改你的配置。
 
 ACP 网关使用同一个选项：
 
