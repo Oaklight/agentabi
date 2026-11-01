@@ -25,7 +25,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
-from ..transport import PtyProcess, PtyStartupError
+from .._vendor.ptyx import PtyProcess, PtyStartupError
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
     ErrorEvent,
@@ -397,9 +397,9 @@ class ClaudeTuiProvider:
         if prompt[:1] in ("/", "!", "#", "&"):
             # A leading slash would be read as a command; a newline keeps it text.
             prompt = "\n" + prompt
-        proc.write(b"\x1b[200~" + prompt.encode() + b"\x1b[201~")
+        await proc.write(b"\x1b[200~" + prompt.encode() + b"\x1b[201~")
         await asyncio.sleep(0.15)
-        proc.write(b"\r")
+        await proc.write(b"\r")
 
     async def _turn_events(
         self,

@@ -17,6 +17,14 @@
       "requested": false,
       "upstream_hash": "55c81cdfe08177a5c61e2505a1ce8c9248842f8fc36089a2e81c80491cf6be5b",
       "version": "0.4.0"
+    },
+    "ptyx": {
+      "files": {
+        "ptyx/ptyx.py": "1485f774fc58ca1f427051a60b922ce1df3fe816e3eb2fb2b277fc367c5499d9"
+      },
+      "requested": true,
+      "upstream_hash": "edfcce92959f9f11e1eefb1b06e22c94a26cab08ccda963ff0befbf0e37da671",
+      "version": "0.1.0"
     }
   },
   "source": {
