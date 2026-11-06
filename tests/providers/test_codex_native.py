@@ -1,6 +1,10 @@
 """Tests for CodexNativeProvider event parsing and command building."""
 
+import asyncio
+import json
 import subprocess
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -85,6 +89,61 @@ class TestBuildCommand:
         cmd = CodexNativeProvider._build_command({"prompt": "hi", "files": ["img.png"]})
         assert "--image" in cmd
         assert "img.png" in cmd
+
+
+@pytest.mark.parametrize(
+    "outcome", ["completed", "spawn_failed", "closed", "provided_path"]
+)
+async def test_stream_cleans_up_generated_schema(monkeypatch, tmp_path, outcome):
+    schema = {"type": "object"}
+    schema_input: str | dict[str, str] = schema
+    if outcome == "provided_path":
+        provided_path = tmp_path / "provided.json"
+        provided_path.write_text(json.dumps(schema), encoding="utf-8")
+        schema_input = str(provided_path)
+    task: TaskConfig = {"prompt": "hi", "output_schema": schema_input}
+    monkeypatch.setattr(codex_native, "_AUTO_APPROVAL_FLAGS", ["--approve-for-me"])
+    monkeypatch.setattr("tempfile.tempdir", str(tmp_path))
+    schema_paths: list[Path] = []
+
+    async def fake_spawn(*args, **kwargs):
+        path = Path(args[args.index("--output-schema") + 1])
+        schema_paths.append(path)
+        assert json.loads(path.read_text(encoding="utf-8")) == schema
+        if outcome == "spawn_failed":
+            raise FileNotFoundError("codex")
+        stdout = asyncio.StreamReader()
+        stdout.feed_data(b'{"type":"thread.started","thread_id":"test"}\n')
+        stdout.feed_eof()
+
+        async def wait():
+            assert path.exists()
+            proc.returncode = 0
+            return 0
+
+        proc = SimpleNamespace(
+            stdout=stdout,
+            stderr=None,
+            returncode=None,
+            wait=wait,
+            terminate=lambda: None,
+        )
+        return proc
+
+    monkeypatch.setattr(codex_native.asyncio, "create_subprocess_exec", fake_spawn)
+    stream = CodexNativeProvider().stream(task)
+    if outcome == "spawn_failed":
+        with pytest.raises(FileNotFoundError, match="codex"):
+            await anext(stream)
+    elif outcome == "closed":
+        assert (await anext(stream))["type"] == "session_start"
+        await stream.aclose()
+    else:
+        assert [event["type"] async for event in stream] == ["session_start"]
+
+    assert len(schema_paths) == 1
+    assert schema_paths[0].exists() == (outcome == "provided_path")
+    assert task["output_schema"] == schema_input
 
 
 class TestAutoApprovalProbe:

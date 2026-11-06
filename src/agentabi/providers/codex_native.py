@@ -16,7 +16,10 @@ import json
 import os
 import shutil
 import subprocess
-from collections.abc import AsyncIterator
+import tempfile
+from collections.abc import AsyncGenerator
+from contextlib import ExitStack, aclosing
+from pathlib import Path
 from typing import Any, Literal, cast
 
 from ..types.ir.capabilities import AgentCapabilities
@@ -116,8 +119,21 @@ class CodexNativeProvider:
             "transport": "subprocess",
         }
 
-    async def stream(self, task: TaskConfig) -> AsyncIterator[IREvent]:
+    async def stream(self, task: TaskConfig) -> AsyncGenerator[IREvent, None]:
         """Run task via codex CLI and yield IR events."""
+        with ExitStack() as stack:
+            schema = task.get("output_schema")
+            if isinstance(schema, dict):
+                directory = stack.enter_context(tempfile.TemporaryDirectory())
+                schema_path = Path(directory) / "schema.json"
+                schema_path.write_text(json.dumps(schema), encoding="utf-8")
+                task = {**task, "output_schema": str(schema_path)}
+
+            async with aclosing(self._stream(task)) as events:
+                async for event in events:
+                    yield event
+
+    async def _stream(self, task: TaskConfig) -> AsyncGenerator[IREvent, None]:
         from .base import collect_subprocess_errors
 
         cmd = self._build_command(task)
@@ -223,18 +239,8 @@ class CodexNativeProvider:
                     ]
                 )
 
-        if "output_schema" in task:
-            schema = task["output_schema"]
-            if isinstance(schema, dict):
-                import json as _json
-                import tempfile
-
-                tmp = tempfile.NamedTemporaryFile(
-                    mode="w", suffix=".json", delete=False
-                )
-                _json.dump(schema, tmp)
-                tmp.close()
-                schema = tmp.name
+        schema = task.get("output_schema")
+        if isinstance(schema, str):
             cmd.extend(["--output-schema", schema])
 
         if task.get("ephemeral"):
