@@ -646,6 +646,69 @@ class TestParseEvent:
         events = self.provider._parse_event(raw)
         assert events == []
 
+    def test_tool_step_emits_one_tool_use_then_the_result(self):
+        """agy 1.5 sends ACTIVE then DONE for one step_index."""
+        base = {
+            "conversation_id": "conv-123",
+            "step_index": 2,
+            "step_type": "tool",
+            "tool_name": "run_command",
+            "tool_info": {
+                "name": "run_command",
+                "parameters": {"CommandLine": "echo agy-tool-ok"},
+            },
+        }
+        active = self.provider._parse_event(
+            {"event": "step_update", "step_update": {**base, "state": "ACTIVE"}}
+        )
+        assert len(active) == 1
+        assert active[0]["type"] == "tool_use"
+        assert active[0]["tool_name"] == "run_command"
+        assert active[0]["tool_input"] == {"CommandLine": "echo agy-tool-ok"}
+
+        done_step = {
+            **base,
+            "state": "DONE",
+            "tool_info": {
+                **base["tool_info"],
+                "output": (
+                    "Command exited with code 0.\n\nCommand output:\nagy-tool-ok\n"
+                ),
+            },
+        }
+        done = self.provider._parse_event(
+            {"event": "step_update", "step_update": done_step}
+        )
+        assert [e["type"] for e in done] == ["tool_result"]
+        assert done[0]["tool_use_id"] == active[0]["tool_use_id"]
+        assert "agy-tool-ok" in done[0]["content"]
+        assert "is_error" not in done[0]
+
+    def test_tool_step_error_becomes_a_failed_result(self):
+        raw = {
+            "event": "step_update",
+            "step_update": {
+                "conversation_id": "conv-123",
+                "step_index": 2,
+                "state": "ERROR",
+                "step_type": "tool",
+                "tool_name": "run_command",
+                "tool_info": {
+                    "name": "run_command",
+                    "parameters": {"CommandLine": "echo agy-tool-ok"},
+                    "error": {
+                        "type": "TOOL_ERROR",
+                        "message": "permission check failed for command",
+                    },
+                },
+            },
+        }
+        events = self.provider._parse_event(raw)
+        assert [e["type"] for e in events] == ["tool_use", "tool_result"]
+        assert events[1]["is_error"] is True
+        assert "permission check failed" in events[1]["content"]
+        assert events[0]["tool_use_id"] == events[1]["tool_use_id"]
+
 
 class TestResultTextAggregation:
     """End-to-end: full event flow through _RunState produces result_text."""
