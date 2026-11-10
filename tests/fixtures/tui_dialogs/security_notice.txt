@@ -1,0 +1,3 @@
+  ❯ No, exit
+    Yes, I accept
+  Enter to confirm · Esc to cancel
