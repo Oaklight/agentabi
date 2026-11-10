@@ -416,3 +416,9 @@ async def test_prompt_scopes_v2_message_ids_per_message():
     assert text_b1["messageId"] == text_b2["messageId"]
     assert thought_b["messageId"] != thought_a["messageId"]
     assert thought_b["messageId"] != text_b1["messageId"]
+
+
+def test_create_backend_passes_prefer():
+    backend = create_backend("claude", prefer="pty")
+    assert isinstance(backend, IRBackend)
+    assert backend._prefer == "pty"
