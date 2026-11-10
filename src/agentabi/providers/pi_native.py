@@ -88,6 +88,9 @@ class PiNativeProvider:
             "supports_tool_filtering": True,
             "supports_permissions": False,
             "supports_multi_turn": True,
+            "supports_structured_output": False,
+            "supports_additional_dirs": False,
+            "supports_file_attachments": False,
             "transport": "subprocess",
         }
 
