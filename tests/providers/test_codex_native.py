@@ -121,6 +121,22 @@ class TestBuildCommand:
         assert "--image" in cmd
         assert "img.png" in cmd
 
+    @pytest.mark.parametrize(
+        ("level", "effort"),
+        [("low", "low"), ("medium", "medium"), ("high", "high"), ("max", "high")],
+    )
+    def test_thinking_level_maps_to_reasoning_effort(self, level, effort):
+        cmd = CodexNativeProvider._build_command(
+            {"prompt": "hi", "agent": "codex", "thinking_level": level}
+        )
+        assert f'model_reasoning_effort="{effort}"' in cmd
+
+    def test_thinking_level_off_adds_no_effort(self):
+        cmd = CodexNativeProvider._build_command(
+            {"prompt": "hi", "agent": "codex", "thinking_level": "off"}
+        )
+        assert not any("model_reasoning_effort" in part for part in cmd)
+
 
 class TestBuildResumeCommand:
     """`codex exec resume` takes a smaller flag set than `codex exec`."""
@@ -136,6 +152,19 @@ class TestBuildResumeCommand:
         cmd = CodexNativeProvider._build_command(task)
         assert cmd[:4] == ["codex", "exec", "resume", "--json"]
         assert cmd[-2:] == ["abc", "again"]
+
+    def test_resume_carries_the_thinking_level(self):
+        task = self._task(
+            {
+                "prompt": "again",
+                "agent": "codex",
+                "session_id": "abc",
+                "resume": True,
+                "thinking_level": "high",
+            }
+        )
+        cmd = CodexNativeProvider._build_command(task)
+        assert 'model_reasoning_effort="high"' in cmd
 
     def test_resume_without_id_uses_last(self):
         task = self._task({"prompt": "again", "agent": "codex", "resume": True})
@@ -772,3 +801,8 @@ class TestCapabilities:
     def test_system_prompt_not_supported(self):
         caps = CodexNativeProvider().capabilities()
         assert caps["supports_system_prompt"] is False
+
+    def test_thinking_is_declared(self):
+        """`thinking_level` reaches the CLI as model_reasoning_effort."""
+        caps = CodexNativeProvider().capabilities()
+        assert caps["supports_thinking"] is True

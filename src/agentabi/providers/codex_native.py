@@ -44,6 +44,27 @@ from ..types.ir.task import TaskConfig
 # Cached result of the one-time `codex exec --help` probe.
 _AUTO_APPROVAL_FLAGS: list[str] | None = None
 
+# codex takes a reasoning effort through its config; `max` has no codex
+# equivalent and maps to the highest level the CLI accepts.
+_THINKING_LEVEL_MAP: dict[str, str] = {
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    "max": "high",
+}
+
+
+def _reasoning_effort_flags(task: TaskConfig) -> list[str]:
+    """Return ``-c model_reasoning_effort`` for a task's thinking level.
+
+    Returns:
+        Flag list, empty when the task sets no thinking level.
+    """
+    effort = _THINKING_LEVEL_MAP.get(task.get("thinking_level", ""))
+    if not effort:
+        return []
+    return ["-c", f'model_reasoning_effort="{effort}"']
+
 
 def _auto_approval_flags() -> list[str]:
     """Return automatic-approval flags the installed Codex CLI accepts.
@@ -142,6 +163,11 @@ class CodexNativeProvider:
             "supports_ephemeral": True,
             "supports_additional_dirs": True,
             "supports_file_attachments": True,
+            # `thinking_level` maps to `-c model_reasoning_effort`, measured
+            # on codex 0.162.1. codex streams no reasoning text: its JSONL
+            # has no reasoning item, only `reasoning_output_tokens` in the
+            # usage of `turn.completed`.
+            "supports_thinking": True,
             "transport": "subprocess",
         }
 
@@ -250,6 +276,8 @@ class CodexNativeProvider:
         if "model" in task:
             cmd.extend(["-m", task["model"]])
 
+        cmd.extend(_reasoning_effort_flags(task))
+
         if task.get("working_dir"):
             cmd.extend(["-C", task["working_dir"]])
 
@@ -325,6 +353,8 @@ class CodexNativeProvider:
 
         if "model" in task:
             cmd.extend(["-m", task["model"]])
+
+        cmd.extend(_reasoning_effort_flags(task))
 
         # The resumed process inherits its working directory from `cwd`, so
         # only the extra writable roots need an override.
