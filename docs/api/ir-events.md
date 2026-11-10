@@ -49,7 +49,7 @@
 {
     "type": "message_end",
     "text": "完整回复文本",       # 可选（部分 agent 在此包含完整文本）
-    "stop_reason": "end_turn",  # 可选
+    "stop_reason": "end_turn",  # 规范值，见下文"停止原因"
     "message_id": "msg_001",    # 可选
 }
 ```
@@ -261,3 +261,18 @@ async for event in session.stream(prompt="..."):
     elif is_tool_use(event):
         print(event["tool_name"])
 ```
+
+## 停止原因
+
+所有传输都在 `message_end.stop_reason` 中报告同一个规范值：
+
+| 值 | 含义 |
+| --- | --- |
+| `end_turn` | 模型完成了回答；因工具调用而让出回合也以此结束。 |
+| `max_tokens` | 达到输出上限。 |
+| `max_turn_requests` | 达到 agent 自身的回合预算。 |
+| `refusal` | 模型拒绝回答。 |
+| `error` | 回合失败。 |
+| `cancelled` | 用户或驱动程序取消了回合。 |
+
+提供者在发出事件前会把各自 CLI 的写法（`stop`、`tool-calls`、`toolUse`、`aborted` 等）转换过来。自定义提供者可调用 `agentabi.types.ir.canonical_stop_reason()` 使用同一映射。
