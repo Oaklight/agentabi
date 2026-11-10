@@ -94,11 +94,11 @@ Set `on_unsupported="ignore"` to drop those fields instead. The run continues, a
 ## Transport notes
 
 - **Claude Code** ignores `ANTHROPIC_BASE_URL` when OAuth is active, so the endpoint and a `CLAUDE_CODE_SKIP_ANTHROPIC_AUTH` switch go into `--settings`. The key arrives through `apiKeyHelper` reading `AGENTABI_CLAUDE_API_KEY` from the child environment, so it never appears in argv.
-- **codex** rewrites its provider block with `-c` because it ignores `OPENAI_BASE_URL`. The key is referenced by `env_key` and passed as `AGENTABI_CODEX_API_KEY`; codex 0.162.1 logs `model_providers.<id>.api_key` as an unrecognized setting.
+- **codex** rewrites its provider block with `-c` because it ignores `OPENAI_BASE_URL`. The provider id defaults to `agentabi`; codex rejects built-in ids such as `openai`, and it needs both `name` and `base_url`. The key is referenced by `env_key` and passed as `AGENTABI_CODEX_API_KEY`; codex 0.162.1 logs `model_providers.<id>.api_key` as an unrecognized setting.
 - **agy** needs the endpoint without a trailing `/v1` in `GOOGLE_GEMINI_BASE_URL`; the adapter strips it. A model named in `native` suppresses `--model`, because agy validates that flag against its own catalog.
-- **opencode V1** writes a provider block into `OPENCODE_CONFIG_CONTENT` and selects `<provider>/<model>`. An existing config is merged; invalid JSON is an error.
+- **opencode V1** writes a provider block into `OPENCODE_CONFIG_CONTENT` and selects `<provider>/<model>`. The provider id defaults to `agentabi`. An existing config is merged; invalid JSON is an error.
 - **opencode V2** builds its model catalog from the user's own OpenCode config and cannot see an injected provider. With `auto` such a run uses V1; with an explicit `v2` it fails with a clear error.
-- **pi** has no endpoint flag. The adapter creates a private temporary agent directory (mode `0700`) holding `models.json` (mode `0600`) and a copy of `settings.json`, points `PI_CODING_AGENT_DIR` at it, and removes it when the run ends. Extensions installed in the user's agent directory are not available during such a run.
+- **pi** has no endpoint flag. The provider id in `models.json` defaults to `agentabi`. The adapter creates a private temporary agent directory (mode `0700`) holding `models.json` (mode `0600`) and a copy of `settings.json`, points `PI_CODING_AGENT_DIR` at it, and removes it when the run ends. Extensions installed in the user's agent directory are not available during such a run.
 
 ## Secrets
 
