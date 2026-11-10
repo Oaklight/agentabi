@@ -74,7 +74,7 @@ Deny by default. Every session has a `permission_mode` config option:
 
 - Claude asks over the SDK control protocol. Answering `allow_once` runs the tool; `reject_once` leaves it unrun and the turn continues.
 - `allow_always` and `reject_always` are cached per session by the gateway. Claude's own `updatedPermissions` is not used: it writes `.claude/settings.local.json` and was measured not to suppress the next prompt.
-- Backends without a permission channel (`codex`, `agy`, `pi`) get no `permission_mode` option; their provider's own policy applies. ACP pass-through backends (`opencode`, `--agent acp`) can ask with the child's option ids.
+- Backends without a permission channel (`codex`, `agy`) still get `deny` and `allow_all`, which the gateway enforces with the provider's own flags: codex runs `-s read-only` with `approval_policy="never"`, and agy drops its skip-permissions flag so print mode auto-denies. `pi` has no such flags, so it gets no option. ACP pass-through backends (`opencode`, `--agent acp`) can ask with the child's option ids.
 - `--permission-timeout N` denies a request the client does not answer within N seconds. The default `0` waits.
 - `session/cancel` while a request is pending resolves it as cancelled and ends the turn.
 
