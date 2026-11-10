@@ -54,6 +54,29 @@ async def main():
 asyncio.run(main())
 ```
 
+### One endpoint setting for every agent
+
+Point any supported CLI at a custom model endpoint through one mapping.
+Each transport translates it into its own mechanism, so caller code does
+not change between agents:
+
+```python
+session = Session(
+    agent="codex",
+    settings={
+        "base_url": "https://llm.example.com/v1",
+        "api_key_env": "LLM_API_KEY",
+        "model_provider": "gateway",
+    },
+)
+```
+
+`settings` also takes `headers`, `env`, `args`, and a `native` block for
+CLI-specific options. Keys travel in the child environment, never in argv.
+An unsupported field raises `UnsupportedSettingsError` unless
+`on_unsupported="ignore"`. See the
+[settings guide](https://agentabi-en.readthedocs.io/en/latest/usage/settings/).
+
 ### Claude subscription quota (PTY transport)
 
 By default Claude Code runs as `claude -p`. Anthropic classifies that
@@ -211,6 +234,7 @@ All agents accept the same `TaskConfig` with fields for:
 - **Workspace**: `working_dir`, `additional_dirs`, `files`
 - **Permissions**: `permissions`, `allowed_tools`, `disallowed_tools`
 - **System prompts**: `system_prompt`, `append_system_prompt`
+- **Endpoint and auth**: `settings` (`base_url`, `api_key_env`, `model_provider`, `headers`, `env`, `args`, `native`)
 
 ### Unified IR Events
 

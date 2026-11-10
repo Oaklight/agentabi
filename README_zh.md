@@ -54,6 +54,27 @@ async def main():
 asyncio.run(main())
 ```
 
+### 所有 agent 共用一套端点配置
+
+用一个映射把任意受支持的 CLI 指向自定义模型端点。各传输把它翻译成自己的
+机制，调用方代码在 agent 之间不用改：
+
+```python
+session = Session(
+    agent="codex",
+    settings={
+        "base_url": "https://llm.example.com/v1",
+        "api_key_env": "LLM_API_KEY",
+        "model_provider": "gateway",
+    },
+)
+```
+
+`settings` 还接受 `headers`、`env`、`args`，以及各 CLI 专属选项的 `native`
+块。密钥走子进程环境，不进入 argv。不支持的字段抛出
+`UnsupportedSettingsError`，除非设置 `on_unsupported="ignore"`。详见
+[Settings 指南](https://agentabi-zh.readthedocs.io/zh-cn/latest/usage/settings/)。
+
 ### Claude 订阅额度（PTY 传输）
 
 默认情况下 Claude Code 以 `claude -p` 运行。Anthropic 把该入口标记为
@@ -193,6 +214,7 @@ method、agent、session、耗时和结果。
 - **工作空间**：`working_dir`、`additional_dirs`、`files`
 - **权限控制**：`permissions`、`allowed_tools`、`disallowed_tools`
 - **系统提示**：`system_prompt`、`append_system_prompt`
+- **端点与认证**：`settings`（`base_url`、`api_key_env`、`model_provider`、`headers`、`env`、`args`、`native`）
 
 ### 统一的 IR 事件
 
