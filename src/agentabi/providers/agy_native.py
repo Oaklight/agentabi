@@ -63,6 +63,11 @@ class AgyNativeProvider:
         # Tool steps share one step_index across ACTIVE/DONE/ERROR, so the
         # index marks a call that already emitted its tool_use.
         self._tool_steps: set[int] = set()
+        # A tool DONE with no ``tool_info.output`` is what agy 1.5 emits
+        # when headless mode auto-denies the call. The denial reason is
+        # only reported in the later ``result`` event, so hold these
+        # results until then.
+        self._pending_tool_results: list[str] = []
 
     @staticmethod
     def is_available() -> bool:
@@ -83,11 +88,20 @@ class AgyNativeProvider:
             "supports_structured_output": True,
             "supports_additional_dirs": True,
             "supports_multi_turn": True,
+            # Measured with agy 1.5.5: a print run persists its
+            # conversation (resuming one with --conversation restored the
+            # prior turn) and `agy --help` lists no flag that disables
+            # session persistence.
+            "supports_ephemeral": False,
+            # Measured with agy 1.5.5: `agy --help` lists no flag that
+            # accepts a file or image attachment; -p takes a text prompt.
+            "supports_file_attachments": False,
             "transport": "subprocess",
         }
 
     async def stream(self, task: TaskConfig) -> AsyncIterator[IREvent]:
         """Run task via agy CLI and yield IR events."""
+        self._reset_state()
         cmd = self._build_command(task)
         merged_env = self._build_env(task)
 
@@ -128,6 +142,8 @@ class AgyNativeProvider:
                     yield event
 
             await proc.wait()
+            for event in self._flush_pending_tool_results(denied_actions=[]):
+                yield event
             for err in await collect_subprocess_errors(
                 proc, timed_out=timed_out, timeout_seconds=timeout
             ):
@@ -182,7 +198,13 @@ class AgyNativeProvider:
         """Convert TaskConfig to agy CLI arguments."""
         cmd = ["agy", "--output-format", "stream-json"]
 
-        if "model" in task:
+        settings = AgyNativeProvider._settings_arg(task)
+
+        # `--model` is validated against agy's own catalog even when
+        # --settings names a gateway model (measured with agy 1.5.5), and
+        # --model wins over the settings model. A model supplied through
+        # settings must therefore not also go to --model.
+        if "model" in task and not AgyNativeProvider._settings_names_model(settings):
             cmd.extend(["--model", task["model"]])
 
         AgyNativeProvider._add_permission_flags(cmd, task)
@@ -194,8 +216,47 @@ class AgyNativeProvider:
 
         AgyNativeProvider._add_extension_flags(cmd, task)
 
+        if settings is not None:
+            cmd.extend(["--settings", settings])
+
         cmd.extend(["-p", task["prompt"]])
         return cmd
+
+    @staticmethod
+    def _settings_arg(task: TaskConfig) -> str | None:
+        """Return the value for ``--settings`` from task extensions.
+
+        ``agent_extensions.agy.settings`` may be a dict (serialized to a
+        JSON object) or a string (passed through unchanged, so agy can
+        read it as a file path). Gateway-only models are named here, e.g.
+        ``{"agy": {"settings": {"model": "qwen3.8-27b"}}}``.
+        """
+        ext = task.get("agent_extensions") or {}
+        agy_ext = ext.get("agy")
+        if not isinstance(agy_ext, dict):
+            return None
+        settings = agy_ext.get("settings")
+        if settings is None:
+            return None
+        if isinstance(settings, str):
+            return settings
+        if isinstance(settings, dict):
+            return json.dumps(settings)
+        raise ValueError(
+            "agent_extensions.agy.settings must be a dict or a JSON string"
+        )
+
+    @staticmethod
+    def _settings_names_model(settings: str | None) -> bool:
+        """Return True when the ``--settings`` JSON object sets a model."""
+        if not settings:
+            return False
+        try:
+            data = json.loads(settings)
+        except json.JSONDecodeError:
+            # A file path; agy reads the file, so the model is unknown here.
+            return False
+        return isinstance(data, dict) and bool(data.get("model"))
 
     @staticmethod
     def _add_permission_flags(cmd: list[str], task: TaskConfig) -> None:
@@ -248,6 +309,57 @@ class AgyNativeProvider:
 
     # ========== Private: event parsing ==========
 
+    def _reset_state(self) -> None:
+        """Clear per-run parsing state so a reused provider starts fresh."""
+        self._step_index = None
+        self._step_text = []
+        self._step_open = False
+        self._tool_steps.clear()
+        self._pending_tool_results.clear()
+
+    def _flush_pending_tool_results(
+        self, *, denied_actions: list[Any]
+    ) -> list[IREvent]:
+        """Emit tool results held back because agy omitted their output.
+
+        A denial is reported only as ``denied_actions`` on the final
+        ``result`` event, so the last held-back result becomes an error
+        carrying the reason; any earlier one stays an empty success.
+        """
+        pending = self._pending_tool_results
+        self._pending_tool_results = []
+        results: list[IREvent] = []
+        for index, tool_id in enumerate(pending):
+            tool_result: ToolResultEvent = {
+                "type": "tool_result",
+                "tool_use_id": tool_id,
+                "content": "",
+            }
+            if denied_actions and index == len(pending) - 1:
+                tool_result["content"] = AgyNativeProvider._denial_message(
+                    denied_actions
+                )
+                tool_result["is_error"] = True
+            results.append(tool_result)
+        return results
+
+    @staticmethod
+    def _denial_message(denied_actions: list[Any]) -> str:
+        """Build the tool error text for agy's ``denied_actions``."""
+        names: list[str] = []
+        for entry in denied_actions:
+            if not isinstance(entry, dict):
+                continue
+            name = entry.get("display_name") or entry.get("action")
+            if name:
+                names.append(str(name))
+        listed = f" ({', '.join(names)})" if names else ""
+        return (
+            "agy auto-denied this tool call: headless mode cannot answer a "
+            f"permission prompt{listed}. Re-run with permissions level "
+            '"full_auto" or add an allow rule to agy settings.'
+        )
+
     def _parse_event(self, raw: dict[str, Any]) -> list[IREvent]:
         """Convert an agy stream-json event to IR events."""
         event_type = raw.get("event")
@@ -257,7 +369,7 @@ class AgyNativeProvider:
         elif event_type == "step_update":
             return self._handle_step_update(raw)
         elif event_type == "result":
-            return AgyNativeProvider._handle_result(raw)
+            return self._handle_result(raw)
         return []
 
     @staticmethod
@@ -321,12 +433,19 @@ class AgyNativeProvider:
             results.append(tool_use)
 
         if state == "DONE":
-            tool_result: ToolResultEvent = {
-                "type": "tool_result",
-                "tool_use_id": tool_id,
-                "content": str(info.get("output", "")),
-            }
-            results.append(tool_result)
+            output = info.get("output")
+            if output:
+                tool_result: ToolResultEvent = {
+                    "type": "tool_result",
+                    "tool_use_id": tool_id,
+                    "content": str(output),
+                }
+                results.append(tool_result)
+            else:
+                # agy 1.5 omits ``output`` when the call never ran, which
+                # is what a headless auto-deny looks like. Hold the
+                # result until ``result`` reports ``denied_actions``.
+                self._pending_tool_results.append(tool_id)
         elif state == "ERROR":
             error = info.get("error")
             message = error.get("message", "") if isinstance(error, dict) else error
@@ -411,11 +530,33 @@ class AgyNativeProvider:
 
         return results
 
-    @staticmethod
-    def _handle_result(raw: dict[str, Any]) -> list[IREvent]:
-        """Handle result event — emits UsageEvent + SessionEndEvent (+ ErrorEvent)."""
+    def _handle_result(self, raw: dict[str, Any]) -> list[IREvent]:
+        """Handle result event — emits UsageEvent + SessionEndEvent (+ ErrorEvent).
+
+        Tool results held back because agy omitted their output are
+        flushed first: the ``denied_actions`` list on this event is where
+        agy reports an auto-denied call.
+        """
         results: list[IREvent] = []
         result_data = raw.get("result", {})
+        status = result_data.get("status", "")
+
+        denied_actions = result_data.get("denied_actions")
+        if not isinstance(denied_actions, list):
+            denied_actions = []
+        results.extend(self._flush_pending_tool_results(denied_actions=denied_actions))
+
+        # A fatal result can arrive while an assistant message is still
+        # open (agy then omits the step's DONE update). Close it with
+        # stop_reason "error" so the last message_end names the failure.
+        if status != "SUCCESS" and self._step_open:
+            end: MessageEndEvent = {"type": "message_end", "stop_reason": "error"}
+            if self._step_text:
+                end["text"] = "".join(self._step_text)
+            results.append(end)
+            self._step_index = None
+            self._step_text = []
+            self._step_open = False
 
         # Usage
         raw_usage = result_data.get("usage", {})
@@ -435,7 +576,6 @@ class AgyNativeProvider:
         results.append(usage_event)
 
         # Error if status != SUCCESS
-        status = result_data.get("status", "")
         if status != "SUCCESS":
             error_msg = result_data.get("error", f"agy exited with status: {status}")
             err: ErrorEvent = {
