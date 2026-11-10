@@ -19,6 +19,7 @@
 - **Provider stdin** — child processes get `/dev/null` on stdin. Under the gateway the host stdin is the JSON-RPC pipe, and pi consumed ACP messages from it.
 - **Codex temp schema leak** — generated `--output-schema` files are deleted after streaming; a path-like schema value is accepted as a file path. (#51, PR #52)
 - **Claude TUI error paths** — API errors and internal failures surface as `ErrorEvent` instead of a silent end. Prompt text with control characters is rejected before any byte is written, and paste and submit are confirmed before a turn starts. (#55, #58)
+- **Claude TUI transcript and startup detection** — the transcript reader resets after truncation or an inode rewrite, never advances past a partial line, and recovers a row glued to a partial prefix. Usage is summed across messages, and `cost_usd` is carried from the result row. The prompt is detected from the input box's rule lines, so the placeholder hint (`❯ Try "..."`) is accepted and menu items are not. A trust or login failure falls back to the native or SDK transport with a non-fatal `ErrorEvent`. Verified against Claude Code 2.1.299. (#59, PR #72)
 - **ptyx** — Windows ConPTY chunks are kept instead of dropped, pipe failures raise `PtyReadError`/`PtyWriteError`, and only cursor-position queries are answered. (#56)
 
 ## v0.4.0 (2026-09-08)
