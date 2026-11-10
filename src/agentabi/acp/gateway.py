@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from typing import Any
 
 from agentabi import __version__
@@ -21,12 +22,22 @@ from agentabi._vendor.acp import (
     NewSessionResult,
     PromptParams,
     PromptResult,
+    SetConfigOptionParams,
+    SetConfigOptionResult,
     StopReason,
     negotiate_protocol_version,
 )
 from agentabi._vendor.jsonrpc import INTERNAL_ERROR, METHOD_NOT_FOUND
 
-from .backends.base import Backend
+from .backends.base import Backend, SessionSelectingBackend
+
+#: ``_meta`` of the ``session/new`` request being handled.  The vendored
+#: parser drops unknown fields, so the gateway stashes the raw object here.
+#: Each dispatched message runs in its own task, so concurrent ``session/new``
+#: calls do not see each other's metadata.
+_SESSION_META: ContextVar[dict[str, Any]] = ContextVar(
+    "agentabi_session_meta", default={}
+)
 
 
 class GatewayAgent(ACPAgent):
@@ -64,7 +75,26 @@ class GatewayAgent(ACPAgent):
         return result
 
     async def on_new_session(self, params: NewSessionParams) -> NewSessionResult:
+        if isinstance(self._backend, SessionSelectingBackend):
+            return await self._backend.new_session_with_meta(
+                params, _SESSION_META.get()
+            )
         return await self._backend.new_session(params)
+
+    async def _handle_new_session(self, params: dict[str, Any]) -> Any:
+        """Capture ``_meta`` before the vendored parser drops it.
+
+        ``ACPAgent._handle_new_session`` parses the wire params into
+        ``NewSessionParams``, which has no ``_meta`` field.  Stash the raw
+        object in a context variable for :meth:`on_new_session`.  Each
+        message is dispatched in its own task, so the value is isolated.
+        """
+        raw_meta = params.get("_meta")
+        token = _SESSION_META.set(raw_meta if isinstance(raw_meta, dict) else {})
+        try:
+            return await super()._handle_new_session(params)
+        finally:
+            _SESSION_META.reset(token)
 
     async def on_load_session(self, params: LoadSessionParams) -> None:
         async for update in self._backend.load_session(params):
@@ -85,6 +115,15 @@ class GatewayAgent(ACPAgent):
 
     async def on_close_session(self, params: CloseSessionParams) -> None:
         await self._backend.close_session(params.session_id)
+
+    async def on_set_config_option(
+        self, params: SetConfigOptionParams
+    ) -> SetConfigOptionResult:
+        """Delegate config option changes to backends that handle them."""
+        handler = getattr(self._backend, "set_config_option", None)
+        if callable(handler):
+            return await handler(params)
+        return SetConfigOptionResult()
 
     async def on_authenticate(self, params: AuthenticateParams) -> None:
         """Reject ``authenticate``: the gateway does not proxy backend auth."""

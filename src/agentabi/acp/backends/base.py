@@ -85,3 +85,21 @@ class Backend(Protocol):
     async def close_session(self, session_id: str) -> None:
         """Close an active backend session."""
         ...
+
+
+@runtime_checkable
+class SessionSelectingBackend(Protocol):
+    """Backend that chooses an agent from ACP ``session/new`` metadata.
+
+    The router implements this protocol.  The gateway uses it to pass the
+    request ``_meta`` object, which the plain :class:`Backend` interface
+    does not carry.
+    """
+
+    async def new_session_with_meta(
+        self,
+        params: NewSessionParams,
+        meta: dict[str, Any] | None,
+    ) -> NewSessionResult:
+        """Create a session for the agent named by *meta*."""
+        ...

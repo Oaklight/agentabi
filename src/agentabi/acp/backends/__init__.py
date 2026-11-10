@@ -6,7 +6,7 @@ import shlex
 from collections.abc import Callable
 
 from .acp_server import ACPBackend
-from .base import Backend
+from .base import Backend, SessionSelectingBackend
 from .ir import IRBackend
 from .opencode import OpenCodeBackend
 
@@ -68,5 +68,6 @@ __all__ = [
     "Backend",
     "IRBackend",
     "OpenCodeBackend",
+    "SessionSelectingBackend",
     "create_backend",
 ]
