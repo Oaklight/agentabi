@@ -183,6 +183,33 @@ class TestTurnState:
         assert state.armed is True
         assert events[0]["type"] == "message_start"
 
+    def test_step_failed_before_a_step_arms_and_ends_the_turn(self):
+        """An unresolvable model fails before any step.start event."""
+        state = _TurnState(session_id=SESSION, prompt_message_id="msg_user")
+        events = state.handle(
+            _event(
+                "session.next.step.failed",
+                assistantMessageID="msg_a",
+                error={"type": "unknown", "message": "Model unavailable"},
+            )
+        )
+        assert state.armed is True
+        assert [e["type"] for e in events] == ["error", "session_end"]
+        assert "Model unavailable" in events[0]["error"]
+
+    def test_session_error_before_a_step_arms_and_ends_the_turn(self):
+        state = _TurnState(session_id=SESSION, prompt_message_id="msg_user")
+        events = state.handle(
+            _event("session.error", error={"message": "provider rejected"})
+        )
+        assert state.armed is True
+        assert [e["type"] for e in events] == ["error", "session_end"]
+
+    def test_failure_without_a_sent_prompt_does_nothing(self):
+        state = _TurnState(session_id=SESSION)
+        assert state.handle(_event("session.next.step.failed", error={})) == []
+        assert state.armed is False
+
     def test_step_started_emits_message_start(self):
         state = _armed_state()
         events = state.handle(
@@ -654,6 +681,89 @@ class TestProviderAgainstMock:
             assert result["status"] == "success"
 
 
+class TestCatalogModelGuard:
+    """A model missing from the V2 catalog fails fast instead of hanging."""
+
+    @staticmethod
+    def _patch(monkeypatch, result, *, wait: float = 0.0):
+        async def fake_request(*_args: Any, **_kwargs: Any):
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+        monkeypatch.setattr(opencode_v2, "request_json", fake_request)
+        monkeypatch.setattr(opencode_v2, "_CATALOG_WAIT", wait)
+        monkeypatch.setattr(opencode_v2, "_CATALOG_POLL", 0.01)
+
+    async def test_listed_model_passes(self, monkeypatch):
+        self._patch(
+            monkeypatch,
+            (
+                200,
+                [
+                    {"providerID": "rosetta", "id": "qwen3.8-27b"},
+                    {"providerID": "opencode", "id": "other"},
+                ],
+            ),
+        )
+        await OpenCodeV2Provider._require_catalog_model(
+            "http://127.0.0.1:1", {"providerID": "rosetta", "id": "qwen3.8-27b"}
+        )
+
+    async def test_missing_model_names_what_is_available(self, monkeypatch):
+        self._patch(
+            monkeypatch,
+            (200, [{"providerID": "rosetta", "id": "deepseek-v4.1-flash"}]),
+        )
+        with pytest.raises(opencode_v2.OpenCodeV2Error) as exc:
+            await OpenCodeV2Provider._require_catalog_model(
+                "http://127.0.0.1:1", {"providerID": "rosetta", "id": "qwen3.8-27b"}
+            )
+        assert "does not offer rosetta/qwen3.8-27b" in str(exc.value)
+        assert "rosetta/deepseek-v4.1-flash" in str(exc.value)
+
+    async def test_unreachable_catalog_skips_the_check(self, monkeypatch):
+        self._patch(monkeypatch, opencode_v2.HTTPError("no route"))
+        await OpenCodeV2Provider._require_catalog_model(
+            "http://127.0.0.1:1", {"providerID": "rosetta", "id": "qwen3.8-27b"}
+        )
+
+    async def test_non_200_catalog_skips_the_check(self, monkeypatch):
+        self._patch(monkeypatch, (404, {"detail": "not found"}))
+        await OpenCodeV2Provider._require_catalog_model(
+            "http://127.0.0.1:1", {"providerID": "rosetta", "id": "qwen3.8-27b"}
+        )
+
+    async def test_empty_catalog_skips_the_check(self, monkeypatch):
+        """A fresh server answers before its catalog is populated."""
+        self._patch(monkeypatch, (200, []))
+        await OpenCodeV2Provider._require_catalog_model(
+            "http://127.0.0.1:1", {"providerID": "rosetta", "id": "qwen3.8-27b"}
+        )
+
+    async def test_unlisted_provider_skips_the_check(self, monkeypatch):
+        """Another provider's models say nothing about this one."""
+        self._patch(monkeypatch, (200, [{"providerID": "opencode", "id": "free"}]))
+        await OpenCodeV2Provider._require_catalog_model(
+            "http://127.0.0.1:1", {"providerID": "rosetta", "id": "qwen3.8-27b"}
+        )
+
+    async def test_polls_until_the_provider_is_listed(self, monkeypatch):
+        """A fresh server answers empty, then lists the provider."""
+        answers = [(200, []), (200, [{"providerID": "rosetta", "id": "late"}])]
+
+        async def fake_request(*_args: Any, **_kwargs: Any):
+            return answers.pop(0)
+
+        monkeypatch.setattr(opencode_v2, "request_json", fake_request)
+        monkeypatch.setattr(opencode_v2, "_CATALOG_WAIT", 1.0)
+        monkeypatch.setattr(opencode_v2, "_CATALOG_POLL", 0.01)
+        await OpenCodeV2Provider._require_catalog_model(
+            "http://127.0.0.1:1", {"providerID": "rosetta", "id": "late"}
+        )
+        assert answers == []
+
+
 class TestAvailability:
     def test_capabilities(self):
         capabilities = OpenCodeV2Provider().capabilities()
@@ -662,6 +772,14 @@ class TestAvailability:
         assert capabilities["supports_session_resume"] is True
         assert capabilities["supports_multi_turn"] is True
         assert capabilities["supports_system_prompt"] is False
+
+    def test_unsupported_features_are_declared_false(self):
+        """The V2 prompt and session schemas carry no such option."""
+        capabilities = OpenCodeV2Provider().capabilities()
+        assert capabilities["supports_structured_output"] is False
+        assert capabilities["supports_ephemeral"] is False
+        assert capabilities["supports_additional_dirs"] is False
+        assert capabilities["supports_file_attachments"] is True
 
     def test_explicit_v1_disables_provider(self, monkeypatch):
         monkeypatch.setenv("AGENTABI_OPENCODE_TRANSPORT", "v1")
