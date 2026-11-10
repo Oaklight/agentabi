@@ -49,7 +49,7 @@ Marks the end of an assistant message turn.
 {
     "type": "message_end",
     "text": "Full response text",    # optional (some agents include full text here)
-    "stop_reason": "end_turn",       # optional
+    "stop_reason": "end_turn",       # canonical; see "Stop reasons" below
     "message_id": "msg_001",         # optional
 }
 ```
@@ -233,3 +233,18 @@ async for event in session.stream(prompt="..."):
     elif is_tool_use(event):
         print(event["tool_name"])
 ```
+
+## Stop reasons
+
+Every transport reports one canonical value in `message_end.stop_reason`:
+
+| Value | Meaning |
+| --- | --- |
+| `end_turn` | The model finished; a turn that yielded to a tool also ends here. |
+| `max_tokens` | The output limit was reached. |
+| `max_turn_requests` | The agent's own turn budget was reached. |
+| `refusal` | The model refused. |
+| `error` | The turn failed. |
+| `cancelled` | The user or driver cancelled the turn. |
+
+Providers translate their CLI's spelling (`stop`, `tool-calls`, `toolUse`, `aborted`, ...) before emitting the event. `agentabi.types.ir.canonical_stop_reason()` exposes the same mapping for custom providers.
