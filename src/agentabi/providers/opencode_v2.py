@@ -480,6 +480,7 @@ class _TurnState:
         events: list[IREvent] = [
             PermissionRequestEvent(
                 type="permission_request",
+                request_id=request_id,
                 tool_name=action,
                 tool_use_id=request_id,
                 tool_input={"resources": resources} if resources else {},
@@ -495,7 +496,10 @@ class _TurnState:
         events.append(
             PermissionResponseEvent(
                 type="permission_response",
+                request_id=request_id,
                 tool_use_id=request_id,
+                option_id=reply,
+                outcome="selected",
                 granted=reply != "reject",
             )
         )

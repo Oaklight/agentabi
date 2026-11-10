@@ -19,6 +19,8 @@ from typing import Any, Literal
 
 from typing_extensions import NotRequired, Required, TypedDict
 
+from .permissions import PermissionOption
+
 # ============================================================================
 # Session lifecycle events
 # ============================================================================
@@ -160,22 +162,32 @@ class ToolResultEvent(TypedDict):
 class PermissionRequestEvent(TypedDict):
     """Emitted when the agent requests permission for an action.
 
-    The consumer can respond by sending a PermissionResponse.
+    The consumer answers by returning a ``PermissionDecision`` from the
+    provider's permission handler.  ``request_id`` is the correlation id the
+    gateway uses to match a decision to a pending request; it is the backend
+    id when one exists, else ``perm_<uuid>``.
     """
 
     type: Required[Literal["permission_request"]]
+    request_id: Required[str]
     tool_name: Required[str]
     tool_use_id: Required[str]
     tool_input: NotRequired[dict[str, Any]]
     description: NotRequired[str]
+    options: NotRequired[list[PermissionOption]]
+    suggestions: NotRequired[list[dict[str, Any]]]
+    raw: NotRequired[dict[str, Any]]
 
 
 class PermissionResponseEvent(TypedDict):
     """Emitted when a permission decision is made."""
 
     type: Required[Literal["permission_response"]]
+    request_id: Required[str]
     tool_use_id: Required[str]
-    granted: Required[bool]
+    option_id: NotRequired[str]  # absent when outcome == "cancelled"
+    outcome: Required[Literal["selected", "cancelled"]]
+    granted: Required[bool]  # kept: option kind starts with "allow"
 
 
 # ============================================================================
