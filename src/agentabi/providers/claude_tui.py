@@ -297,7 +297,7 @@ class ClaudeTuiProvider:
             "supports_system_prompt": True,
             "supports_tool_filtering": True,
             "supports_file_diffs": False,
-            "supports_permissions": True,
+            "supports_permissions": False,
             "supports_thinking": True,
             "supports_structured_output": False,
             "supports_ephemeral": False,
@@ -319,10 +319,21 @@ class ClaudeTuiProvider:
             )
             return
 
-        session_id = task.get("session_id") or str(uuid.uuid4())
+        requested_id = task.get("session_id")
+        session_id = requested_id or str(uuid.uuid4())
         resume = bool(task.get("resume"))
         cwd = task.get("working_dir") or os.getcwd()
         env = _build_env(task)
+        path = transcript_path(cwd, session_id, env.get("CLAUDE_CONFIG_DIR"))
+
+        if not resume:
+            if requested_id and path.exists():
+                # Never delete a caller's transcript. Start a fresh session
+                # under a new id; pass resume=True to continue that one.
+                session_id = str(uuid.uuid4())
+                path = transcript_path(cwd, session_id, env.get("CLAUDE_CONFIG_DIR"))
+            path.unlink(missing_ok=True)
+
         command = _build_command(binary, task, session_id, resume)
 
         try:
@@ -344,7 +355,6 @@ class ClaudeTuiProvider:
                 )
                 return
 
-            path = transcript_path(cwd, session_id, env.get("CLAUDE_CONFIG_DIR"))
             offset = 0
             if resume:
                 # Do not replay history from a resumed session; only rows
@@ -353,8 +363,6 @@ class ClaudeTuiProvider:
                     offset = path.stat().st_size
                 except FileNotFoundError:
                     offset = 0
-            else:
-                path.unlink(missing_ok=True)
 
             yield SessionStartEvent(
                 type="session_start",

@@ -183,6 +183,33 @@ async def test_trust_prompt_fails_with_clear_error(tmp_path):
     assert "trust" in errors[0]["error"].lower()
 
 
+async def test_existing_transcript_is_not_deleted_without_resume(tmp_path):
+    """A caller-supplied session id must not erase an existing transcript."""
+    binary = _write_script(tmp_path, _FAKE_TUI)
+    path = transcript_path(str(tmp_path), "existing-sid", str(tmp_path / "claude"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    original = '{"type": "user", "message": {"content": "old"}}\n'
+    path.write_text(original)
+
+    task = _task(tmp_path, binary)
+    task["session_id"] = "existing-sid"
+    events = [event async for event in ClaudeTuiProvider().stream(task)]
+
+    assert path.exists()
+    assert path.read_text() == original
+    starts = [event for event in events if event["type"] == "session_start"]
+    assert starts
+    assert starts[0]["session_id"] != "existing-sid"
+    assert [event["text"] for event in events if event["type"] == "message_end"] == [
+        "ECHO: hello"
+    ]
+
+
+def test_capabilities_do_not_claim_permission_dialogs():
+    caps = ClaudeTuiProvider().capabilities()
+    assert caps["supports_permissions"] is False
+
+
 async def test_split_message_keeps_late_text_block(tmp_path):
     """A delayed text block must not be lost to an early turn end."""
     binary = _write_script(tmp_path, _SPLIT_MESSAGE_TUI)
