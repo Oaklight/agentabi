@@ -45,7 +45,9 @@ class AgyNativeProvider:
     - event: "step_update" — step progress with step_type variants:
         - "user_input"      — user input step (skipped)
         - "agent_response"  — assistant response with text_delta and usage
-        - "tool_use"        — tool invocation
+        - "tool"            — tool call (agy 1.5 and later): ACTIVE, then
+                              DONE or ERROR, with tool_info.
+        - "tool_use"        — tool invocation in earlier builds
         - "checkpoint"      — checkpoint marker (skipped)
         - "error_message"   — error during step (skipped, errors in result)
     - event: "result"      — final result with status, response, usage
@@ -58,6 +60,9 @@ class AgyNativeProvider:
         self._step_index: int | None = None
         self._step_text: list[str] = []
         self._step_open = False
+        # Tool steps share one step_index across ACTIVE/DONE/ERROR, so the
+        # index marks a call that already emitted its tool_use.
+        self._tool_steps: set[int] = set()
 
     @staticmethod
     def is_available() -> bool:
@@ -279,10 +284,61 @@ class AgyNativeProvider:
 
         if step_type == "agent_response":
             return self._handle_agent_response(step)
+        elif step_type == "tool":
+            return self._handle_tool_step(step)
         elif step_type == "tool_use":
+            # Shape documented by earlier agy builds.
             return AgyNativeProvider._handle_tool_use_step(step)
         # user_input, checkpoint, error_message — skip
         return []
+
+    def _handle_tool_step(self, step: dict[str, Any]) -> list[IREvent]:
+        """Handle a ``tool`` step — emits tool_use once, then its result.
+
+        agy 1.5 sends the same ``step_index`` for the tool's ``ACTIVE``,
+        ``DONE``, and ``ERROR`` updates, with the arguments under
+        ``tool_info.parameters`` and the outcome under ``tool_info.output``
+        or ``tool_info.error``. There is no separate tool-call id, so the
+        step index identifies the call.
+
+        Returns:
+            ``tool_use`` on the first update, then ``tool_result``.
+        """
+        results: list[IREvent] = []
+        step_index = step.get("step_index")
+        state = step.get("state", "")
+        info = step.get("tool_info") or {}
+        tool_id = f"agy-step-{step_index}"
+
+        if step_index is not None and step_index not in self._tool_steps:
+            self._tool_steps.add(step_index)
+            tool_use: ToolUseEvent = {
+                "type": "tool_use",
+                "tool_use_id": tool_id,
+                "tool_name": step.get("tool_name", "") or info.get("name", ""),
+                "tool_input": info.get("parameters") or {},
+            }
+            results.append(tool_use)
+
+        if state == "DONE":
+            tool_result: ToolResultEvent = {
+                "type": "tool_result",
+                "tool_use_id": tool_id,
+                "content": str(info.get("output", "")),
+            }
+            results.append(tool_result)
+        elif state == "ERROR":
+            error = info.get("error")
+            message = error.get("message", "") if isinstance(error, dict) else error
+            failed: ToolResultEvent = {
+                "type": "tool_result",
+                "tool_use_id": tool_id,
+                "content": str(message or ""),
+                "is_error": True,
+            }
+            results.append(failed)
+
+        return results
 
     def _handle_agent_response(self, step: dict[str, Any]) -> list[IREvent]:
         """Handle agent_response step — emits message events.
