@@ -1,6 +1,9 @@
 """Tests for AgyNativeProvider command building and event parsing."""
 
+import json
 from typing import Any, cast
+
+import pytest
 
 from agentabi.providers.agy_native import AgyNativeProvider
 from agentabi.types.ir.task import TaskConfig
@@ -21,6 +24,89 @@ class TestBuildCommand:
         cmd = AgyNativeProvider._build_command(task)
         assert "--model" in cmd
         assert "gemini-2.5-pro" in cmd
+
+    def test_settings_dict_is_serialized(self):
+        """agent_extensions.agy.settings → --settings <json>."""
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "agy",
+                "agent_extensions": {
+                    "agy": {"settings": {"model": "qwen3.8-27b"}},
+                },
+            }
+        )
+        cmd = AgyNativeProvider._build_command(task)
+        idx = cmd.index("--settings")
+        assert json.loads(cmd[idx + 1]) == {"model": "qwen3.8-27b"}
+        # A gateway-only model is named through settings only: agy
+        # validates --model against its own catalog.
+        assert "--model" not in cmd
+
+    def test_settings_without_model_keeps_the_model_flag(self):
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "agy",
+                "model": "gemini-2.5-pro",
+                "agent_extensions": {
+                    "agy": {"settings": {"permissions": {"allow": ["command(ls)"]}}},
+                },
+            }
+        )
+        cmd = AgyNativeProvider._build_command(task)
+        assert cmd[cmd.index("--model") + 1] == "gemini-2.5-pro"
+        idx = cmd.index("--settings")
+        assert json.loads(cmd[idx + 1]) == {"permissions": {"allow": ["command(ls)"]}}
+
+    def test_settings_with_model_skips_a_conflicting_model_flag(self):
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "agy",
+                "model": "gemini-2.5-pro",
+                "agent_extensions": {"agy": {"settings": {"model": "qwen3.8-27b"}}},
+            }
+        )
+        cmd = AgyNativeProvider._build_command(task)
+        assert "--model" not in cmd
+        assert cmd[cmd.index("--settings") + 1] == '{"model": "qwen3.8-27b"}'
+
+    def test_settings_string_is_passed_through(self):
+        """A string is a settings path agy reads itself."""
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "agy",
+                "agent_extensions": {"agy": {"settings": "/tmp/agy-settings.json"}},
+            }
+        )
+        cmd = AgyNativeProvider._build_command(task)
+        assert cmd[cmd.index("--settings") + 1] == "/tmp/agy-settings.json"
+
+    def test_settings_rejects_a_non_dict_non_string(self):
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "agy",
+                "agent_extensions": {"agy": {"settings": 3}},
+            }
+        )
+        with pytest.raises(ValueError, match="agy.settings"):
+            AgyNativeProvider._build_command(task)
+
+    def test_flat_extensions_still_work_without_the_agy_namespace(self):
+        """Existing flat agy extensions are unchanged."""
+        task = self._task(
+            {
+                "prompt": "Hi",
+                "agent": "agy",
+                "agent_extensions": {"effort": "high"},
+            }
+        )
+        cmd = AgyNativeProvider._build_command(task)
+        assert "--settings" not in cmd
+        assert cmd[cmd.index("--effort") + 1] == "high"
 
     def test_permission_full_auto(self):
         task = self._task(
@@ -709,6 +795,140 @@ class TestParseEvent:
         assert "permission check failed" in events[1]["content"]
         assert events[0]["tool_use_id"] == events[1]["tool_use_id"]
 
+    def test_denied_tool_call_reports_the_reason_on_the_result(self):
+        """agy 1.5: a headless auto-deny is tool DONE with no output."""
+        base = {
+            "conversation_id": "conv-123",
+            "step_index": 2,
+            "step_type": "tool",
+            "tool_name": "run_command",
+            "tool_info": {
+                "name": "run_command",
+                "parameters": {"CommandLine": "echo agy-deny-probe"},
+            },
+        }
+        active = self.provider._parse_event(
+            {"event": "step_update", "step_update": {**base, "state": "ACTIVE"}}
+        )
+        assert [e["type"] for e in active] == ["tool_use"]
+
+        done = self.provider._parse_event(
+            {"event": "step_update", "step_update": {**base, "state": "DONE"}}
+        )
+        # Held back: the denial is only reported by the result event.
+        assert done == []
+
+        result = self.provider._parse_event(
+            {
+                "event": "result",
+                "result": {
+                    "conversation_id": "conv-123",
+                    "status": "SUCCESS",
+                    "denied_actions": [
+                        {"action": "command", "display_name": "RunCommand"}
+                    ],
+                    "usage": {},
+                },
+            }
+        )
+        assert [e["type"] for e in result] == [
+            "tool_result",
+            "usage",
+            "session_end",
+        ]
+        assert result[0]["tool_use_id"] == active[0]["tool_use_id"]
+        assert result[0]["is_error"] is True
+        assert "auto-denied" in result[0]["content"]
+        assert "RunCommand" in result[0]["content"]
+
+    def test_tool_done_without_output_and_no_denial_stays_empty_success(self):
+        base = {
+            "conversation_id": "conv-123",
+            "step_index": 2,
+            "step_type": "tool",
+            "tool_name": "run_command",
+            "tool_info": {"name": "run_command", "parameters": {}},
+        }
+        self.provider._parse_event(
+            {"event": "step_update", "step_update": {**base, "state": "ACTIVE"}}
+        )
+        self.provider._parse_event(
+            {"event": "step_update", "step_update": {**base, "state": "DONE"}}
+        )
+        result = self.provider._parse_event(
+            {
+                "event": "result",
+                "result": {
+                    "conversation_id": "conv-123",
+                    "status": "SUCCESS",
+                    "usage": {},
+                },
+            }
+        )
+        assert result[0]["type"] == "tool_result"
+        assert result[0]["content"] == ""
+        assert "is_error" not in result[0]
+
+    def test_fatal_result_closes_an_open_message_with_error_stop_reason(self):
+        self.provider._parse_event(
+            {
+                "event": "step_update",
+                "step_update": {
+                    "conversation_id": "conv-123",
+                    "step_index": 1,
+                    "state": "ACTIVE",
+                    "step_type": "agent_response",
+                    "text_delta": "partial",
+                },
+            }
+        )
+        events = self.provider._parse_event(
+            {
+                "event": "result",
+                "result": {
+                    "conversation_id": "conv-123",
+                    "status": "ERROR",
+                    "error": "API failure",
+                    "usage": {},
+                },
+            }
+        )
+        assert [e["type"] for e in events] == [
+            "message_end",
+            "usage",
+            "error",
+            "session_end",
+        ]
+        assert events[0]["stop_reason"] == "error"
+        assert events[0]["text"] == "partial"
+
+    def test_success_result_does_not_close_an_open_message(self):
+        """A message left open by a missing DONE is not closed on SUCCESS."""
+        self.provider._parse_event(
+            {
+                "event": "step_update",
+                "step_update": {
+                    "conversation_id": "conv-123",
+                    "step_index": 1,
+                    "state": "ACTIVE",
+                    "step_type": "agent_response",
+                    "text_delta": "partial",
+                },
+            }
+        )
+        events = self.provider._parse_event(
+            {
+                "event": "result",
+                "result": {
+                    "conversation_id": "conv-123",
+                    "status": "SUCCESS",
+                    "usage": {},
+                },
+            }
+        )
+        assert [e["type"] for e in events] == ["usage", "session_end"]
+        assert self.provider._step_open is True
+
 
 class TestResultTextAggregation:
     """End-to-end: full event flow through _RunState produces result_text."""
@@ -832,4 +1052,6 @@ class TestCapabilities:
         assert caps["supports_structured_output"] is True
         assert caps["supports_additional_dirs"] is True
         assert caps["supports_multi_turn"] is True
+        assert caps["supports_ephemeral"] is False
+        assert caps["supports_file_attachments"] is False
         assert caps["transport"] == "subprocess"
