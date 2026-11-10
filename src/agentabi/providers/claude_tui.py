@@ -10,8 +10,16 @@ The provider is deliberately opt-in.  It drives a terminal UI, so it is
 more fragile than ``ClaudeNativeProvider``: it waits for the prompt,
 pastes the message, confirms that the TUI rendered it, submits it with
 Enter, confirms that a turn started, and tails the transcript JSONL.
-Phase 1 emits whole messages (no token deltas); a streaming tap can be
-added later.
+
+The transcript is the source of events, so the reader is hardened against
+the ways a long-lived CLI file changes: it resets after truncation or a
+rewrite to a new inode, never advances past an incomplete line, and
+recovers a row that a killed write glued to a partial prefix.  Rows that
+share a message id form one ``message_start``/``message_end`` pair, usage
+is summed across the turn, and the turn is allowed to settle so the
+``last-prompt`` and ``cost-state`` rows are not cut off.  A CLI that
+cannot start (untrusted directory, not signed in) falls back to the
+native or SDK transport instead of failing every prompt.
 
 A prompt that carries control characters is rejected before any byte is
 written: bracketed paste is ended by ``ESC[201~``, so an embedded escape
@@ -27,9 +35,10 @@ import re
 import shutil
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .._vendor.ptyx import PtyProcess, PtyStartupError, PtyWriteError
 from ..types.ir.capabilities import AgentCapabilities
@@ -37,8 +46,12 @@ from ..types.ir.events import (
     ErrorEvent,
     IREvent,
     MessageDeltaEvent,
+    MessageEndEvent,
+    MessageStartEvent,
+    ReasoningDeltaEvent,
     SessionEndEvent,
     SessionStartEvent,
+    ToolUseEvent,
     UsageEvent,
     UsageInfo,
 )
@@ -83,10 +96,29 @@ _ANSI_RE = re.compile(
     r"|\x1b."
 )
 
-_PROMPT_MARK = "❯"
+#: The input box renders the prompt marker alone on its own line:
+#: `` ❯`` between two rules, with the status bar below.  A menu item such
+#: as ``❯  1.  Red`` and assistant text quoting ``❯`` are not a prompt.
+_PROMPT_LINE_RE = re.compile(r"^\s*❯\s*$")
+#: Non-empty screen lines below the prompt line that still count as chrome
+#: (the closing rule and the status bar).  Anything further up is scrollback.
+_PROMPT_BOTTOM_LINES = 4
+#: Characters of the stripped screen kept for startup detection.
+_SCREEN_WINDOW = 16384
+#: Seconds to keep reading the transcript after a turn ends, and the quiet
+#: window that ends the wait early.  Covers the ``last-prompt`` and
+#: ``cost-state`` rows Claude Code appends after ``turn_duration``.
+_SETTLE_TIMEOUT = 1.5
+_SETTLE_QUIET = 0.3
 _TRUST_MARKERS = ("trust this folder", "do you trust")
-_LOGIN_MARKERS = ("select login method", "sign in to claude", "log in to claude")
-_THEME_MARKERS = ("select a theme", "choose a theme")
+_LOGIN_MARKERS = (
+    "select login method",
+    "sign in to claude",
+    "log in to claude",
+    "press enter to log in",
+    "choose an account",
+    "welcome to claude code",
+)
 
 #: Bracketed paste delimiters.  A prompt must never carry these bytes
 #: itself: ``ESC[201~`` would end the paste and make the rest keystrokes.
@@ -128,54 +160,192 @@ def _slug_from_resolved(resolved: str) -> str:
     return re.sub(r"[^A-Za-z0-9]", "-", resolved)
 
 
-def transcript_path(cwd: str, session_id: str, config_dir: str | None = None) -> Path:
+def task_home(env: Mapping[str, str]) -> Path | None:
+    """Return the home directory the child CLI will see, if known.
+
+    ``HOME`` wins on POSIX and ``USERPROFILE`` on Windows, because that is
+    the order the child resolves its own ``~/.claude``.
+    """
+    for name in ("HOME", "USERPROFILE"):
+        value = env.get(name)
+        if value:
+            return Path(value)
+    return None
+
+
+def task_transcript_path(
+    task: TaskConfig,
+    cwd: str,
+    session_id: str,
+    env: Mapping[str, str] | None = None,
+) -> Path:
+    """Return the transcript path for the environment the child will see.
+
+    ``transcript_path`` defaults to the host process's home directory.  A
+    task that overrides ``HOME``/``USERPROFILE`` — a sandboxed run — makes
+    the CLI write somewhere else, so the override must win.  A relative
+    ``CLAUDE_CONFIG_DIR`` is resolved against the task cwd, the directory
+    the child runs in.
+
+    Args:
+        task: The task, for its ``env`` overrides.
+        cwd: Working directory the child runs in.
+        session_id: Claude Code session id.
+        env: The merged environment passed to the child.  Defaults to the
+            task's own ``env``; pass the full environment so an inherited
+            ``CLAUDE_CONFIG_DIR`` is honoured the same way the child does.
+    """
+    merged = dict(env) if env is not None else {}
+    merged.update(task.get("env") or {})
+    config_dir = merged.get("CLAUDE_CONFIG_DIR")
+    if config_dir and not Path(config_dir).is_absolute():
+        config_dir = str(Path(cwd) / config_dir)
+    return transcript_path(cwd, session_id, config_dir, home=task_home(merged))
+
+
+def transcript_path(
+    cwd: str,
+    session_id: str,
+    config_dir: str | None = None,
+    *,
+    home: str | Path | None = None,
+) -> Path:
     """Return the JSONL transcript path Claude Code uses for a session.
 
     Args:
         cwd: Session working directory.
         session_id: Claude Code session id.
         config_dir: ``CLAUDE_CONFIG_DIR`` override; defaults to ``~/.claude``.
+        home: Directory used for the default config location.  Pass the
+            task's home when the child sees a different one; ``None`` uses
+            the host process home.
 
     Returns:
         Path to ``<config>/projects/<slug>/<session_id>.jsonl``.
     """
-    base = Path(config_dir).expanduser() if config_dir else Path.home() / ".claude"
+    if config_dir:
+        base = Path(config_dir).expanduser()
+    else:
+        base = (Path(home) if home is not None else Path.home()) / ".claude"
     slug = _slug_from_resolved(str(Path(cwd).resolve()))
     return base / "projects" / slug / f"{session_id}.jsonl"
 
 
-def _read_new_rows(path: Path, offset: int) -> tuple[list[dict[str, Any]], int]:
-    """Read complete JSONL rows appended after *offset*.
+@dataclass
+class _TranscriptTail:
+    """Incremental JSONL reader state.
+
+    Tracks the file identity and the offset of the last complete row.  The
+    offset deliberately stops at an incomplete line: the next read starts
+    there again, so a row split across two writes is parsed once, whole,
+    instead of being spliced onto the row that follows it.
+    """
+
+    offset: int = 0
+    inode: tuple[int, int] | None = None
+
+    @classmethod
+    def at_end(cls, path: Path) -> _TranscriptTail:
+        """Start after the rows already in *path*."""
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            return cls()
+        return cls(offset=stat.st_size, inode=(stat.st_dev, stat.st_ino))
+
+
+def _recover_row(line: bytes) -> dict[str, Any] | None:
+    """Recover a row that a killed write glued to a partial prefix.
+
+    A process killed mid-row leaves bytes without a newline.  The next
+    process appends a complete row after them, so the physical line is
+    ``{"type": "half", "x{"type": "next", ...}``.  The whole line fails to
+    parse; the first ``{"`` suffix that parses as an object is the row that
+    must not be lost.
+    """
+    index = line.find(b'{"')
+    while index >= 0:
+        try:
+            row = json.loads(line[index:])
+        except json.JSONDecodeError:
+            index = line.find(b'{"', index + 1)
+            continue
+        if isinstance(row, dict):
+            return row
+        index = line.find(b'{"', index + 1)
+    return None
+
+
+def _read_new_rows(
+    path: Path, tail: _TranscriptTail
+) -> tuple[list[dict[str, Any]], _TranscriptTail]:
+    """Read complete JSONL rows appended after ``tail.offset``.
+
+    Handles three ways the file can change under a reader:
+
+    - Truncation: the file is shorter than the offset.  Reading resumes at
+      0 instead of blocking forever past the new end.
+    - Replacement: the CLI rewrites the transcript to a new inode.  The
+      new file is read from the start; the old offset describes a file
+      that no longer exists.
+    - A half-written line left by a killed process.  The offset stops at
+      that line, so the next read assembles the row whole; if the line was
+      never completed, the complete row appended after it is recovered.
 
     Returns:
-        ``(rows, new_offset)``; a partial trailing line is left unread.
+        ``(rows, tail)`` with the new state; a partial trailing line is
+        left unread.
     """
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return [], tail
+    inode = (stat.st_dev, stat.st_ino)
+    offset = tail.offset
+    if tail.inode is not None and inode != tail.inode:
+        offset = 0
+    elif stat.st_size < offset:
+        offset = 0
     try:
         with path.open("rb") as handle:
             handle.seek(offset)
             data = handle.read()
     except FileNotFoundError:
-        return [], offset
+        return [], _TranscriptTail(offset=offset, inode=tail.inode)
     rows: list[dict[str, Any]] = []
     used = 0
     while True:
         newline = data.find(b"\n", used)
         if newline < 0:
             break
+        line = data[used:newline]
         try:
-            row = json.loads(data[used:newline])
+            row = json.loads(line)
         except json.JSONDecodeError:
-            pass
-        else:
-            if isinstance(row, dict):
-                rows.append(row)
+            row = _recover_row(line)
+        if isinstance(row, dict):
+            rows.append(row)
         used = newline + 1
-    return rows, offset + used
+    return rows, _TranscriptTail(offset=offset + used, inode=inode)
 
 
-def _usage_event(message: dict[str, Any]) -> UsageEvent | None:
-    """Build a usage event from an assistant message, if it carries usage."""
-    raw = message.get("usage") or {}
+#: Usage counters that are summed across the messages of one turn.
+_USAGE_COUNTERS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_creation_tokens",
+    "reasoning_tokens",
+)
+
+
+def _usage_from_raw(raw: Mapping[str, Any]) -> UsageInfo | None:
+    """Map a transcript or result ``usage`` object to IR usage.
+
+    ``reasoning_tokens`` comes from ``output_tokens_details``.  The
+    interactive transcript spells the key ``thinking_tokens``; the
+    streaming API spells it ``reasoning_tokens``.  Both are accepted.
+    """
     usage: UsageInfo = {}
     if "input_tokens" in raw:
         usage["input_tokens"] = raw["input_tokens"]
@@ -185,12 +355,26 @@ def _usage_event(message: dict[str, Any]) -> UsageEvent | None:
         usage["cache_read_tokens"] = raw["cache_read_input_tokens"]
     if "cache_creation_input_tokens" in raw:
         usage["cache_creation_tokens"] = raw["cache_creation_input_tokens"]
+    details = raw.get("output_tokens_details")
+    if isinstance(details, dict):
+        reasoning = details.get("thinking_tokens") or details.get("reasoning_tokens")
+        if reasoning:
+            usage["reasoning_tokens"] = reasoning
     total = raw.get("input_tokens", 0) + raw.get("output_tokens", 0)
     if total:
         usage["total_tokens"] = total
-    if not usage:
-        return None
-    return {"type": "usage", "usage": usage}
+    return usage or None
+
+
+def _merge_usage(total: dict[str, int], usage: UsageInfo) -> None:
+    """Add one message's usage to the running turn total."""
+    for name in _USAGE_COUNTERS:
+        value = usage.get(name)
+        if value:
+            total[name] = total.get(name, 0) + value
+    combined = total.get("input_tokens", 0) + total.get("output_tokens", 0)
+    if combined:
+        total["total_tokens"] = combined
 
 
 def _build_env(task: TaskConfig) -> dict[str, str]:
@@ -253,36 +437,184 @@ def _build_command(
     return cmd
 
 
-def _with_message_delta(events: list[IREvent]) -> list[IREvent]:
-    """Add one ``message_delta`` before a whole-message ``message_end``.
+def _block_key(block: Mapping[str, Any]) -> str:
+    """Return a fingerprint for a content block, used to drop replays."""
+    block_type = str(block.get("type"))
+    if block_type == "tool_use":
+        return f"tool_use:{block.get('id', '')}"
+    if block_type == "thinking":
+        return "thinking:" + str(block.get("thinking", ""))
+    return "text:" + str(block.get("text", ""))
 
-    The transcript has no token deltas.  Emitting one delta lets consumers
-    that render only deltas (the ACP IR backend) show the text without
-    special-casing ``message_end``.
+
+@dataclass
+class _OpenMessage:
+    """Content accumulated for one logical assistant message."""
+
+    message_id: str
+    text_parts: list[str] = field(default_factory=list)
+    stop_reason: str = ""
+    blocks: set[str] = field(default_factory=set)
+
+
+@dataclass
+class _TurnState:
+    """Per-turn message, usage, and cost accumulation.
+
+    The interactive transcript writes one row per content block, repeating
+    the message id and the usage object on every row.  A logical message
+    therefore has to be assembled from several rows: one ``message_start``
+    when the id first appears, deltas as new blocks arrive, and one
+    ``message_end`` when the next message starts or the turn ends.
     """
-    out: list[IREvent] = []
-    for event in events:
-        text = event.get("text")
-        if event.get("type") == "message_end" and text:
-            delta: MessageDeltaEvent = {"type": "message_delta", "text": text}
-            out.append(delta)
-        out.append(event)
-    return out
+
+    open_messages: dict[str, _OpenMessage] = field(default_factory=dict)
+    total_usage: dict[str, int] = field(default_factory=dict)
+    seen_usage_ids: set[str] = field(default_factory=set)
+    usage_emitted: bool = False
+    cost_usd: float | None = None
+    _anonymous: int = 0
+
+    def close_open(self) -> list[IREvent]:
+        """End every open message, oldest first."""
+        events: list[IREvent] = []
+        for message in self.open_messages.values():
+            end: MessageEndEvent = {
+                "type": "message_end",
+                "message_id": message.message_id,
+            }
+            if message.stop_reason:
+                end["stop_reason"] = message.stop_reason
+            if message.text_parts:
+                end["text"] = "".join(message.text_parts)
+            events.append(end)
+        self.open_messages.clear()
+        return events
+
+    def flush(self) -> list[IREvent]:
+        """End the open messages and report the turn's accumulated usage."""
+        events = self.close_open()
+        if self.usage_emitted or not self.total_usage:
+            return events
+        self.usage_emitted = True
+        usage: UsageInfo = cast(UsageInfo, dict(self.total_usage))
+        usage_event: UsageEvent = {"type": "usage", "usage": usage}
+        if self.cost_usd is not None:
+            usage_event["cost_usd"] = self.cost_usd
+        events.append(usage_event)
+        return events
+
+    def message_for(
+        self, row: Mapping[str, Any], message: Mapping[str, Any]
+    ) -> tuple[_OpenMessage, bool]:
+        """Return the open message for *row*, creating it when new.
+
+        Returns:
+            ``(message, created)``; ``created`` means the caller must emit
+            ``message_start`` and should close the messages it already has.
+        """
+        key = message.get("id") or row.get("uuid")
+        if not key:
+            self._anonymous += 1
+            key = f"anonymous-{self._anonymous}"
+        key = str(key)
+        existing = self.open_messages.get(key)
+        if existing is not None:
+            return existing, False
+        return _OpenMessage(message_id=key), True
+
+    def add_usage(self, message: Mapping[str, Any]) -> None:
+        """Count one message's usage once, summing across messages."""
+        message_id = message.get("id")
+        key = str(message_id) if message_id else ""
+        if key and key in self.seen_usage_ids:
+            return
+        usage = _usage_from_raw(message.get("usage") or {})
+        if usage is None:
+            return
+        if key:
+            self.seen_usage_ids.add(key)
+        _merge_usage(self.total_usage, usage)
+
+    def usage_with_result(self, usage: UsageInfo | None) -> dict[str, int]:
+        """Return the turn usage, preferring a result row's cumulative value."""
+        merged = dict(self.total_usage)
+        if usage is None:
+            return merged
+        for name in _USAGE_COUNTERS:
+            value = usage.get(name)
+            if value is not None:
+                merged[name] = max(merged.get(name, 0), value)
+        input_tokens = merged.get("input_tokens", 0)
+        output_tokens = merged.get("output_tokens", 0)
+        total = usage.get("total_tokens")
+        if total is not None:
+            merged["total_tokens"] = max(total, input_tokens + output_tokens)
+        elif input_tokens + output_tokens:
+            merged["total_tokens"] = input_tokens + output_tokens
+        return merged
 
 
-def _usage_once(message: dict[str, Any], seen: set[str]) -> UsageEvent | None:
-    """Return usage for an assistant message, once per message id.
+def _assistant_row_events(row: Mapping[str, Any], state: _TurnState) -> list[IREvent]:
+    """Convert one assistant row into events for its logical message."""
+    message = row.get("message") or {}
+    if not isinstance(message, Mapping):
+        return []
+    open_message, created = state.message_for(row, message)
+    events: list[IREvent] = []
+    if created:
+        # A new message id ends the previous logical message.
+        events.extend(state.close_open())
+        state.open_messages[open_message.message_id] = open_message
+        start: MessageStartEvent = {
+            "type": "message_start",
+            "role": "assistant",
+            "message_id": open_message.message_id,
+        }
+        events.append(start)
 
-    The interactive transcript writes one row per content block and repeats
-    the same usage object on every row of that message.
-    """
-    message_id = message.get("id")
-    if message_id and message_id in seen:
-        return None
-    usage = _usage_event(message)
-    if usage is not None and message_id:
-        seen.add(message_id)
-    return usage
+    content = message.get("content") or []
+    if isinstance(content, list):
+        for block in content:
+            if not isinstance(block, Mapping):
+                continue
+            key = _block_key(block)
+            if key in open_message.blocks:
+                continue
+            open_message.blocks.add(key)
+            block_type = block.get("type")
+            if block_type == "text":
+                text = str(block.get("text", ""))
+                if text:
+                    open_message.text_parts.append(text)
+                    delta: MessageDeltaEvent = {
+                        "type": "message_delta",
+                        "text": text,
+                        "message_id": open_message.message_id,
+                    }
+                    events.append(delta)
+            elif block_type == "thinking":
+                thinking = str(block.get("thinking", ""))
+                if thinking:
+                    reasoning: ReasoningDeltaEvent = {
+                        "type": "reasoning_delta",
+                        "reasoning": thinking,
+                    }
+                    events.append(reasoning)
+            elif block_type == "tool_use":
+                tool: ToolUseEvent = {
+                    "type": "tool_use",
+                    "tool_use_id": str(block.get("id", "")),
+                    "tool_name": str(block.get("name", "")),
+                    "tool_input": dict(block.get("input") or {}),
+                }
+                events.append(tool)
+
+    stop_reason = message.get("stop_reason")
+    if isinstance(stop_reason, str) and stop_reason:
+        open_message.stop_reason = stop_reason
+    state.add_usage(message)
+    return events
 
 
 def _float_option(value: Any, default: float, name: str) -> float:
@@ -342,6 +674,42 @@ def _screen_is_busy(screen: str) -> bool:
     )
 
 
+def _prompt_is_ready(screen: str) -> bool:
+    """Return whether *screen* shows the input prompt, not a menu or text.
+
+    The TUI does not use the alternate screen, so the captured stream holds
+    stale frames and scrollback.  The input box renders the marker alone on
+    its own line, with only the closing rule and the status bar below it.
+    A menu item (``❯  1.  Red``), a theme picker, and assistant text that
+    quotes the marker are therefore not prompts.
+
+    The last matching line wins: a redraw appends a new frame, and the
+    newest frame's prompt is the live one.
+    """
+    lines = screen.splitlines()
+    for index in range(len(lines) - 1, -1, -1):
+        if not _PROMPT_LINE_RE.match(lines[index]):
+            continue
+        below = [line for line in lines[index + 1 :] if line.strip()]
+        return len(below) <= _PROMPT_BOTTOM_LINES
+    return False
+
+
+def _session_uuid(value: Any) -> str | None:
+    """Return *value* as a canonical UUID string, or ``None``.
+
+    Claude Code rejects ``--session-id`` / ``--resume`` values that are not
+    UUIDs.  Parsing first keeps a caller's arbitrary label from reaching the
+    CLI as an argument that fails every prompt.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return str(uuid.UUID(value))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
 def _api_error_event(message: str, status: Any, suffix: str, fatal: bool) -> ErrorEvent:
     """Build an ``ErrorEvent`` for an API failure reported by Claude Code."""
     detail = _collapse_whitespace(message) or "Claude Code reported an API error"
@@ -390,42 +758,64 @@ def _assistant_api_error(row: dict[str, Any]) -> ErrorEvent:
     return _api_error_event(text, row.get("apiErrorStatus"), "", fatal=True)
 
 
-def _turn_row(row: dict[str, Any], seen_usage: set[str]) -> tuple[list[IREvent], bool]:
+def _turn_row(
+    row: dict[str, Any], state: _TurnState | None = None
+) -> tuple[list[IREvent], bool]:
     """Convert one transcript row into IR events and a turn-end signal.
+
+    Args:
+        row: One transcript JSONL row.
+        state: The turn accumulator.  Pass the same object for every row of
+            a turn; ``None`` creates a throwaway one (single-row callers).
 
     Returns:
         ``(events, turn_done)``.  Only ``system/turn_duration``, ``result``,
         and API failures finish the turn; an assistant ``stop_reason`` is not
         a boundary because one API message can be split across several
         JSONL rows written seconds apart.
+
+    A turn that ends flushes the open message and the accumulated usage, so
+    the caller does not need a second flush.
     """
+    state = state if state is not None else _TurnState()
     row_type = row.get("type")
     if row_type == "system":
         # The provider already emitted session_start; only the duration row
         # and API failures are meaningful here.
         subtype = row.get("subtype")
         if subtype == "turn_duration":
-            return [], True
+            return state.flush(), True
         if subtype == "api_error":
             event, turn_done = _system_api_error(row)
-            return [event], turn_done
+            events = [event]
+            if turn_done:
+                events.extend(state.flush())
+            return events, turn_done
         return [], False
     if row_type == "assistant" and row.get("isApiErrorMessage"):
-        return [_assistant_api_error(row)], True
+        return [_assistant_api_error(row), *state.flush()], True
     if row_type == "assistant" and not isinstance(row.get("message"), dict):
         return [], False
-    events = _with_message_delta(ClaudeNativeProvider._parse_event(row))
     if row_type == "result":
-        # The native parser ends the session too; the turn loop owns that
-        # event, so a result row must not emit session_end a second time.
-        events = [event for event in events if event.get("type") != "session_end"]
+        events = state.close_open()
+        cost = row.get("total_cost_usd")
+        if isinstance(cost, (int, float)):
+            state.cost_usd = float(cost)
+        if not state.usage_emitted:
+            # A result row carries the turn's cumulative usage.  When the
+            # turn already reported usage, re-emitting would double count.
+            merged = state.usage_with_result(_usage_from_raw(row.get("usage") or {}))
+            if merged:
+                state.total_usage = merged
+            events.extend(state.flush())
         return events, True
+    if row_type == "user":
+        # Tool results live on user rows; the native parser already maps
+        # them and emits nothing else that the TUI turn loop wants.
+        return ClaudeNativeProvider._parse_event(row), False
     if row_type != "assistant":
-        return events, False
-    usage = _usage_once(row.get("message", {}), seen_usage)
-    if usage is not None:
-        events.append(usage)
-    return events, False
+        return [], False
+    return _assistant_row_events(row, state), False
 
 
 def _remove_stale(path: Path) -> str | None:
@@ -442,12 +832,16 @@ def _remove_stale(path: Path) -> str | None:
     return None
 
 
-def _resume_offset(path: Path) -> int:
-    """Return the transcript's current end, or 0 when it does not exist."""
-    try:
-        return path.stat().st_size
-    except FileNotFoundError:
-        return 0
+def _fallback_providers() -> list[Any]:
+    """Return the providers to try when the TUI cannot start.
+
+    Native first: it uses the same ``claude`` binary, so a directory that
+    needs trust or a missing login fails the same way there and the SDK is
+    tried next.  The TUI provider itself is excluded to avoid recursion.
+    """
+    from .claude_sdk import ClaudeSDKProvider
+
+    return [ClaudeNativeProvider, ClaudeSDKProvider]
 
 
 class ClaudeTuiProvider:
@@ -491,23 +885,14 @@ class ClaudeTuiProvider:
             )
             return
 
-        requested_id = task.get("session_id")
-        session_id = requested_id or str(uuid.uuid4())
         resume = bool(task.get("resume"))
         cwd = task.get("working_dir") or os.getcwd()
         env = _build_env(task)
-        path = transcript_path(cwd, session_id, env.get("CLAUDE_CONFIG_DIR"))
-
-        if not resume:
-            if requested_id and path.exists():
-                # Never delete a caller's transcript. Start a fresh session
-                # under a new id; pass resume=True to continue that one.
-                session_id = str(uuid.uuid4())
-                path = transcript_path(cwd, session_id, env.get("CLAUDE_CONFIG_DIR"))
-            problem = _remove_stale(path)
-            if problem is not None:
-                yield ErrorEvent(type="error", error=problem, is_fatal=True)
-                return
+        target = self._session_target(task, cwd, resume, env)
+        if isinstance(target, str):
+            yield ErrorEvent(type="error", error=target, is_fatal=True)
+            return
+        session_id, path = target
 
         command = _build_command(binary, task, session_id, resume)
 
@@ -528,16 +913,17 @@ class ClaudeTuiProvider:
             failure = await self._wait_ready(proc, task)
             if failure is not None:
                 reason, screen = failure
-                yield ErrorEvent(
-                    type="error",
-                    error=self._startup_error(reason, cwd, proc, screen),
-                    is_fatal=True,
-                )
+                detail = self._startup_error(reason, cwd, proc, screen)
+                if reason in ("trust", "login") and self._fallback_enabled(task):
+                    async for event in self._fallback_stream(task, detail):
+                        yield event
+                    return
+                yield ErrorEvent(type="error", error=detail, is_fatal=True)
                 return
 
             # Do not replay history from a resumed session; only rows
             # written after this point belong to the current turn.
-            offset = _resume_offset(path) if resume else 0
+            tail = _TranscriptTail.at_end(path) if resume else _TranscriptTail()
 
             yield SessionStartEvent(
                 type="session_start",
@@ -545,8 +931,8 @@ class ClaudeTuiProvider:
                 agent="claude_code",
             )
             started = True
-            await self._send_prompt(proc, task["prompt"], path, offset, task)
-            async for event in self._turn_events(proc, path, session_id, task, offset):
+            await self._send_prompt(proc, task["prompt"], path, tail, task)
+            async for event in self._turn_events(proc, path, session_id, task, tail):
                 if event.get("type") == "session_end":
                     ended = True
                 yield event
@@ -586,6 +972,39 @@ class ClaudeTuiProvider:
             return str(override)
         return shutil.which("claude")
 
+    @staticmethod
+    def _session_target(
+        task: TaskConfig,
+        cwd: str,
+        resume: bool,
+        env: Mapping[str, str],
+    ) -> tuple[str, Path] | str:
+        """Return the session id and transcript path, or an error message.
+
+        Claude Code only accepts UUIDs for ``--session-id`` and
+        ``--resume``.  A caller label is replaced with a fresh UUID for a
+        new session; it cannot name a session to resume, so that is an
+        error.  A caller-supplied id whose transcript already exists is
+        never deleted: a fresh id is used instead.
+        """
+        requested_id = _session_uuid(task.get("session_id"))
+        if task.get("session_id") and requested_id is None and resume:
+            return (
+                f"cannot resume session {task.get('session_id')!r}: "
+                "Claude Code session ids are UUIDs"
+            )
+        session_id = requested_id or str(uuid.uuid4())
+        path = task_transcript_path(task, cwd, session_id, env)
+        if resume:
+            return session_id, path
+        if requested_id and path.exists():
+            session_id = str(uuid.uuid4())
+            path = task_transcript_path(task, cwd, session_id, env)
+        problem = _remove_stale(path)
+        if problem is not None:
+            return problem
+        return session_id, path
+
     async def _wait_ready(
         self, proc: PtyProcess, task: TaskConfig
     ) -> tuple[str, str] | None:
@@ -606,17 +1025,65 @@ class ClaudeTuiProvider:
                 continue
             if chunk == b"":
                 return ("exited", screen[-800:])
-            screen = (screen + strip_ansi(chunk.decode("utf-8", "replace")))[-8192:]
+            screen = (screen + strip_ansi(chunk.decode("utf-8", "replace")))[
+                -_SCREEN_WINDOW:
+            ]
             lowered = screen.lower()
             if any(marker in lowered for marker in _TRUST_MARKERS):
                 return ("trust", screen[-800:])
             if any(marker in lowered for marker in _LOGIN_MARKERS):
                 return ("login", screen[-800:])
-            if _PROMPT_MARK in screen and not any(
-                marker in lowered for marker in _THEME_MARKERS
-            ):
+            if _prompt_is_ready(screen):
                 return None
         return ("timeout", screen[-800:])
+
+    @staticmethod
+    def _fallback_enabled(task: TaskConfig) -> bool:
+        """Return whether a startup failure may delegate to another provider.
+
+        ``prefer="pty"`` asks for the TUI's quota accounting, but an
+        untrusted directory or a signed-out CLI would otherwise fail every
+        prompt.  Set ``agent_extensions.tui_fallback`` to ``False`` to make
+        that failure fatal instead.
+        """
+        extensions = task.get("agent_extensions") or {}
+        return bool(extensions.get("tui_fallback", True))
+
+    async def _fallback_stream(
+        self, task: TaskConfig, detail: str
+    ) -> AsyncIterator[IREvent]:
+        """Run the task on the native or SDK transport after a TUI failure.
+
+        The TUI failure is reported as a non-fatal error so a caller can
+        see why the transport changed, then the fallback provider's own
+        event stream follows.
+        """
+        for provider_cls in _fallback_providers():
+            try:
+                if not provider_cls.is_available():
+                    continue
+            except Exception:  # noqa: BLE001 - a broken optional import
+                continue
+            yield ErrorEvent(
+                type="error",
+                error=(
+                    f"{detail} Falling back to {provider_cls.__name__} for "
+                    "this task; set agent_extensions.tui_fallback=false to "
+                    "make this failure fatal."
+                ),
+                is_fatal=False,
+            )
+            async for event in provider_cls().stream(task):
+                yield event
+            return
+        yield ErrorEvent(
+            type="error",
+            error=(
+                f"{detail} No fallback transport is available: neither the "
+                "claude CLI nor claude-agent-sdk is installed."
+            ),
+            is_fatal=True,
+        )
 
     @staticmethod
     def _startup_error(reason: str, cwd: str, proc: PtyProcess, screen: str) -> str:
@@ -642,7 +1109,7 @@ class ClaudeTuiProvider:
         proc: PtyProcess,
         prompt: str,
         path: Path,
-        offset: int,
+        tail: _TranscriptTail,
         task: TaskConfig,
     ) -> None:
         """Paste *prompt*, submit it with Enter, and confirm acceptance.
@@ -690,7 +1157,7 @@ class ClaudeTuiProvider:
             raise _PromptSubmitError(
                 f"cannot submit the prompt to Claude Code: {exc}"
             ) from exc
-        await self._confirm_submit(proc, path, offset, submit_timeout)
+        await self._confirm_submit(proc, path, tail, submit_timeout)
 
     async def _confirm_paste(
         self, proc: PtyProcess, prompt: str, timeout: float
@@ -720,7 +1187,7 @@ class ClaudeTuiProvider:
                 return
 
     async def _confirm_submit(
-        self, proc: PtyProcess, path: Path, offset: int, timeout: float
+        self, proc: PtyProcess, path: Path, tail: _TranscriptTail, timeout: float
     ) -> None:
         """Wait until the TUI starts a turn for the submitted prompt.
 
@@ -747,7 +1214,7 @@ class ClaudeTuiProvider:
                 if _screen_is_busy(screen):
                     return
             try:
-                rows, _ = _read_new_rows(path, offset)
+                rows, _ = _read_new_rows(path, tail)
             except OSError:
                 rows = []
             if rows:
@@ -759,7 +1226,7 @@ class ClaudeTuiProvider:
         path: Path,
         session_id: str,
         task: TaskConfig,
-        offset: int = 0,
+        tail: _TranscriptTail | None = None,
     ) -> AsyncIterator[IREvent]:
         """Read transcript rows until the turn ends.
 
@@ -768,10 +1235,22 @@ class ClaudeTuiProvider:
         Code splits one message across one JSONL row per content block and
         can append the text block seconds after the thinking block, so
         ending on ``end_turn`` would kill the CLI before the answer lands.
+
+        After the turn ends the transcript is allowed to settle: Claude Code
+        writes bookkeeping rows (``last-prompt``, ``cost-state``) just after
+        ``turn_duration``, and closing the PTY mid-write would leave a
+        partial row.  The settle window is bounded so a quiet CLI does not
+        delay the return.
         """
         timeout = _float_option(task.get("timeout") or None, 600.0, "timeout")
+        settle_timeout = _float_option(
+            (task.get("agent_extensions") or {}).get("settle_timeout"),
+            _SETTLE_TIMEOUT,
+            "agent_extensions.settle_timeout",
+        )
         deadline = time.monotonic() + timeout
-        seen_usage: set[str] = set()
+        state = _TurnState()
+        tail = tail if tail is not None else _TranscriptTail()
         done = False
         exited = False
 
@@ -795,7 +1274,7 @@ class ClaudeTuiProvider:
                     exited = True
 
             try:
-                rows, offset = _read_new_rows(path, offset)
+                rows, tail = _read_new_rows(path, tail)
             except OSError as exc:
                 yield ErrorEvent(
                     type="error",
@@ -804,7 +1283,7 @@ class ClaudeTuiProvider:
                 )
                 break
             for row in rows:
-                events, turn_done = _turn_row(row, seen_usage)
+                events, turn_done = _turn_row(row, state)
                 for event in events:
                     yield event
                 if turn_done:
@@ -824,7 +1303,55 @@ class ClaudeTuiProvider:
                 )
                 break
 
+        if done:
+            async for event in self._settle(proc, path, tail, state, settle_timeout):
+                yield event
+
         yield SessionEndEvent(type="session_end", session_id=session_id)
+
+    async def _settle(
+        self,
+        proc: PtyProcess,
+        path: Path,
+        tail: _TranscriptTail,
+        state: _TurnState,
+        settle_timeout: float,
+    ) -> AsyncIterator[IREvent]:
+        """Read the bookkeeping rows Claude Code writes after a turn.
+
+        The CLI appends ``last-prompt`` and ``cost-state`` after
+        ``turn_duration``.  Waiting for them keeps a kill from landing in
+        the middle of a write, and lets a late ``result`` row supply
+        ``cost_usd``.  The wait ends when no row arrives for
+        ``_SETTLE_QUIET`` seconds, at ``settle_timeout``, or at end of
+        stream.
+        """
+        if settle_timeout <= 0:
+            return
+        deadline = time.monotonic() + settle_timeout
+        quiet_since = time.monotonic()
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            try:
+                chunk = await self._read_chunk(proc, min(0.05, remaining))
+            except _PtyReadError:
+                return
+            if chunk == b"":
+                return
+            try:
+                rows, tail = _read_new_rows(path, tail)
+            except OSError:
+                return
+            if rows:
+                quiet_since = time.monotonic()
+            elif time.monotonic() - quiet_since >= _SETTLE_QUIET:
+                return
+            for row in rows:
+                events, _ = _turn_row(row, state)
+                for event in events:
+                    yield event
 
     @staticmethod
     async def _read_chunk(proc: PtyProcess, timeout: float) -> bytes | None:

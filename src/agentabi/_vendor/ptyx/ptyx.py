@@ -9,6 +9,13 @@
 # errors, cursor-only query replies) and issue #58 (write errors raise
 # PtyWriteError instead of returning silently). Upstream zerodep needs the
 # same fix; re-check before the next `zerodep add ptyx`.
+#
+# Issue #59 review of Windows teardown: close() writes Ctrl+C (0x03), waits
+# ``grace`` seconds, then calls TerminateProcess.  In an interactive agent
+# CLI Ctrl+C means "interrupt the turn", so the caller must close only after
+# the turn is over; the TUI provider settles the transcript first.  A
+# half-written transcript row left by the forced kill is tolerated by the
+# reader, which stops at the incomplete line.
 """Async pseudo-terminal transport — zero dependencies, stdlib only, Python 3.10+.
 
 Spawns a child process on a pseudo-terminal and exposes raw byte I/O.  A PTY
