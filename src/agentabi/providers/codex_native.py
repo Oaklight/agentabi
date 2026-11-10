@@ -240,8 +240,8 @@ class CodexNativeProvider:
                 )
 
         schema = task.get("output_schema")
-        if isinstance(schema, str):
-            cmd.extend(["--output-schema", schema])
+        if isinstance(schema, (str, os.PathLike)):
+            cmd.extend(["--output-schema", os.fspath(schema)])
 
         if task.get("ephemeral"):
             cmd.append("--ephemeral")
