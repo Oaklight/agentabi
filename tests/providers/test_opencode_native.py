@@ -69,6 +69,13 @@ class TestBuildCommand:
         cmd = OpenCodeNativeProvider._build_command(task)
         assert "--session" in cmd
         assert "ses_abc123" in cmd
+        assert "--continue" not in cmd
+
+    def test_resume_without_session_continues_the_last_one(self):
+        task = self._task({"prompt": "Continue", "agent": "opencode", "resume": True})
+        cmd = OpenCodeNativeProvider._build_command(task)
+        assert "--continue" in cmd
+        assert "--session" not in cmd
 
     def test_prompt_after_separator(self):
         task = self._task({"prompt": "--dangerous-flag", "agent": "opencode"})
@@ -101,6 +108,18 @@ class TestParseEvent:
         assert events[1]["type"] == "message_start"
         assert events[1]["role"] == "assistant"
         assert events[1]["message_id"] == "msg_1"
+
+    def test_second_step_does_not_repeat_session_start(self):
+        """A tool loop sends one step_start per model step."""
+        part = {"messageID": "msg_1", "type": "step-start"}
+        first = self.provider._parse_event(
+            {"type": "step_start", "sessionID": "ses_abc", "part": part}
+        )
+        second = self.provider._parse_event(
+            {"type": "step_start", "sessionID": "ses_abc", "part": part}
+        )
+        assert [e["type"] for e in first] == ["session_start", "message_start"]
+        assert [e["type"] for e in second] == ["message_start"]
 
     def test_text_event(self):
         raw = {
@@ -229,6 +248,33 @@ class TestParseEvent:
         events = self.provider._parse_event(raw)
         types = [e["type"] for e in events]
         assert "session_end" not in types
+
+    def test_end_session_closes_a_run_the_cli_left_open(self):
+        """A failed or interrupted run must still end the session."""
+        self.provider._parse_event(
+            {"type": "step_start", "sessionID": "ses_abc", "part": {}}
+        )
+        events = self.provider._end_session()
+        assert len(events) == 1
+        assert events[0]["type"] == "session_end"
+        assert events[0]["session_id"] == "ses_abc"
+        assert self.provider._end_session() == []
+
+    def test_end_session_after_a_clean_stop_is_empty(self):
+        self.provider._parse_event(
+            {"type": "step_start", "sessionID": "ses_abc", "part": {}}
+        )
+        self.provider._parse_event(
+            {
+                "type": "step_finish",
+                "sessionID": "ses_abc",
+                "part": {"reason": "stop", "tokens": {}},
+            }
+        )
+        assert self.provider._end_session() == []
+
+    def test_end_session_before_start_is_empty(self):
+        assert self.provider._end_session() == []
 
     def test_error_event_is_fatal(self):
         raw = {
@@ -521,6 +567,19 @@ class TestCapabilities:
         assert caps["supports_streaming"] is True
         assert caps["supports_mcp"] is True
         assert caps["transport"] == "subprocess"
+
+    def test_session_resume_and_multi_turn(self):
+        """`--session` resumes a stored session, so turns keep context."""
+        caps = OpenCodeNativeProvider().capabilities()
+        assert caps["supports_session_resume"] is True
+        assert caps["supports_multi_turn"] is True
+
+    def test_unsupported_features_are_declared_false(self):
+        """No CLI flag exists for these, so the capability is a known no."""
+        caps = OpenCodeNativeProvider().capabilities()
+        assert caps["supports_structured_output"] is False
+        assert caps["supports_ephemeral"] is False
+        assert caps["supports_additional_dirs"] is False
 
     def test_system_prompt_not_supported(self):
         caps = OpenCodeNativeProvider().capabilities()
