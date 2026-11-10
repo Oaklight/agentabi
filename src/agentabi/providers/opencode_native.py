@@ -14,6 +14,7 @@ import shutil
 from collections.abc import AsyncIterator
 from typing import Any
 
+from ..settings.registry import adapter_for
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
     ErrorEvent,
@@ -155,13 +156,11 @@ class OpenCodeNativeProvider:
         cmd = ["opencode", "run", "--format", "json"]
 
         # OpenCode uses provider/model format.  When env overrides the
-        # base URL (via OPENAI_BASE_URL), prefix the model with "openai/"
-        # so OpenCode routes through the overridden OpenAI-compatible
-        # provider instead of a config-file provider.
-        task_env = task.get("env") or {}
+        # base URL (via OPENAI_BASE_URL), the adapter prefixes a bare
+        # model with "openai/" so OpenCode routes through the overridden
+        # OpenAI-compatible provider instead of a config-file provider.
+        task = adapter_for("opencode_native").resolve(task).task_or(task)
         model = task.get("model", "")
-        if model and task_env.get("OPENAI_BASE_URL") and "/" not in model:
-            model = f"openai/{model}"
         if model:
             cmd.extend(["--model", model])
 

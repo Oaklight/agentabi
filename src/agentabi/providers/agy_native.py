@@ -14,6 +14,7 @@ import shutil
 from collections.abc import AsyncIterator
 from typing import Any
 
+from ..settings.registry import adapter_for
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
     ErrorEvent,
@@ -180,18 +181,7 @@ class AgyNativeProvider:
         """
         task_env = task.get("env") or {}
         merged_env = {**os.environ, **task_env}
-
-        if not task_env.get("GOOGLE_GEMINI_BASE_URL") and task_env.get(
-            "OPENAI_BASE_URL"
-        ):
-            base = task_env["OPENAI_BASE_URL"].rstrip("/")
-            if base.endswith("/v1"):
-                base = base[:-3]
-            merged_env["GOOGLE_GEMINI_BASE_URL"] = base
-
-        if not task_env.get("GEMINI_API_KEY") and task_env.get("OPENAI_API_KEY"):
-            merged_env["GEMINI_API_KEY"] = task_env["OPENAI_API_KEY"]
-
+        merged_env.update(adapter_for("agy").resolve(task).env)
         return merged_env
 
     # ========== Private: command building ==========

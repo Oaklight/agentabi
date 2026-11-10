@@ -16,6 +16,7 @@ from collections.abc import AsyncIterator
 from contextlib import suppress
 from typing import Any, cast
 
+from ..settings.registry import adapter_for
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
     ContentBlockEndEvent,
@@ -58,30 +59,14 @@ _THINKING_LEVEL_MAP: dict[str, str] = {
 
 
 def _inject_settings_override(cmd: list[str], task: TaskConfig) -> None:
-    """Add --settings JSON when env overrides the Anthropic base URL.
+    """Add endpoint overrides produced by the shared settings adapter.
 
-    Claude Code ignores ``ANTHROPIC_BASE_URL`` env var when OAuth auth
-    is active.  ``--settings`` with ``apiKeyHelper`` + env overrides
-    forces API-key auth mode pointing at the custom endpoint.
-
-    Uses base64 encoding for the API key to avoid shell injection via
-    single quotes in the key value.
+    Claude Code ignores ``ANTHROPIC_BASE_URL`` when OAuth auth is active, so
+    an endpoint override has to arrive as ``--settings``; the adapter owns
+    that translation for every Claude transport.
     """
-    task_env = task.get("env") or {}
-    base_url = task_env.get("ANTHROPIC_BASE_URL")
-    api_key = task_env.get("ANTHROPIC_API_KEY")
-    if base_url and api_key:
-        import base64
-
-        encoded_key = base64.b64encode(api_key.encode()).decode()
-        settings = {
-            "apiKeyHelper": f"echo {encoded_key} | base64 -d",
-            "env": {
-                "ANTHROPIC_BASE_URL": base_url,
-                "CLAUDE_CODE_SKIP_ANTHROPIC_AUTH": "1",
-            },
-        }
-        cmd.extend(["--settings", json.dumps(settings)])
+    resolved = adapter_for("claude_native").resolve(task)
+    cmd.extend(resolved.argv)
 
 
 def _allow_rule(suggestions: list[Any]) -> str | None:
