@@ -36,8 +36,8 @@ def main(argv: list[str] | None = None) -> int:
         choices=sorted([*BACKENDS, "acp"]),
         help=(
             "Agent backend to expose. Repeat with --router to serve several "
-            "agents in one process. Only --agent claude can ask for "
-            "permissions in this release"
+            "agents in one process. Only --agent claude and "
+            "--agent codex-app-server can ask for permissions in this release"
         ),
     )
     acp_parser.add_argument(
