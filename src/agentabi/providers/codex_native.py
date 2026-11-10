@@ -22,6 +22,7 @@ from contextlib import ExitStack, aclosing
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from ..settings.registry import adapter_for
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
     ErrorEvent,
@@ -281,30 +282,10 @@ class CodexNativeProvider:
         if task.get("working_dir"):
             cmd.extend(["-C", task["working_dir"]])
 
-        # Override codex config.toml provider when env specifies a
-        # custom base URL — codex ignores OPENAI_BASE_URL env var
-        # in favor of its config file, so we must use -c flags to
-        # override the existing provider's connection settings.
-        task_env = task.get("env") or {}
-        base_url = task_env.get("OPENAI_BASE_URL")
-        api_key = task_env.get("OPENAI_API_KEY")
-        provider = task_env.get("CODEX_PROVIDER", "openai")
-        if base_url:
-            cmd.extend(
-                [
-                    "-c",
-                    f"model_provider={provider}",
-                    "-c",
-                    f"model_providers.{provider}.base_url={base_url}",
-                ]
-            )
-            if api_key:
-                cmd.extend(
-                    [
-                        "-c",
-                        f"model_providers.{provider}.api_key={api_key}",
-                    ]
-                )
+        # Override codex config.toml provider when the task points at a
+        # custom endpoint — codex ignores OPENAI_BASE_URL in favor of its
+        # config file, so the adapter rewrites the provider block.
+        cmd.extend(adapter_for("codex_native").resolve(task).argv)
 
         schema = task.get("output_schema")
         if isinstance(schema, (str, os.PathLike)):
@@ -363,21 +344,7 @@ class CodexNativeProvider:
             roots = ",".join(json.dumps(d) for d in extra_dirs)
             cmd.extend(["-c", f"sandbox_workspace_write.writable_roots=[{roots}]"])
 
-        task_env = task.get("env") or {}
-        base_url = task_env.get("OPENAI_BASE_URL")
-        api_key = task_env.get("OPENAI_API_KEY")
-        provider = task_env.get("CODEX_PROVIDER", "openai")
-        if base_url:
-            cmd.extend(
-                [
-                    "-c",
-                    f"model_provider={provider}",
-                    "-c",
-                    f"model_providers.{provider}.base_url={base_url}",
-                ]
-            )
-            if api_key:
-                cmd.extend(["-c", f"model_providers.{provider}.api_key={api_key}"])
+        cmd.extend(adapter_for("codex_native").resolve(task, resume=True).argv)
 
         schema = task.get("output_schema")
         if isinstance(schema, (str, os.PathLike)):
