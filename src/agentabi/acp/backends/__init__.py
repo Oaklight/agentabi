@@ -7,11 +7,13 @@ from collections.abc import Callable
 
 from .acp_server import ACPBackend
 from .base import Backend, SessionSelectingBackend
+from .codex_app_server import CodexAppServerBackend
 from .ir import IRBackend
 from .opencode import OpenCodeBackend
 
 BACKENDS: dict[str, Callable[[], Backend]] = {
     "opencode": OpenCodeBackend,
+    "codex-app-server": CodexAppServerBackend,
     "agy": lambda: IRBackend("agy"),
     "claude": lambda: IRBackend("claude_code"),
     "codex": lambda: IRBackend("codex"),
@@ -55,6 +57,8 @@ def create_backend(
         return ACPBackend(shlex.split(acp_command), name="acp")
     if name == "opencode":
         return OpenCodeBackend()
+    if name == "codex-app-server":
+        return CodexAppServerBackend()
     agent = _IR_AGENTS.get(name)
     if agent is not None:
         return IRBackend(agent, prefer=prefer)
@@ -66,6 +70,7 @@ __all__ = [
     "ACPBackend",
     "BACKENDS",
     "Backend",
+    "CodexAppServerBackend",
     "IRBackend",
     "OpenCodeBackend",
     "SessionSelectingBackend",

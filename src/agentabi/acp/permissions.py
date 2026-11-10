@@ -55,6 +55,8 @@ _TOOL_KINDS: dict[str, str] = {
     "WebFetch": "fetch",
     "WebSearch": "fetch",
     "Task": "other",
+    "command_execution": "execute",
+    "file_change": "edit",
 }
 
 
