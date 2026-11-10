@@ -307,7 +307,7 @@ class IRBackend:
                 async for event in session.stream(
                     text,
                     working_dir=state.cwd,
-                    **self._task_kwargs(state),
+                    **self._task_kwargs(state, params.session_id),
                 ):
                     await queue.put(event)
             except asyncio.CancelledError:
@@ -357,14 +357,46 @@ class IRBackend:
                 stop_reason=StopReason.CANCELLED
             )
 
-    @staticmethod
-    def _task_kwargs(state: _SessionState) -> dict[str, Any]:
+    @property
+    def static_permission_policy(self) -> bool:
+        """Whether the gateway can enforce a static policy for this backend.
+
+        True for agents whose provider has no approval round trip but does
+        have flags that make the policy effective (codex, agy).
+        """
+        return self._agent in ("codex", "agy") and not self.permission_capable
+
+    def _static_policy_kwargs(self, session_id: str) -> dict[str, Any]:
+        """Translate the session policy into provider flags.
+
+        Only used when :attr:`static_permission_policy` is true: a backend
+        that cannot ask must still honour ``deny``/``allow_all``.
+        """
+        broker = self._broker
+        if broker is None or not self.static_permission_policy:
+            return {}
+        policy = broker.policy_for(session_id)
+        if policy == "allow_all":
+            return {"permissions": {"level": "full_auto"}}
+        if policy == "deny" and self._agent == "codex":
+            # codex exec has no approval channel; read-only plus no approval
+            # is its restrictive mode.
+            return {
+                "agent_extensions": {
+                    "codex": {"sandbox": "read-only", "approval": "never"}
+                }
+            }
+        # agy print mode auto-denies when the skip flag is absent.
+        return {}
+
+    def _task_kwargs(self, state: _SessionState, session_id: str) -> dict[str, Any]:
         kwargs: dict[str, Any] = {}
         if state.agent_session_id:
             kwargs["session_id"] = state.agent_session_id
             kwargs["resume"] = True
         if state.additional_dirs:
             kwargs["additional_dirs"] = state.additional_dirs
+        kwargs.update(self._static_policy_kwargs(session_id))
         return kwargs
 
     def _attach_permission_handler(self, session: Any, session_id: str) -> None:

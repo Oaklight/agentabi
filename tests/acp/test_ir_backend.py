@@ -17,6 +17,7 @@ from agentabi._vendor.acp import (
 from agentabi._vendor.jsonrpc import INTERNAL_ERROR
 from agentabi.acp.backends import IRBackend, create_backend
 from agentabi.acp.gateway import GatewayAgent
+from agentabi.acp.permissions import PermissionBroker
 
 
 class FakeSession:
@@ -459,3 +460,47 @@ async def test_permission_events_are_not_acp_updates():
 
     assert updates == []
     assert _result(backend, created.session_id).stop_reason == StopReason.END_TURN
+
+
+class _NeverAnswer:
+    async def request_permission(self, session_id, tool_call, options):
+        raise AssertionError("the broker must not contact the client")
+
+
+def test_codex_static_policy_maps_to_provider_flags():
+    backend = IRBackend("codex")
+    broker = PermissionBroker(_NeverAnswer())
+    backend.set_permission_broker(broker)
+
+    assert backend.permission_capable is False
+    assert backend.static_permission_policy is True
+
+    broker.set_policy("s1", "deny")
+    assert backend._static_policy_kwargs("s1") == {
+        "agent_extensions": {"codex": {"sandbox": "read-only", "approval": "never"}}
+    }
+
+    broker.set_policy("s1", "allow_all")
+    assert backend._static_policy_kwargs("s1") == {
+        "permissions": {"level": "full_auto"}
+    }
+
+
+def test_agy_static_policy_only_adds_full_auto():
+    backend = IRBackend("agy")
+    broker = PermissionBroker(_NeverAnswer())
+    backend.set_permission_broker(broker)
+
+    broker.set_policy("s1", "deny")
+    assert backend._static_policy_kwargs("s1") == {}
+    broker.set_policy("s1", "allow_all")
+    assert backend._static_policy_kwargs("s1") == {
+        "permissions": {"level": "full_auto"}
+    }
+
+
+def test_pi_has_no_static_policy():
+    backend = IRBackend("pi")
+    backend.set_permission_broker(PermissionBroker(_NeverAnswer()))
+    assert backend.static_permission_policy is False
+    assert backend._static_policy_kwargs("s1") == {}

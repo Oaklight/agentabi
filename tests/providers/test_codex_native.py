@@ -62,6 +62,37 @@ class TestBuildCommand:
         assert "--dangerously-bypass-approvals-and-sandbox" in cmd
         assert "--approve-for-me" not in cmd
 
+    def test_static_policy_read_only(self):
+        task = self._task(
+            {
+                "prompt": "hi",
+                "agent": "codex",
+                "agent_extensions": {
+                    "codex": {"sandbox": "read-only", "approval": "never"}
+                },
+            }
+        )
+        cmd = CodexNativeProvider._build_command(task)
+        assert cmd[cmd.index("-s") + 1] == "read-only"
+        assert "-c" in cmd
+        assert 'approval_policy="never"' in cmd
+        assert "--approve-for-me" not in cmd
+
+    def test_full_auto_beats_static_policy(self):
+        task = self._task(
+            {
+                "prompt": "hi",
+                "agent": "codex",
+                "permissions": {"level": "full_auto"},
+                "agent_extensions": {
+                    "codex": {"sandbox": "read-only", "approval": "never"}
+                },
+            }
+        )
+        cmd = CodexNativeProvider._build_command(task)
+        assert "--dangerously-bypass-approvals-and-sandbox" in cmd
+        assert "read-only" not in cmd
+
     def test_prompt_is_last(self):
         task = self._task({"prompt": "What is 2+2?", "agent": "codex"})
         cmd = CodexNativeProvider._build_command(task)

@@ -62,14 +62,19 @@ class GatewayAgent(ACPAgent):
         return bool(getattr(self._backend, "permission_capable", False))
 
     def _permission_values(self) -> list[str]:
-        return ["ask", "deny", "allow_all"]
+        if self._permission_capable():
+            return ["ask", "deny", "allow_all"]
+        if bool(getattr(self._backend, "static_permission_policy", False)):
+            # No round trip, but the backend honours a static policy.
+            return ["deny", "allow_all"]
+        return []
 
     def _permission_option(self, session_id: str) -> ConfigOption:
         values = self._permission_values()
         broker = self._permission_broker
         current = broker.policy_for(session_id) if broker is not None else "deny"
         if current not in values:
-            current = "ask" if "ask" in values else "deny"
+            current = values[0]
         return ConfigOption(
             id=_PERMISSION_MODE,
             name="Permission mode",
@@ -83,9 +88,10 @@ class GatewayAgent(ACPAgent):
         )
 
     def _add_permission_option(self, result: NewSessionResult) -> None:
-        if self._permission_broker is None or not self._permission_capable():
-            # A backend without a permission channel cannot honour any of the
-            # values, so offering the option would be a false safety signal.
+        if self._permission_broker is None or not self._permission_values():
+            # A backend with neither a permission channel nor a static policy
+            # cannot honour any of the values, so offering the option would be
+            # a false safety signal.
             return
         option = self._permission_option(result.session_id)
         existing = [
@@ -179,17 +185,17 @@ class GatewayAgent(ACPAgent):
     ) -> SetConfigOptionResult:
         """Handle ``permission_mode`` and delegate other options."""
         if params.config_id == _PERMISSION_MODE:
-            if self._permission_broker is None or not self._permission_capable():
+            values = self._permission_values()
+            if self._permission_broker is None or not values:
                 raise JSONRPCException(
                     JSONRPCError(
                         code=METHOD_NOT_FOUND,
                         message=(
                             "permission_mode is not available: this backend "
-                            "cannot round-trip permission requests"
+                            "has no permission channel and no static policy"
                         ),
                     )
                 )
-            values = self._permission_values()
             if params.value not in values:
                 raise JSONRPCException(
                     JSONRPCError(

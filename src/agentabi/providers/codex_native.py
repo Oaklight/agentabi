@@ -76,6 +76,30 @@ def _auto_approval_flags() -> list[str]:
     return list(_AUTO_APPROVAL_FLAGS)
 
 
+def _static_policy_flags(task: TaskConfig) -> list[str]:
+    """Return sandbox/approval flags from ``agent_extensions.codex``.
+
+    The gateway uses these to enforce a static permission policy for codex,
+    which has no approval round trip through ``codex exec``.  An explicit
+    ``permissions.level`` still wins.
+
+    Returns:
+        Flag list, empty when the task sets no static policy.
+    """
+    extensions = task.get("agent_extensions") or {}
+    config = extensions.get("codex")
+    if not isinstance(config, dict):
+        return []
+    flags: list[str] = []
+    sandbox = config.get("sandbox")
+    if sandbox:
+        flags.extend(["-s", str(sandbox)])
+    approval = config.get("approval")
+    if approval:
+        flags.extend(["-c", f'approval_policy="{approval}"'])
+    return flags
+
+
 class CodexNativeProvider:
     """Native subprocess provider for Codex CLI.
 
@@ -203,8 +227,11 @@ class CodexNativeProvider:
 
         permissions = task.get("permissions")
         level = permissions.get("level") if permissions else None
+        static = _static_policy_flags(task)
         if level == "full_auto":
             cmd.append("--dangerously-bypass-approvals-and-sandbox")
+        elif static:
+            cmd.extend(static)
         else:
             cmd.extend(_auto_approval_flags())
 

@@ -404,6 +404,30 @@ async def test_non_capable_backend_has_no_permission_mode():
 
 
 @pytest.mark.asyncio
+async def test_static_policy_backend_offers_deny_and_allow_all():
+    class _StaticBackend(FakeBackend):
+        permission_capable = False
+        static_permission_policy = True
+
+    agent = GatewayAgent(_StaticBackend())
+    broker = PermissionBroker(_NeverAnswer())
+    agent.set_permission_broker(broker)
+
+    result = await agent.on_new_session(NewSessionParams(cwd="/tmp"))
+    options = result.config_options or []
+    option = next(item for item in options if item.id == "permission_mode")
+    assert option.current_value == "deny"
+    assert [value.value for value in option.options] == ["deny", "allow_all"]
+
+    await agent.on_set_config_option(
+        SetConfigOptionParams(
+            session_id="s1", config_id="permission_mode", value="allow_all"
+        )
+    )
+    assert broker.policy_for("s1") == "allow_all"
+
+
+@pytest.mark.asyncio
 async def test_set_config_option_changes_permission_policy():
     backend = FakeBackend()
     agent = GatewayAgent(backend)
