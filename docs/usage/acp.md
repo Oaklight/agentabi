@@ -14,6 +14,7 @@ agentabi acp --agent opencode
 | `agy` | agentabi IR 流（`agy -p --output-format stream-json`） |
 | `claude` | agentabi IR 流（`claude --print --output-format stream-json`） |
 | `codex` | agentabi IR 流（`codex exec --json`） |
+| `codex-app-server` | JSON-RPC 驱动 `codex app-server`，支持权限往返 |
 | `pi` | agentabi IR 流（`pi --mode rpc`） |
 
 `agy`、`claude`、`codex`、`pi` 支持 `--prefer`：
