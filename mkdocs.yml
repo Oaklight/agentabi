@@ -95,6 +95,7 @@ nav:
       - Agent 发现: usage/discovery.md
       - Native vs SDK: usage/native-vs-sdk.md
       - 中间件: usage/middleware.md
+      - ACP 网关: usage/acp.md
   - API 参考:
       - 概览: api/index.md
       - Session: api/session.md
