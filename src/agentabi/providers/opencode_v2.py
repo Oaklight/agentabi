@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from ..settings.adapters.opencode import has_endpoint_settings
 from ..settings.registry import adapter_for
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
@@ -673,6 +674,25 @@ class OpenCodeV2Provider:
     async def stream(self, task: TaskConfig) -> AsyncIterator[IREvent]:
         """Run one prompt against the V2 API, falling back to V1 in auto mode."""
         mode = _transport_mode(task)
+        adapter_for("opencode_v2").resolve(task)
+        if has_endpoint_settings(task):
+            if mode == "v2":
+                yield ErrorEvent(
+                    type="error",
+                    error=(
+                        "opencode V2 builds its model catalog from the user "
+                        "config and cannot serve an injected endpoint; "
+                        "use transport 'auto' or 'v1'"
+                    ),
+                    is_fatal=True,
+                )
+                return
+            from .opencode_native import OpenCodeNativeProvider
+
+            async for event in OpenCodeNativeProvider().stream(task):
+                yield event
+            return
+
         if mode == "v1":
             from .opencode_native import OpenCodeNativeProvider
 

@@ -135,17 +135,17 @@ SETTINGS_SPECS: dict[str, SettingsSpec] = {
         name="opencode_v2",
         agent="opencode",
         transport="http",
-        supported=frozenset(),
+        supported=_ENDPOINT | _ESCAPE | {"model_provider", "headers"},
         mechanism="v1_delegation",
-        notes="not wired yet; the routing PR delegates endpoint tasks to V1",
+        notes="endpoint settings delegate the run to V1; explicit v2 raises",
     ),
     "pi_native": SettingsSpec(
         name="pi_native",
         agent="pi",
         transport="subprocess",
-        supported=frozenset(),
+        supported=_ENDPOINT | _ESCAPE | {"model_provider", "headers"},
         mechanism="models_json",
-        notes="not wired yet; the materialization PR adds the models.json directory",
+        notes="a temporary agent directory holds models.json for the run",
     ),
 }
 
