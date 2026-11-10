@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 import sys
@@ -28,28 +29,42 @@ from agentabi._vendor.acp import (
     PromptParams,
     PromptResult,
     SessionClientCapabilities,
+    SetConfigOptionParams,
     StopReason,
     TextContent,
 )
 from agentabi._vendor.jsonrpc import METHOD_NOT_FOUND
 from agentabi.acp.backends import OpenCodeBackend, create_backend
 from agentabi.acp.gateway import GatewayAgent
+from agentabi.acp.permissions import PermissionBroker
+from agentabi.types.ir.events import PermissionRequestEvent
+from agentabi.types.ir.permissions import PermissionDecision
 
 
 class FakeBackend:
     """Deterministic backend used by gateway unit tests."""
 
     name = "fake"
+    permission_capable = True
 
     def __init__(self) -> None:
         self.started = False
         self.cancelled: list[str] = []
         self.closed: list[str] = []
         self.auth_methods: list[AuthMethod] | None = None
+        self.broker: PermissionBroker | None = None
         self._last_result: PromptResult | None = PromptResult(
             stop_reason=StopReason.END_TURN
         )
         self._last_error: str | None = None
+
+    def set_permission_broker(self, broker: PermissionBroker) -> None:
+        self.broker = broker
+
+    async def answer_permission(
+        self, session_id: str, request_id: str, decision: PermissionDecision
+    ) -> None:
+        """No-op: this backend answers inline."""
 
     async def start(self) -> None:
         self.started = True
@@ -299,8 +314,9 @@ def test_cli_passes_prefer_to_backend(monkeypatch):
         seen.update(name=name, **kwargs)
         return object()
 
-    async def fake_serve(backend):
+    async def fake_serve(backend, **kwargs):
         seen["served"] = True
+        seen.update(kwargs)
 
     monkeypatch.setattr(cli, "create_backend", fake_create)
     monkeypatch.setattr(cli, "serve", fake_serve)
@@ -310,6 +326,8 @@ def test_cli_passes_prefer_to_backend(monkeypatch):
         "acp_command": None,
         "prefer": "pty",
         "served": True,
+        "permission_timeout": 0.0,
+        "permission_policy": "ask",
     }
 
 
@@ -318,3 +336,132 @@ def test_cli_rejects_prefer_for_opencode():
 
     with pytest.raises(SystemExit):
         cli.main(["acp", "--agent", "opencode", "--prefer", "pty"])
+
+
+class _NeverAnswer:
+    """Requester that keeps a permission request pending."""
+
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+
+    async def request_permission(self, session_id, tool_call, options):
+        self.started.set()
+        await asyncio.Event().wait()
+
+
+def _permission_request() -> PermissionRequestEvent:
+    return {
+        "type": "permission_request",
+        "request_id": "toolu_1",
+        "tool_name": "Bash",
+        "tool_use_id": "toolu_1",
+        "tool_input": {"command": "touch marker1"},
+        "options": [
+            {"option_id": "allow_once", "name": "Allow once", "kind": "allow_once"},
+            {"option_id": "reject_once", "name": "Reject", "kind": "reject_once"},
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_new_session_advertises_permission_mode():
+    backend = FakeBackend()
+    agent = GatewayAgent(backend)
+    broker = PermissionBroker(_NeverAnswer())
+    agent.set_permission_broker(broker)
+
+    result = await agent.on_new_session(NewSessionParams(cwd="/tmp"))
+
+    assert result.config_options is not None
+    option = next(
+        item for item in result.config_options if item.id == "permission_mode"
+    )
+    assert option.current_value == "ask"
+    assert [value.value for value in option.options] == ["ask", "deny", "allow_all"]
+
+
+@pytest.mark.asyncio
+async def test_non_capable_backend_does_not_offer_ask():
+    class _StaticBackend(FakeBackend):
+        permission_capable = False
+
+    agent = GatewayAgent(_StaticBackend())
+    broker = PermissionBroker(_NeverAnswer())
+    agent.set_permission_broker(broker)
+
+    result = await agent.on_new_session(NewSessionParams(cwd="/tmp"))
+
+    assert result.config_options is not None
+    option = next(
+        item for item in result.config_options if item.id == "permission_mode"
+    )
+    assert option.current_value == "deny"
+    assert [value.value for value in option.options] == ["deny", "allow_all"]
+
+
+@pytest.mark.asyncio
+async def test_set_config_option_changes_permission_policy():
+    backend = FakeBackend()
+    agent = GatewayAgent(backend)
+    broker = PermissionBroker(_NeverAnswer())
+    agent.set_permission_broker(broker)
+    await agent.on_new_session(NewSessionParams(cwd="/tmp"))
+
+    result = await agent.on_set_config_option(
+        SetConfigOptionParams(
+            session_id="s1", config_id="permission_mode", value="deny"
+        )
+    )
+
+    assert broker.policy_for("s1") == "deny"
+    assert result.config_options
+    option = next(
+        item for item in result.config_options if item.id == "permission_mode"
+    )
+    assert option.current_value == "deny"
+
+
+@pytest.mark.asyncio
+async def test_set_config_option_rejects_unknown_policy():
+    agent = GatewayAgent(FakeBackend())
+    broker = PermissionBroker(_NeverAnswer())
+    agent.set_permission_broker(broker)
+
+    with pytest.raises(JSONRPCException):
+        await agent.on_set_config_option(
+            SetConfigOptionParams(
+                session_id="s1", config_id="permission_mode", value="maybe"
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_cancel_resolves_a_pending_permission():
+    backend = FakeBackend()
+    agent = GatewayAgent(backend)
+    requester = _NeverAnswer()
+    broker = PermissionBroker(requester)
+    agent.set_permission_broker(broker)
+
+    task = asyncio.create_task(broker.ask("s1", _permission_request()))
+    await asyncio.wait_for(requester.started.wait(), timeout=1)
+
+    await agent.on_cancel(CancelParams(session_id="s1"))
+    decision = await asyncio.wait_for(task, timeout=1)
+
+    assert decision == {"option_id": None, "outcome": "cancelled"}
+    assert backend.cancelled == ["s1"]
+
+
+@pytest.mark.asyncio
+async def test_close_session_forgets_permission_state():
+    backend = FakeBackend()
+    agent = GatewayAgent(backend)
+    broker = PermissionBroker(_NeverAnswer())
+    agent.set_permission_broker(broker)
+    broker.set_policy("s1", "deny")
+
+    await agent.on_close_session(CloseSessionParams(session_id="s1"))
+
+    assert broker.policy_for("s1") == "ask"
+    assert backend.closed == ["s1"]

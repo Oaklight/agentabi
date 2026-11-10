@@ -133,6 +133,22 @@ agentabi acp --agent acp --acp-command "npx -y @agentclientprotocol/claude-agent
 
 The gateway speaks ACP to that process and forwards its `session/update` payloads unchanged.
 
+### Permissions
+
+`session/new` returns a `permission_mode` config option (`ask`, `deny`,
+`allow_all`). `session/set_config_option` changes it for the session.
+
+In this release only the Claude backend (`agentabi acp --agent claude`) can
+ask: it forwards Claude's `can_use_tool` request to the ACP client as
+`session/request_permission` and writes the answer back. Other backends keep a
+static policy (`deny` by default); the gateway never turns a missing permission
+channel into an allow. ACP pass-through backends (`opencode`, `--agent acp`)
+forward the child's `session/request_permission` unchanged.
+
+Use `--permission-timeout SECONDS` to bound the wait (default `0` waits
+forever) and `--permission-policy ask|deny|allow_all` to choose the initial
+policy.
+
 ### Router mode
 
 One gateway process can serve several agents. Enable more than one with

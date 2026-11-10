@@ -26,6 +26,11 @@ from agentabi._vendor.acp import (
     StopReason,
 )
 
+from ...providers.base import PermissionAwareProvider, PermissionHandler
+from ...providers.registry import resolve_provider
+from ...types.ir.events import PermissionRequestEvent
+from ...types.ir.permissions import PermissionDecision
+from ..permissions import PermissionBroker
 from .base import split_prompt_blocks
 
 _STOP_REASONS: dict[str, StopReason] = {
@@ -198,6 +203,8 @@ class IRBackend:
         self._results: dict[str, PromptResult] = {}
         self._errors: dict[str, str] = {}
         self._protocol_version = 1
+        self._broker: PermissionBroker | None = None
+        self._permission_capable: bool | None = None
 
     async def start(self) -> None:
         """Nothing to start; the provider is launched per prompt."""
@@ -205,6 +212,45 @@ class IRBackend:
     def set_protocol_version(self, version: int) -> None:
         """Select the ACP update shapes this backend emits."""
         self._protocol_version = version
+
+    def set_permission_broker(self, broker: PermissionBroker) -> None:
+        """Attach the gateway's permission broker."""
+        self._broker = broker
+
+    async def answer_permission(
+        self,
+        session_id: str,
+        request_id: str,
+        decision: PermissionDecision,
+    ) -> None:
+        """No-op: the provider answers its native request inline."""
+
+    @property
+    def permission_capable(self) -> bool:
+        """Whether the resolved provider can round-trip a permission request."""
+        if self._permission_capable is None:
+            self._permission_capable = self._detect_permission_capable()
+        return self._permission_capable
+
+    def _detect_permission_capable(self) -> bool:
+        try:
+            provider = resolve_provider(self._agent, prefer=self._prefer)
+        except Exception:  # noqa: BLE001 - missing CLI means "cannot ask"
+            return False
+        if not isinstance(provider, PermissionAwareProvider):
+            return False
+        return bool(provider.capabilities().get("supports_permissions", False))
+
+    def _permission_handler_for(self, session_id: str) -> PermissionHandler:
+        broker = self._broker
+        assert broker is not None
+
+        async def handler(
+            request: PermissionRequestEvent,
+        ) -> PermissionDecision:
+            return await broker.ask(session_id, request)
+
+        return handler
 
     async def stop(self) -> None:
         """Cancel any in-flight prompt."""
@@ -251,11 +297,14 @@ class IRBackend:
         self._cancelled.discard(params.session_id)
         text, _ = split_prompt_blocks(params.prompt)
 
+        session = self._get_session(state)
+        self._attach_permission_handler(session, params.session_id)
+
         queue: asyncio.Queue[Any] = asyncio.Queue()
 
         async def pump() -> None:
             try:
-                async for event in self._get_session(state).stream(
+                async for event in session.stream(
                     text,
                     working_dir=state.cwd,
                     **self._task_kwargs(state),
@@ -318,6 +367,18 @@ class IRBackend:
             kwargs["additional_dirs"] = state.additional_dirs
         return kwargs
 
+    def _attach_permission_handler(self, session: Any, session_id: str) -> None:
+        """Attach (or clear) the broker handler on a permission-aware provider."""
+        provider = getattr(session, "provider", None)
+        if not isinstance(provider, PermissionAwareProvider):
+            return
+        caps_getter = getattr(provider, "capabilities", None)
+        caps = caps_getter() if callable(caps_getter) else {}
+        if self._broker is None or not caps.get("supports_permissions", False):
+            provider.set_permission_handler(None)
+            return
+        provider.set_permission_handler(self._permission_handler_for(session_id))
+
     def _observe(
         self, event: dict[str, Any], state: _SessionState, session_id: str
     ) -> None:
@@ -341,7 +402,10 @@ class IRBackend:
             else:
                 self._results[session_id] = PromptResult(stop_reason=mapped)
         elif etype == "error" and event.get("is_fatal"):
-            self._errors[session_id] = event.get("error", "agent error")
+            # A cancelled turn ends with a backend error; that error is not
+            # the prompt's result.  The prompt loop records CANCELLED.
+            if session_id not in self._cancelled:
+                self._errors[session_id] = event.get("error", "agent error")
 
     def prompt_result(self, session_id: str) -> PromptResult | None:
         return self._results.get(session_id)
@@ -351,10 +415,28 @@ class IRBackend:
 
     async def cancel(self, session_id: str) -> None:
         self._cancelled.add(session_id)
+        broker = self._broker
+        if broker is not None and broker.has_pending(session_id):
+            # Resolve the pending ask so the provider can send its native
+            # cancel (Claude: interrupt) and end the turn itself.  Force a
+            # task cancel if that does not finish promptly.
+            broker.cancel(session_id)
+            asyncio.create_task(self._force_cancel(session_id))
+            return
         task = self._tasks.get(session_id)
         if task is not None and not task.done():
             task.cancel()
         # Wake the prompt loop even if the pump task never started.
+        queue = self._queues.get(session_id)
+        if queue is not None:
+            queue.put_nowait(None)
+
+    async def _force_cancel(self, session_id: str) -> None:
+        """Cancel a turn that did not end after a resolved permission."""
+        await asyncio.sleep(10.0)
+        task = self._tasks.get(session_id)
+        if task is not None and not task.done():
+            task.cancel()
         queue = self._queues.get(session_id)
         if queue is not None:
             queue.put_nowait(None)

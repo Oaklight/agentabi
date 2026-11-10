@@ -36,7 +36,8 @@ def main(argv: list[str] | None = None) -> int:
         choices=sorted([*BACKENDS, "acp"]),
         help=(
             "Agent backend to expose. Repeat with --router to serve several "
-            "agents in one process"
+            "agents in one process. Only --agent claude can ask for "
+            "permissions in this release"
         ),
     )
     acp_parser.add_argument(
@@ -57,6 +58,25 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "Preferred provider type for agy, claude, codex, and pi "
             "(claude supports 'pty' for its interactive TUI)"
+        ),
+    )
+    acp_parser.add_argument(
+        "--permission-timeout",
+        type=float,
+        default=0.0,
+        metavar="SECONDS",
+        help=(
+            "Seconds to wait for a client permission answer before denying; "
+            "0 (the default) waits forever"
+        ),
+    )
+    acp_parser.add_argument(
+        "--permission-policy",
+        choices=["ask", "deny", "allow_all"],
+        default="ask",
+        help=(
+            "Initial permission policy: ask the client (default where the "
+            "backend can ask), deny, or allow everything"
         ),
     )
 
@@ -99,7 +119,13 @@ def main(argv: list[str] | None = None) -> int:
             )
 
         try:
-            asyncio.run(serve(backend))
+            asyncio.run(
+                serve(
+                    backend,
+                    permission_timeout=args.permission_timeout,
+                    permission_policy=args.permission_policy,
+                )
+            )
         except KeyboardInterrupt:
             return 130
         return 0

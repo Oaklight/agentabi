@@ -11,6 +11,8 @@ from agentabi._vendor.acp import (
     AuthenticateParams,
     CancelParams,
     CloseSessionParams,
+    ConfigOption,
+    ConfigOptionValue,
     ImplementationInfo,
     InitializeParams,
     InitializeResult,
@@ -27,9 +29,12 @@ from agentabi._vendor.acp import (
     StopReason,
     negotiate_protocol_version,
 )
-from agentabi._vendor.jsonrpc import INTERNAL_ERROR, METHOD_NOT_FOUND
+from agentabi._vendor.jsonrpc import INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND
 
 from .backends.base import Backend, SessionSelectingBackend
+from .permissions import PermissionBroker
+
+_PERMISSION_MODE = "permission_mode"
 
 #: ``_meta`` of the ``session/new`` request being handled.  The vendored
 #: parser drops unknown fields, so the gateway stashes the raw object here.
@@ -46,6 +51,50 @@ class GatewayAgent(ACPAgent):
     def __init__(self, backend: Backend) -> None:
         super().__init__()
         self._backend = backend
+        self._permission_broker: PermissionBroker | None = None
+
+    def set_permission_broker(self, broker: PermissionBroker) -> None:
+        """Attach the broker that owns client permission round trips."""
+        self._permission_broker = broker
+
+    def _permission_capable(self) -> bool:
+        """Whether the backend can round-trip a permission request."""
+        return bool(getattr(self._backend, "permission_capable", False))
+
+    def _permission_values(self) -> list[str]:
+        if self._permission_capable():
+            return ["ask", "deny", "allow_all"]
+        return ["deny", "allow_all"]
+
+    def _permission_option(self, session_id: str) -> ConfigOption:
+        values = self._permission_values()
+        broker = self._permission_broker
+        current = broker.policy_for(session_id) if broker is not None else "deny"
+        if current not in values:
+            current = "ask" if "ask" in values else "deny"
+        return ConfigOption(
+            id=_PERMISSION_MODE,
+            name="Permission mode",
+            type="select",
+            current_value=current,
+            options=[ConfigOptionValue(value=value, name=value) for value in values],
+            description=(
+                "ask forwards each permission request to the client; deny "
+                "rejects them; allow_all allows them"
+            ),
+        )
+
+    def _add_permission_option(self, result: NewSessionResult) -> None:
+        if self._permission_broker is None:
+            return
+        option = self._permission_option(result.session_id)
+        existing = [
+            item
+            for item in (result.config_options or [])
+            if item.id != _PERMISSION_MODE
+        ]
+        existing.append(option)
+        result.config_options = existing
 
     async def on_initialize(self, params: InitializeParams) -> InitializeResult:
         requested = negotiate_protocol_version(params.protocol_version)
@@ -76,10 +125,13 @@ class GatewayAgent(ACPAgent):
 
     async def on_new_session(self, params: NewSessionParams) -> NewSessionResult:
         if isinstance(self._backend, SessionSelectingBackend):
-            return await self._backend.new_session_with_meta(
+            result = await self._backend.new_session_with_meta(
                 params, _SESSION_META.get()
             )
-        return await self._backend.new_session(params)
+        else:
+            result = await self._backend.new_session(params)
+        self._add_permission_option(result)
+        return result
 
     async def _handle_new_session(self, params: dict[str, Any]) -> Any:
         """Capture ``_meta`` before the vendored parser drops it.
@@ -111,19 +163,55 @@ class GatewayAgent(ACPAgent):
         )
 
     async def on_cancel(self, params: CancelParams) -> None:
+        # Resolve a pending permission first: the backend can then send its
+        # native cancel (Claude: interrupt) instead of waiting for an answer.
+        if self._permission_broker is not None:
+            self._permission_broker.cancel(params.session_id)
         await self._backend.cancel(params.session_id)
 
     async def on_close_session(self, params: CloseSessionParams) -> None:
         await self._backend.close_session(params.session_id)
+        if self._permission_broker is not None:
+            self._permission_broker.forget_session(params.session_id)
 
     async def on_set_config_option(
         self, params: SetConfigOptionParams
     ) -> SetConfigOptionResult:
-        """Delegate config option changes to backends that handle them."""
+        """Handle ``permission_mode`` and delegate other options."""
+        if params.config_id == _PERMISSION_MODE:
+            if self._permission_broker is None:
+                raise JSONRPCException(
+                    JSONRPCError(
+                        code=METHOD_NOT_FOUND,
+                        message="permission_mode is not available for this backend",
+                    )
+                )
+            values = self._permission_values()
+            if params.value not in values:
+                raise JSONRPCException(
+                    JSONRPCError(
+                        code=INVALID_PARAMS,
+                        message=(
+                            f"unknown permission_mode {params.value!r}; "
+                            f"expected one of {', '.join(values)}"
+                        ),
+                    )
+                )
+            self._permission_broker.set_policy(params.session_id, str(params.value))
         handler = getattr(self._backend, "set_config_option", None)
         if callable(handler):
-            return await handler(params)
-        return SetConfigOptionResult()
+            result = await handler(params)
+        else:
+            result = SetConfigOptionResult()
+        if self._permission_broker is not None:
+            options = [
+                option
+                for option in (result.config_options or [])
+                if option.id != _PERMISSION_MODE
+            ]
+            options.append(self._permission_option(params.session_id))
+            result.config_options = options
+        return result
 
     async def on_authenticate(self, params: AuthenticateParams) -> None:
         """Reject ``authenticate``: the gateway does not proxy backend auth."""
@@ -158,14 +246,34 @@ class GatewayAgent(ACPAgent):
         )
 
 
-async def serve(backend: Backend) -> None:
+async def serve(
+    backend: Backend,
+    *,
+    permission_timeout: float = 0.0,
+    permission_policy: str = "ask",
+) -> None:
     """Run the ACP gateway on stdin/stdout.
 
     Args:
         backend: Agent-specific backend to delegate to.
+        permission_timeout: Seconds to wait for a client permission answer;
+            ``0`` waits forever.
+        permission_policy: Initial ``ask``/``deny``/``allow_all`` policy.
     """
+    agent = GatewayAgent(backend)
+    if permission_policy == "ask" and not getattr(backend, "permission_capable", False):
+        # Default deny where the backend cannot round-trip: never turn a
+        # missing channel into an allow.
+        permission_policy = "deny"
+    broker = PermissionBroker(
+        agent, timeout=permission_timeout, policy=permission_policy
+    )
+    agent.set_permission_broker(broker)
+    setter = getattr(backend, "set_permission_broker", None)
+    if callable(setter):
+        setter(broker)
     await backend.start()
     try:
-        await GatewayAgent(backend).run()
+        await agent.run()
     finally:
         await backend.stop()

@@ -1,7 +1,7 @@
 """
 agentabi - Permission Types
 
-Defines permission configuration and request types for the agent ABI.
+Defines permission configuration and runtime request types for the agent ABI.
 """
 
 from typing import Literal
@@ -39,8 +39,38 @@ class PermissionConfig(TypedDict):
 
 
 # ============================================================================
-# Permission request (runtime)
+# Permission options and decisions (runtime)
 # ============================================================================
+
+PermissionOptionKind = Literal[
+    "allow_once",
+    "allow_always",
+    "reject_once",
+    "reject_always",
+]
+
+
+class PermissionOption(TypedDict):
+    """One option offered to the client in a permission prompt.
+
+    ``option_id`` is the id the client must echo back.  IR backends use the
+    canonical ids, which equal their ``kind``.  ACP pass-through backends keep
+    the child's ids and rely on ``kind`` for the portable meaning.
+    """
+
+    option_id: Required[str]
+    name: Required[str]
+    kind: Required[PermissionOptionKind]
+
+
+class PermissionDecision(TypedDict):
+    """A resolved permission decision returned to a provider.
+
+    ``option_id`` is ``None`` when ``outcome`` is ``"cancelled"``.
+    """
+
+    option_id: Required[str | None]
+    outcome: Required[Literal["selected", "cancelled"]]
 
 
 class PermissionRequest(TypedDict):
@@ -58,5 +88,8 @@ class PermissionRequest(TypedDict):
 __all__ = [
     "PermissionLevel",
     "PermissionConfig",
+    "PermissionOptionKind",
+    "PermissionOption",
+    "PermissionDecision",
     "PermissionRequest",
 ]

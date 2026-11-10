@@ -20,6 +20,9 @@ from agentabi._vendor.acp import (
     TextContent,
 )
 
+from ...types.ir.permissions import PermissionDecision
+from ..permissions import PermissionBroker
+
 
 def split_prompt_blocks(blocks: list[Any]) -> tuple[str, list[Any]]:
     """Split ACP prompt blocks into joined text and non-text blocks.
@@ -84,6 +87,29 @@ class Backend(Protocol):
 
     async def close_session(self, session_id: str) -> None:
         """Close an active backend session."""
+        ...
+
+    def set_permission_broker(self, broker: PermissionBroker) -> None:
+        """Attach the gateway's permission broker.
+
+        The gateway calls this through ``getattr``, so a backend without the
+        method simply cannot ask.  Attaching a broker must never be required
+        for a backend to run.
+        """
+        ...
+
+    async def answer_permission(
+        self,
+        session_id: str,
+        request_id: str,
+        decision: PermissionDecision,
+    ) -> None:
+        """Resolve a pending backend request out of band.
+
+        Backends whose provider awaits a handler answer inline and may treat
+        this as a no-op.  It exists for transports that receive the native
+        answer asynchronously (for example an app-server request id).
+        """
         ...
 
 

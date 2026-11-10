@@ -11,7 +11,9 @@ import asyncio
 import json
 import os
 import shutil
+import uuid
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from typing import Any, cast
 
 from ..types.ir.capabilities import AgentCapabilities
@@ -23,6 +25,7 @@ from ..types.ir.events import (
     MessageDeltaEvent,
     MessageEndEvent,
     MessageStartEvent,
+    PermissionRequestEvent,
     ReasoningDeltaEvent,
     SessionEndEvent,
     SessionStartEvent,
@@ -31,8 +34,10 @@ from ..types.ir.events import (
     UsageEvent,
     UsageInfo,
 )
+from ..types.ir.permissions import PermissionDecision, PermissionOption
 from ..types.ir.session import SessionResult
 from ..types.ir.task import TaskConfig
+from .base import PermissionHandler
 
 _PERMISSION_LEVEL_MAP: dict[str, str] = {
     "full_auto": "bypassPermissions",
@@ -78,12 +83,77 @@ def _inject_settings_override(cmd: list[str], task: TaskConfig) -> None:
         cmd.extend(["--settings", json.dumps(settings)])
 
 
+def _allow_rule(suggestions: list[Any]) -> str | None:
+    """Return the first allow ``addRules`` rule content, if any.
+
+    ``None`` means no ``addRules`` suggestion was offered, so
+    ``allow_always`` must not be shown.  An empty string means an
+    ``addRules`` suggestion exists without rule content; the broker then
+    caches a tool-wide rule.
+    """
+    for suggestion in suggestions:
+        if not isinstance(suggestion, dict):
+            continue
+        if (
+            suggestion.get("type") != "addRules"
+            or suggestion.get("behavior") != "allow"
+        ):
+            continue
+        rules = suggestion.get("rules")
+        if isinstance(rules, list):
+            for rule in rules:
+                if isinstance(rule, dict) and rule.get("ruleContent"):
+                    return str(rule["ruleContent"])
+        return ""
+    return None
+
+
+def _permission_options(suggestions: list[Any]) -> list[PermissionOption]:
+    """Build the canonical options offered for a Claude request."""
+    options: list[PermissionOption] = [
+        {
+            "option_id": "allow_once",
+            "name": "Allow once",
+            "kind": "allow_once",
+        }
+    ]
+    if _allow_rule(suggestions) is not None:
+        options.append(
+            {
+                "option_id": "allow_always",
+                "name": "Allow always",
+                "kind": "allow_always",
+            }
+        )
+    options.append(
+        {
+            "option_id": "reject_once",
+            "name": "Reject",
+            "kind": "reject_once",
+        }
+    )
+    return options
+
+
 class ClaudeNativeProvider:
     """Native subprocess + JSONL provider for Claude Code CLI.
 
     Runs `claude --print --output-format stream-json` as a subprocess
     and parses the JSONL output into IR events.
+
+    When a permission handler is attached, the provider switches to the
+    SDK control protocol on stdin/stdout (``--input-format stream-json``,
+    ``--permission-prompt-tool stdio``).  Without a handler it keeps the
+    argv-prompt path, so the plain ``Session`` API is unchanged.
     """
+
+    def __init__(self) -> None:
+        self._permission_handler: PermissionHandler | None = None
+        self._pending_permissions: dict[str, asyncio.Task[None]] = {}
+
+    def set_permission_handler(self, handler: PermissionHandler | None) -> None:
+        """Attach or clear the handler called for ``can_use_tool`` requests."""
+        self._permission_handler = handler
 
     @staticmethod
     def is_available() -> bool:
@@ -115,61 +185,131 @@ class ClaudeNativeProvider:
         """Run task and yield IR events."""
         from .base import collect_subprocess_errors
 
-        cmd = self._build_command(task)
-        task_env = task.get("env") or {}
-        merged_env = {**os.environ, **task_env}
-
+        permission = self._permission_handler is not None
+        cmd = self._build_command(task, permission=permission)
+        proc = await self._spawn(cmd, task, permission)
         timeout = task.get("timeout")
-        proc = await asyncio.create_subprocess_exec(
+        timed_out = {"value": False}
+        timeout_task: asyncio.Task[None] | None = None
+        if timeout:
+            timeout_task = asyncio.create_task(
+                self._kill_after_timeout(proc, float(timeout), timed_out)
+            )
+
+        try:
+            if permission:
+                await self._send_user_message(proc, task["prompt"])
+            async for event in self._stream_events(proc, permission):
+                yield event
+            await self._finish_process(proc, permission)
+            for err in await collect_subprocess_errors(
+                proc,
+                timed_out=timed_out["value"],
+                timeout_seconds=timeout,
+            ):
+                yield err
+        except asyncio.CancelledError:
+            if permission and self._pending_permissions:
+                with suppress(Exception):
+                    await self._send_interrupt(proc)
+                    # Give the CLI a moment to emit control_cancel_request and
+                    # its result before the process is reaped.
+                    await asyncio.sleep(0.1)
+            raise
+        finally:
+            self._cancel_pending_permissions()
+            if timeout_task and not timeout_task.done():
+                timeout_task.cancel()
+            await self._reap(proc)
+
+    @staticmethod
+    async def _spawn(
+        cmd: list[str], task: TaskConfig, permission: bool
+    ) -> asyncio.subprocess.Process:
+        task_env = task.get("env") or {}
+        return await asyncio.create_subprocess_exec(
             *cmd,
-            stdin=asyncio.subprocess.DEVNULL,
+            stdin=(
+                asyncio.subprocess.PIPE if permission else asyncio.subprocess.DEVNULL
+            ),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=merged_env,
+            env={**os.environ, **task_env},
             cwd=task.get("working_dir"),
         )
 
-        timed_out = False
-        timeout_task: asyncio.Task[None] | None = None
-        if timeout:
+    @staticmethod
+    async def _kill_after_timeout(
+        proc: asyncio.subprocess.Process, seconds: float, state: dict[str, bool]
+    ) -> None:
+        await asyncio.sleep(seconds)
+        if proc.returncode is None:
+            state["value"] = True
+            proc.kill()
 
-            async def _kill_after_timeout() -> None:
-                nonlocal timed_out
-                await asyncio.sleep(timeout)
-                if proc.returncode is None:
-                    timed_out = True
-                    proc.kill()
+    async def _stream_events(
+        self, proc: asyncio.subprocess.Process, permission: bool
+    ) -> AsyncIterator[IREvent]:
+        """Read stdout and yield IR events, dispatching control messages."""
+        assert proc.stdout is not None
+        async for line in proc.stdout:
+            raw = self._decode_line(line)
+            if raw is None:
+                continue
+            if permission:
+                kind, control_id, control_event = self._classify_control(raw)
+                if kind is not None:
+                    if kind == "permission" and control_event is not None:
+                        yield control_event
+                        pending = asyncio.create_task(
+                            self._answer_permission(proc, control_id, control_event)
+                        )
+                        self._pending_permissions[control_id] = pending
+                    elif kind == "cancel":
+                        self._cancel_pending(control_id)
+                    continue
+            for event in self._parse_event(raw):
+                yield event
+            if permission and raw.get("type") == "result":
+                # One prompt per turn: the CLI may keep reading stdin for
+                # more user messages, so stop and close stdin below.
+                break
 
-            timeout_task = asyncio.create_task(_kill_after_timeout())
-
+    @staticmethod
+    def _decode_line(line: bytes) -> dict[str, Any] | None:
+        decoded = line.decode().rstrip("\n").rstrip("\r")
+        if not decoded:
+            return None
         try:
-            assert proc.stdout is not None
-            async for line in proc.stdout:
-                decoded = line.decode().rstrip("\n").rstrip("\r")
-                if not decoded:
-                    continue
-                try:
-                    raw = json.loads(decoded)
-                except json.JSONDecodeError:
-                    continue
-                for event in self._parse_event(raw):
-                    yield event
+            raw = json.loads(decoded)
+        except json.JSONDecodeError:
+            return None
+        return raw if isinstance(raw, dict) else None
 
+    @staticmethod
+    async def _finish_process(
+        proc: asyncio.subprocess.Process, permission: bool
+    ) -> None:
+        if not permission:
             await proc.wait()
-            for err in await collect_subprocess_errors(
-                proc, timed_out=timed_out, timeout_seconds=timeout
-            ):
-                yield err
-        finally:
-            if timeout_task and not timeout_task.done():
-                timeout_task.cancel()
-            if proc.returncode is None:
-                proc.terminate()
-                try:
-                    await asyncio.wait_for(proc.wait(), timeout=5)
-                except asyncio.TimeoutError:
-                    proc.kill()
-                    await proc.wait()
+            return
+        await ClaudeNativeProvider._close_stdin(proc)
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=10)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+
+    @staticmethod
+    async def _reap(proc: asyncio.subprocess.Process) -> None:
+        if proc.returncode is not None:
+            return
+        proc.terminate()
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
 
     async def run(self, task: TaskConfig) -> SessionResult:
         """Run task and return aggregated result."""
@@ -177,11 +317,191 @@ class ClaudeNativeProvider:
 
         return await default_run(self, task)
 
+    # ========== Private: control protocol ==========
+
+    @staticmethod
+    async def _send_user_message(proc: asyncio.subprocess.Process, prompt: str) -> None:
+        """Write the prompt as a stream-json user message."""
+        if proc.stdin is None:  # pragma: no cover - PIPE is always set
+            return
+        payload = {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{"type": "text", "text": prompt}],
+            },
+        }
+        proc.stdin.write((json.dumps(payload) + "\n").encode())
+        await proc.stdin.drain()
+
+    @staticmethod
+    async def _close_stdin(proc: asyncio.subprocess.Process) -> None:
+        if proc.stdin is None:
+            return
+        with suppress(Exception):
+            proc.stdin.close()
+            await proc.stdin.wait_closed()
+
+    @staticmethod
+    def _classify_control(
+        raw: dict[str, Any],
+    ) -> tuple[str | None, str, PermissionRequestEvent | None]:
+        """Classify a control-protocol message before IR parsing.
+
+        Returns:
+            ``(kind, control_request_id, event)`` where ``kind`` is
+            ``"permission"``, ``"cancel"``, ``"response"``, ``"other"``, or
+            ``None`` for an ordinary event.
+        """
+        msg_type = raw.get("type")
+        if msg_type == "control_response":
+            return "response", str(raw.get("request_id") or ""), None
+        if msg_type == "control_cancel_request":
+            request_id = raw.get("request_id")
+            if request_id is None:
+                request = raw.get("request")
+                if isinstance(request, dict):
+                    request_id = request.get("request_id")
+            return "cancel", str(request_id or ""), None
+        if msg_type != "control_request":
+            return None, "", None
+        control_id = str(raw.get("request_id") or "")
+        request = raw.get("request")
+        if not isinstance(request, dict):
+            return "other", control_id, None
+        if request.get("subtype") != "can_use_tool":
+            return "other", control_id, None
+        return (
+            "permission",
+            control_id,
+            ClaudeNativeProvider._permission_event(raw, request),
+        )
+
+    @staticmethod
+    def _permission_event(
+        raw: dict[str, Any], request: dict[str, Any]
+    ) -> PermissionRequestEvent:
+        """Translate a ``can_use_tool`` control request to an IR event."""
+        tool_use_id = str(request.get("tool_use_id") or "")
+        request_id = tool_use_id or f"perm_{uuid.uuid4().hex}"
+        tool_name = str(
+            request.get("tool_name") or request.get("display_name") or "tool"
+        )
+        suggestions = request.get("permission_suggestions")
+        if not isinstance(suggestions, list):
+            suggestions = []
+
+        event: PermissionRequestEvent = {
+            "type": "permission_request",
+            "request_id": request_id,
+            "tool_name": tool_name,
+            "tool_use_id": tool_use_id or request_id,
+            "options": _permission_options(suggestions),
+        }
+        tool_input = request.get("input")
+        if isinstance(tool_input, dict):
+            event["tool_input"] = tool_input
+        description = request.get("description") or request.get("display_name")
+        if description:
+            event["description"] = str(description)
+        if suggestions:
+            event["suggestions"] = suggestions
+        event["raw"] = raw
+        return event
+
+    async def _answer_permission(
+        self,
+        proc: asyncio.subprocess.Process,
+        control_id: str,
+        event: PermissionRequestEvent,
+    ) -> None:
+        """Ask the handler and write the control response.
+
+        A cancelled decision sends an ``interrupt`` control request instead of
+        a response: the CLI then cancels the pending request itself.
+        """
+        handler = self._permission_handler
+        if handler is None:  # pragma: no cover - only called with a handler
+            return
+        try:
+            decision = await handler(event)
+        except asyncio.CancelledError:
+            return
+        except Exception:  # noqa: BLE001 - fail closed
+            decision = PermissionDecision(option_id="reject_once", outcome="selected")
+        try:
+            if decision.get("outcome") == "cancelled":
+                await self._send_interrupt(proc)
+                return
+            await self._write_control_response(proc, control_id, event, decision)
+        finally:
+            self._pending_permissions.pop(control_id, None)
+
+    @staticmethod
+    async def _write_control_response(
+        proc: asyncio.subprocess.Process,
+        control_id: str,
+        event: PermissionRequestEvent,
+        decision: PermissionDecision,
+    ) -> None:
+        if proc.stdin is None:  # pragma: no cover - PIPE is always set
+            return
+        option_id = decision.get("option_id")
+        if option_id in ("allow_once", "allow_always"):
+            response: dict[str, Any] = {
+                "behavior": "allow",
+                "updatedInput": event.get("tool_input", {}),
+            }
+        else:
+            response = {
+                "behavior": "deny",
+                "message": "denied by agentabi",
+                "interrupt": False,
+            }
+        payload = {
+            "type": "control_response",
+            "response": {
+                "subtype": "success",
+                "request_id": control_id,
+                "response": response,
+            },
+        }
+        proc.stdin.write((json.dumps(payload) + "\n").encode())
+        await proc.stdin.drain()
+
+    @staticmethod
+    async def _send_interrupt(proc: asyncio.subprocess.Process) -> None:
+        if proc.stdin is None:  # pragma: no cover - PIPE is always set
+            return
+        payload = {
+            "type": "control_request",
+            "request_id": f"interrupt_{uuid.uuid4().hex}",
+            "request": {"subtype": "interrupt"},
+        }
+        proc.stdin.write((json.dumps(payload) + "\n").encode())
+        await proc.stdin.drain()
+
+    def _cancel_pending(self, control_id: str) -> None:
+        """Cancel one pending permission task after a control cancel."""
+        task = self._pending_permissions.pop(control_id, None)
+        if task is not None and not task.done():
+            task.cancel()
+
+    def _cancel_pending_permissions(self) -> None:
+        for task in list(self._pending_permissions.values()):
+            if not task.done():
+                task.cancel()
+        self._pending_permissions.clear()
+
     # ========== Private: command building ==========
 
     @staticmethod
-    def _build_command(task: TaskConfig) -> list[str]:
-        """Convert TaskConfig to `claude` CLI arguments."""
+    def _build_command(task: TaskConfig, *, permission: bool = False) -> list[str]:
+        """Convert TaskConfig to `claude` CLI arguments.
+
+        With *permission*, use the SDK control protocol and leave the prompt
+        for stdin.  Without it, keep the argv prompt unchanged.
+        """
         cmd = ["claude", "--print", "--output-format", "stream-json", "--verbose"]
 
         if "model" in task:
@@ -199,11 +519,44 @@ class ClaudeNativeProvider:
         ClaudeNativeProvider._add_permission_flags(cmd, task)
         ClaudeNativeProvider._add_tool_flags(cmd, task)
 
+        if permission:
+            ClaudeNativeProvider._add_permission_transport(cmd, task)
+
         if "mcp_config" in task:
             cmd.extend(["--mcp-config", task["mcp_config"]])
 
         cmd.append("--include-partial-messages")
+        ClaudeNativeProvider._add_extension_flags(cmd, task)
 
+        _inject_settings_override(cmd, task)
+
+        if not permission:
+            cmd.append("--")
+            cmd.append(task["prompt"])
+
+        return cmd
+
+    @staticmethod
+    def _add_permission_transport(cmd: list[str], task: TaskConfig) -> None:
+        """Add the SDK control-protocol flags and the prompt-on-stdin mode."""
+        cmd.extend(
+            [
+                "--input-format",
+                "stream-json",
+                "--permission-prompt-tool",
+                "stdio",
+                "--permission-prompts",
+                "host",
+            ]
+        )
+        if not (task.get("permissions") or {}).get("level"):
+            # The measured control-protocol invocation uses manual mode; the
+            # CLI default also prompts, but be explicit.
+            cmd.extend(["--permission-mode", "manual"])
+
+    @staticmethod
+    def _add_extension_flags(cmd: list[str], task: TaskConfig) -> None:
+        """Append extension, thinking, schema, and attachment flags."""
         extensions = task.get("agent_extensions", {})
         if "max_budget_usd" in extensions:
             cmd.extend(["--max-budget-usd", str(extensions["max_budget_usd"])])
@@ -230,13 +583,6 @@ class ClaudeNativeProvider:
 
         for f in task.get("files") or []:
             cmd.extend(["--file", f])
-
-        _inject_settings_override(cmd, task)
-
-        cmd.append("--")
-        cmd.append(task["prompt"])
-
-        return cmd
 
     @staticmethod
     def _add_session_flags(cmd: list[str], task: TaskConfig) -> None:
@@ -377,8 +723,8 @@ class ClaudeNativeProvider:
                     tool_result["is_error"] = True
                 results.append(tool_result)
 
-        tool_use_result = event.get("tool_use_result", {})
-        if tool_use_result and results:
+        tool_use_result = event.get("tool_use_result")
+        if isinstance(tool_use_result, dict) and results:
             duration = tool_use_result.get("durationMs")
             if duration is not None and results[-1].get("type") == "tool_result":
                 last = cast(ToolResultEvent, results[-1])

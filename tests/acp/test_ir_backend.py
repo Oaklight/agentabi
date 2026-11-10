@@ -422,3 +422,40 @@ def test_create_backend_passes_prefer():
     backend = create_backend("claude", prefer="pty")
     assert isinstance(backend, IRBackend)
     assert backend._prefer == "pty"
+
+
+@pytest.mark.asyncio
+async def test_permission_events_are_not_acp_updates():
+    events = [
+        {
+            "type": "permission_request",
+            "request_id": "toolu_1",
+            "tool_name": "Bash",
+            "tool_use_id": "toolu_1",
+            "tool_input": {"command": "touch marker1"},
+        },
+        {
+            "type": "permission_response",
+            "request_id": "toolu_1",
+            "tool_use_id": "toolu_1",
+            "option_id": "allow_once",
+            "outcome": "selected",
+            "granted": True,
+        },
+        {"type": "message_end", "stop_reason": "end_turn"},
+    ]
+    backend, _ = _backend(events)
+    created = await backend.new_session(NewSessionParams(cwd="/tmp"))
+
+    updates = [
+        update
+        async for update in backend.prompt(
+            PromptParams(
+                session_id=created.session_id,
+                prompt=[TextContent(text="run")],
+            )
+        )
+    ]
+
+    assert updates == []
+    assert _result(backend, created.session_id).stop_reason == StopReason.END_TURN

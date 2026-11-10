@@ -125,6 +125,20 @@ agentabi acp --agent acp --acp-command "npx -y @agentclientprotocol/claude-agent
 
 网关对该进程说 ACP，并把其 `session/update` 原样转发。
 
+### 权限
+
+`session/new` 返回 `permission_mode` 配置项（`ask`、`deny`、`allow_all`），
+可用 `session/set_config_option` 按会话修改。
+
+本版本只有 Claude backend（`agentabi acp --agent claude`）能发起询问：它把
+Claude 的 `can_use_tool` 请求转成 ACP 的 `session/request_permission`，再把
+客户端的选择写回。其他 backend 使用静态策略（默认 `deny`）；网关不会把缺失的
+权限通道当成允许。ACP 直通 backend（`opencode`、`--agent acp`）原样转发子进程
+的 `session/request_permission`。
+
+`--permission-timeout SECONDS` 限制等待时间（默认 `0` 表示一直等待），
+`--permission-policy ask|deny|allow_all` 设置初始策略。
+
 ### Router 模式
 
 一个网关进程可以服务多个 agent。用 `--router` 和重复的 `--agent` 启用：

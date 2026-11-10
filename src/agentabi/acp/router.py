@@ -45,8 +45,10 @@ from agentabi._vendor.acp import (
 )
 from agentabi._vendor.jsonrpc import INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND
 
+from ..types.ir.permissions import PermissionDecision
 from .audit import AuditLog, AuditRecord
 from .backends.base import Backend
+from .permissions import PermissionBroker
 
 logger = logging.getLogger("agentabi.acp.router")
 
@@ -170,6 +172,10 @@ class RouterBackend:
 
     name = "router"
 
+    #: Router mode cannot translate a child session id to the gateway session
+    #: id in this PoC, so it never claims a permission round trip.
+    permission_capable = False
+
     def __init__(
         self,
         factories: Mapping[str, Callable[[], Backend]],
@@ -180,6 +186,7 @@ class RouterBackend:
             raise ValueError("router mode needs at least one agent")
         self._factories: dict[str, Callable[[], Backend]] = dict(factories)
         self._audit = audit or AuditLog()
+        self._permission_broker: PermissionBroker | None = None
         self._backends: dict[str, Backend] = {}
         self._initialized: set[str] = set()
         self._init_locks: dict[str, asyncio.Lock] = {}
@@ -224,6 +231,23 @@ class RouterBackend:
             await self._discard_backend(name)
         self._initialized.clear()
         self._session_counts.clear()
+
+    def set_permission_broker(self, broker: PermissionBroker) -> None:
+        """Store the broker without forwarding it to inner backends.
+
+        Inner backends use their own session ids, which the gateway client
+        does not know.  Router mode therefore fails closed until the id
+        translation is implemented.
+        """
+        self._permission_broker = broker
+
+    async def answer_permission(
+        self,
+        session_id: str,
+        request_id: str,
+        decision: PermissionDecision,
+    ) -> None:
+        """No-op: router mode does not forward permission answers yet."""
 
     async def initialize(self, params: InitializeParams) -> InitializeResult:
         """Probe every enabled backend and advertise the intersection.

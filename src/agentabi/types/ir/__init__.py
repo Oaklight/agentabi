@@ -34,7 +34,14 @@ from .helpers import (
     create_tool_use_event,
     create_usage_event,
 )
-from .permissions import PermissionConfig, PermissionLevel, PermissionRequest
+from .permissions import (
+    PermissionConfig,
+    PermissionDecision,
+    PermissionLevel,
+    PermissionOption,
+    PermissionOptionKind,
+    PermissionRequest,
+)
 from .session import SessionResult, SessionStatus
 from .task import AgentType, TaskConfig
 from .type_guards import (
@@ -73,6 +80,9 @@ __all__ = [
     "PermissionConfig",
     "PermissionLevel",
     "PermissionRequest",
+    "PermissionOption",
+    "PermissionOptionKind",
+    "PermissionDecision",
     # Type guards
     "is_event_type",
     "get_event_type",
