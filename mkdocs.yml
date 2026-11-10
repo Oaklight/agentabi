@@ -96,6 +96,7 @@ nav:
       - Native vs SDK: usage/native-vs-sdk.md
       - Middleware: usage/middleware.md
       - ACP Gateway: usage/acp.md
+      - Claude TUI Transport: usage/tui.md
   - API Reference:
       - Overview: api/index.md
       - Session: api/session.md
