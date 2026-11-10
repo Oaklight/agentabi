@@ -20,6 +20,17 @@ python examples/quickstart.py --agent codex
 python examples/quickstart.py --agent opencode --prompt "List files"
 ```
 
+## Settings
+
+[`examples/settings.py`](https://github.com/oaklight/agentabi/blob/master/examples/settings.py) 用统一的 `settings` 映射把任意 agent 指向同一端点：
+
+```bash
+LLM_BASE_URL=https://llm.example.com/v1 LLM_API_KEY=... \
+python examples/settings.py --agent codex
+```
+
+先打印传输的 settings 机制与支持字段，再运行提示词。详见 [Settings](../usage/settings.md)。
+
 ## 流式输出
 
 [`examples/streaming.py`](https://github.com/oaklight/agentabi/blob/master/examples/streaming.py) 演示实时事件流：

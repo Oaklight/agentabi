@@ -94,6 +94,7 @@ nav:
       - 流式输出: usage/streaming.md
       - Agent 发现: usage/discovery.md
       - Native vs SDK: usage/native-vs-sdk.md
+      - 统一 Settings: usage/settings.md
       - 中间件: usage/middleware.md
       - ACP 网关: usage/acp.md
       - Claude TUI 传输: usage/tui.md

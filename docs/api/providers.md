@@ -56,6 +56,18 @@ SDK provider 需要安装对应的可选依赖（如 `pip install agentabi[claud
 !!! warning "Gemini CLI 已废弃"
     `GeminiNativeProvider` 和 `GeminiSDKProvider` 已标记为废弃。Gemini CLI 于 2026 年 6 月停止维护，请迁移到 `AgyNativeProvider`（`agent="agy"`）。
 
+## Settings 支持
+
+每个传输声明自己支持的 settings 字段与使用的机制。完整表见 [Settings](../usage/settings.md)。
+
+```python
+caps = get_agent_capabilities("codex")
+caps["supported_settings"]
+caps["settings_mechanism"]
+```
+
+`Session(settings=...)` 与单次 `settings` 由各传输的适配器翻译。SDK provider 不声明支持，收到 settings 会报错。
+
 ## Provider 注册表
 
 注册表将 agent 标识符映射到有序的 provider 链：

@@ -18,6 +18,7 @@ Session(
     agent: str | None = None,
     model: str | None = None,
     middleware: list[Middleware] | None = None,
+    settings: AgentSettings | None = None,
 )
 ```
 
@@ -26,6 +27,7 @@ Session(
 | `agent` | 要使用的 agent 类型（如 `"claude_code"`、`"codex"`、`"pi"`）。`None` 时自动检测。 |
 | `model` | 默认模型。可在每次任务中覆盖。 |
 | `middleware` | 应用到 stream 管道的[中间件](../usage/middleware.md)列表。 |
+| `settings` | 端点、认证与逃生口的默认 [settings](../usage/settings.md)；每次调用的 settings 合并覆盖。 |
 
 如果请求的 agent 没有可用的 provider，抛出 `AgentNotAvailable`。
 
@@ -37,6 +39,7 @@ Session(
 | `model` | `str \| None` | 默认模型（如已设置） |
 | `provider` | `Provider` | 底层 provider 实例 |
 | `middleware` | `list[Middleware]` | 当前中间件栈（返回副本） |
+| `settings` | `AgentSettings` | 会话默认 settings（返回副本） |
 
 ### add_middleware()
 
@@ -67,6 +70,7 @@ async def run(
 | `working_dir` | agent 的工作目录 |
 | `max_turns` | 最大 LLM 轮次 |
 | `system_prompt` | 自定义系统提示词 |
+| `settings` | 单次 settings，合并覆盖会话默认值 |
 
 返回 [`SessionResult`](ir-types.md#sessionresult) 字典。
 

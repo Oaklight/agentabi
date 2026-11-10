@@ -71,6 +71,9 @@ class TaskConfig(TypedDict):
 
     # ========== Agent 扩展 ==========
     agent_extensions: NotRequired[dict[str, Any]]
+
+    # ========== 统一配置 ==========
+    settings: NotRequired[AgentSettings]
 ```
 
 ### 新增字段说明
@@ -151,6 +154,25 @@ class UsageInfo(TypedDict, total=False):
     reasoning_tokens: int              # 推理 token 数量
 ```
 
+## AgentSettings
+
+跨传输的端点与认证配置，由各适配器翻译。各 agent 的机制见 [Settings](../usage/settings.md)。
+
+```python
+class AgentSettings(TypedDict):
+    base_url: NotRequired[str]           # 绝对 http(s) 模型端点
+    api_key: NotRequired[str]            # 字面密钥；优先 api_key_env
+    api_key_env: NotRequired[str]        # 保存密钥的环境变量名
+    model_provider: NotRequired[str]     # codex/opencode/pi 的 provider id
+    headers: NotRequired[dict[str, str]]
+    env: NotRequired[dict[str, str]]     # 子进程额外环境变量
+    args: NotRequired[list[str]]         # 提示词之前的额外 CLI 参数
+    native: NotRequired[dict[str, Any]]  # CLI 专属配置块
+    on_unsupported: NotRequired[Literal["error", "ignore"]]
+```
+
+`api_key` 与 `api_key_env` 互斥。传输不支持的字段默认抛出 `UnsupportedSettingsError`，除非 `on_unsupported` 为 `"ignore"`。
+
 ## AgentCapabilities
 
 描述 provider/agent 支持的功能。
@@ -166,6 +188,8 @@ class AgentCapabilities(TypedDict, total=False):
     supports_tool_filtering: bool
     supports_permissions: bool
     supports_multi_turn: bool
+    supported_settings: list[str]  # 本传输支持的 AgentSettings 字段
+    settings_mechanism: str        # 值如何到达 CLI
     transport: str                # "subprocess" 或 "sdk"
 ```
 

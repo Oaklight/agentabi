@@ -4,6 +4,7 @@
 
 ### 新增
 
+- **统一 settings** — 一个 `settings` 映射为所有传输提供模型端点与认证：`base_url`、`api_key`、`api_key_env`、`model_provider`、`headers`、`env`、`args`，以及 CLI 专属的 `native` 块。`Session(settings=...)` 设置默认值，单次 settings 合并覆盖。优先级为 settings、`native`、任务 env。不支持的字段抛出 `UnsupportedSettingsError`（或设 `on_unsupported="ignore"` 丢弃），错误消息不会重复密钥。密钥走子进程环境或 `0600` 文件，不进入 argv。`AgentCapabilities` 新增 `supported_settings` 与 `settings_mechanism`。已在 claude、codex、agy、opencode V1、pi 上用同一端点验证。相关实现移入 `agentabi.settings`；只用 `env` 的调用方行为不变。(#89, PR #90, #91, #92)
 - **Codex 思考等级** — `thinking_level` 现在以 `-c model_reasoning_effort="<level>"` 传给 codex，`codex exec` 与 `codex exec resume` 都适用；`max` 映射为 `high`，`off` 不传。`supports_thinking` 声明为 `True`。codex 不输出推理文本，因此这是控制项，不是 `reasoning_delta` 流。已在 codex 0.162.1 上验证。(#86)
 - **ACP 网关** — `agentabi acp --agent <name>` 通过 stdio 把一个 agent 暴露为 ACP 端点。`opencode` 使用自带的 ACP 服务器；`agy`、`claude`、`codex`、`pi` 走 IR 流。ACP 与 JSON-RPC 已 vendor 自 zerodep，无需外部 ACP SDK 或 Node 运行时。(#44, #47)
 - **ACP v2 与外部 ACP 服务器** — `initialize` 协商 ACP v2，`session/prompt` 返回后端真实的 `stopReason`。`--agent acp --acp-command "<cmd>"` 可转发到任意外部 ACP 服务器，并原样传递其更新。(#48, #50)
