@@ -64,11 +64,26 @@ agentabi acp --router --agent claude --agent opencode
 
 ## 权限策略
 
-默认拒绝。
+默认拒绝。每个会话都有 `permission_mode` 配置项：
 
-- ACP 透传后端对下游的 `session/request_permission` 返回明确的 `cancelled` 结果。
-- IR 后端没有 ACP 权限通道，因此适用提供者自身的策略，网关不会放宽它。
-- 把权限请求转发给 ACP 客户端尚未实现，见 [#63](https://github.com/Oaklight/agentabi/issues/63)。
+| 值 | 行为 |
+| --- | --- |
+| `ask` | 把每个请求转发给客户端并等待答复。后端可询问时这是默认值。 |
+| `deny` | 不联系客户端，直接拒绝每个请求。 |
+| `allow_all` | 允许每个请求。只能通过显式选择启用。 |
+
+- Claude 通过 SDK 控制协议询问。回答 `allow_once` 会执行工具；`reject_once` 不执行，回合继续。
+- `allow_always` 与 `reject_always` 由网关按会话缓存。不使用 Claude 自身的 `updatedPermissions`：它会写入 `.claude/settings.local.json`，且实测不会抑制下一次提示。
+- 无法往返的后端（`codex`、`agy`、`opencode`、`pi`）只提供 `deny` 和 `allow_all`，其余情况适用提供者自身的策略。
+- `--permission-timeout N` 在客户端 N 秒内不答复时拒绝请求；默认 `0` 表示一直等待。
+- 请求挂起时 `session/cancel` 会将其解决为取消并结束回合。
+
+客户端用收到的选项 id 回答 `session/request_permission`：
+
+```json
+{"outcome": {"outcome": "selected", "optionId": "allow_once"}}
+{"outcome": {"outcome": "cancelled"}}
+```
 
 ## 审计
 
