@@ -95,6 +95,7 @@ nav:
       - Agent Discovery: usage/discovery.md
       - Native vs SDK: usage/native-vs-sdk.md
       - Middleware: usage/middleware.md
+      - ACP Gateway: usage/acp.md
   - API Reference:
       - Overview: api/index.md
       - Session: api/session.md
