@@ -35,7 +35,7 @@ def _error_events(events):
 def _make_provider_with_cmd(provider_cls, cmd_list):
     """Patch _build_command to return an arbitrary shell command."""
     provider = provider_cls()
-    provider._build_command = staticmethod(lambda task: cmd_list)
+    provider._build_command = staticmethod(lambda task, *, permission=False: cmd_list)
     return provider
 
 

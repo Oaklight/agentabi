@@ -30,7 +30,9 @@ from agentabi._vendor.jsonrpc import INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_
 from agentabi.acp.backends import create_backend
 from agentabi.acp.backends.acp_server import ACPBackend
 from agentabi.acp.gateway import GatewayAgent
+from agentabi.acp.permissions import PermissionBroker
 from agentabi.acp.router import RouterBackend, intersect_capabilities
+from agentabi.types.ir.permissions import PermissionDecision
 
 
 class FakeBackend:
@@ -111,6 +113,14 @@ class FakeBackend:
 
     async def close_session(self, session_id: str) -> None:
         self.closed.append(session_id)
+
+    def set_permission_broker(self, broker: PermissionBroker) -> None:
+        self.broker = broker
+
+    async def answer_permission(
+        self, session_id: str, request_id: str, decision: PermissionDecision
+    ) -> None:
+        """No-op: this backend answers inline."""
 
 
 class VersionedBackend(FakeBackend):
@@ -534,7 +544,7 @@ def test_cli_router_builds_one_factory_per_agent(monkeypatch):
         created.append((name, kwargs))
         return FakeBackend(name)
 
-    async def fake_serve(backend: RouterBackend) -> None:
+    async def fake_serve(backend: RouterBackend, **kwargs) -> None:
         served["backend"] = backend
 
     monkeypatch.setattr(cli, "create_backend", fake_create)
@@ -570,7 +580,7 @@ def test_cli_router_deduplicates_agents(monkeypatch):
 
     served: dict[str, Any] = {}
 
-    async def fake_serve(backend: RouterBackend) -> None:
+    async def fake_serve(backend: RouterBackend, **kwargs) -> None:
         served["backend"] = backend
 
     monkeypatch.setattr(cli, "create_backend", lambda name, **kw: FakeBackend(name))
