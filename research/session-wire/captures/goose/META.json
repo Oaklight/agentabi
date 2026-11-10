@@ -1,0 +1,38 @@
+{
+  "cli": "goose",
+  "version": "1.57.0",
+  "transport": "jsonrpc-stdio",
+  "install": "curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash",
+  "install_note": "pipx install goose-ai installs an unrelated PyPI package (goose-ai 0.1.0). The official CLI is a binary installed by the release script into ~/.local/bin/goose.",
+  "command": "~/.local/bin/goose acp",
+  "capture_date": "2026-11-07T18:23:46Z",
+  "output": "captures/goose/acp.jsonl",
+  "redacted": "captures/goose/acp.redacted.jsonl",
+  "status": "done",
+  "env_used_for_capture": {
+    "GOOSE_PROVIDER": "openai",
+    "GOOSE_MODEL": "gpt-4o-mini",
+    "OPENAI_API_KEY": "dummy-not-a-real-key",
+    "OPENAI_API_BASE": "http://127.0.0.1:8898/v1",
+    "OPENAI_BASE_URL": "http://127.0.0.1:8898/v1",
+    "GOOSE_DISABLE_KEYRING": "1",
+    "GOOSE_MODE": "auto"
+  },
+  "provider_note": "No real LLM credentials were used. The OpenAI-compatible endpoint was a local SSE stub. The stub returned a `shell` tool call so goose would emit session/request_permission.",
+  "observed_flow": [
+    "initialize",
+    "session/new",
+    "session/set_mode (approve)",
+    "session/prompt",
+    "session/request_permission",
+    "client reply with optionId allow_always",
+    "session/update tool_call / tool_call_update",
+    "result stopReason=end_turn"
+  ],
+  "permission_options_observed": ["allow_always", "allow_once", "reject_once", "reject_always"],
+  "caveats": [
+    "session/new without GOOSE_PROVIDER returns JSON-RPC error -32603: 'Failed to resolve provider and model: Configuration value not found: GOOSE_PROVIDER'.",
+    "In auto mode goose executes tools without session/request_permission. approve mode is required to observe it.",
+    "The capture is 27 KB because session/new lists the full provider and skill catalogs. Raw captures are gitignored."
+  ]
+}

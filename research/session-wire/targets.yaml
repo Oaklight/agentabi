@@ -1,0 +1,204 @@
+# Session wire capture plan — updated 2026-11-07.
+#
+# status: done | partial | in_progress | blocked
+# owner: coordinator or a peer session name
+
+targets:
+  claude-stream:
+    cli: claude
+    version: "2.1.299"
+    transport: stdio-ndjson
+    command: 'claude -p "Reply with exactly: OK" --output-format stream-json --verbose --include-partial-messages'
+    owner: coordinator
+    status: done
+    output: captures/claude/stream.jsonl
+    notes: system/init, stream_event, assistant, result.
+
+  claude-peer:
+    cli: claude
+    version: "2.1.299"
+    transport: unix-socket-ndjson
+    socket: "$XDG_RUNTIME_DIR/cc-socks/<receiver-pid>.sock"
+    auth: '{"type":"auth","token":"..."}; optional and not validated'
+    owner: coordinator
+    status: done
+    output: captures/claude/socket.frames.redacted.jsonl
+    extra_output:
+      - captures/claude/socket.accept-test.redacted.jsonl
+      - captures/claude/socket.refuse-test.redacted.jsonl
+    method: 'rename socket to <path>.orig, listen on the original path, proxy and log both directions; restore on SIGTERM'
+    notes: 'auth frame, msgV/msg_id/user frame; fire-and-forget, no ack, no dedup; 1 MiB frame cap; crossSessionInbound accept|hold|refuse with spoofable from-mode; no machine-wide approval inbox.'
+
+  codex-app-server:
+    cli: codex
+    version: "0.162.1"
+    transport: jsonrpc-stdio
+    command: 'codex app-server --listen stdio://'
+    owner: agentabi-d7
+    status: done
+    output: captures/codex/app-server.jsonl
+    schema: schemas/codex/
+    notes: exec --json, thread/start, turn/start, item events, commandExecution/requestApproval, decline reply, serverRequest/resolved.
+
+  agy-stream:
+    cli: agy
+    version: "1.5.3"
+    transport: stdio-ndjson
+    command: 'agy -p "Reply with exactly: OK" --output-format stream-json'
+    owner: agentabi-f6
+    status: partial
+    output: captures/agy/
+    schema: schemas/agy/
+    notes: init/step_update/result and NDJSON input captured. ACP initialize/session/new/prompt captured. Tool-call and send_message blocked by rosetta genai schema validation: Invalid schema for function 'send_message': "1" is not of type "integer".
+
+  gemini-cli:
+    cli: gemini
+    version: "0.67.0"
+    transport: stdio-json
+    owner: agentabi-f6
+    status: blocked
+    output: captures/gemini/
+    notes: installed; no auth. json/stream-json error envelopes captured only.
+
+  opencode-http:
+    cli: opencode
+    version: "1.19.0"
+    transport: http-sse
+    command: 'opencode serve --port 4099 --hostname 127.0.0.1'
+    owner: agentabi-b7
+    status: done
+    output: captures/opencode/
+    schema: schemas/opencode/openapi.json
+    notes: V1 message.updated/message.part.updated/session.idle; V2 session.next.text.delta; session/request_permission over ACP; rosetta + deepseek-v4.1-flash verified.
+
+  opencode-acp:
+    cli: opencode
+    version: "1.19.0"
+    transport: jsonrpc-stdio
+    command: 'opencode acp'
+    owner: agentabi-b7
+    status: done
+    output: captures/opencode/acp.ndjson
+    notes: initialize, session/new, session/set_model, session/prompt, session/update, session/request_permission, reject reply.
+
+  qwen-peer:
+    cli: qwen
+    version: "0.26.9"
+    transport: unix-socket-ndjson
+    install: 'npm install -g @qwen-code/qwen-code'
+    owner: agentabi-7d
+    status: done
+    output: captures/qwen/
+    schema: schemas/qwen/peer-protocol.md
+    notes: auth/user frames, delivery_status held/delivered/misaddressed/dropped, registry ipcPath/ipcToken/ref. /peers release UI unverified.
+
+  cline-cli:
+    cli: cline
+    version: "3.0.74"
+    transport: local-sqlite
+    install: 'npm install -g cline'
+    owner: agentabi-7d
+    status: blocked
+    output: captures/cline/META.json
+    notes: no provider key; team_* tools do not appear. Docs schema recorded.
+
+  goose-acp:
+    cli: goose
+    version: "1.57.0"
+    transport: jsonrpc-stdio
+    install: 'curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash'
+    owner: agentabi-eb
+    status: done
+    output: captures/goose/
+    schema: schemas/goose/acp-observed.schema.json
+    notes: initialize, session/new, session/set_mode approve, session/prompt, session/request_permission with allow_always/allow_once/reject_once/reject_always, tool_call_update.
+
+  aider-stream:
+    cli: aider
+    version: "0.86.2"
+    transport: stdio-text
+    install: 'pipx install --python ~/.local/bin/python3.11 aider-chat'
+    owner: agentabi-eb
+    status: done
+    output: captures/aider/
+    notes: no peer protocol; one-shot --message; .aider.chat.history.md structure captured.
+
+  crush-serve:
+    cli: crush
+    version: "0.100.0"
+    transport: http-sse
+    install: 'npm install -g @charmbracelet/crush'
+    owner: agentabi-b7
+    status: partial
+    output: captures/crush/
+    schema: schemas/crush/openapi.json
+    notes: server API and session.created captured; prompt blocked by missing provider/model in isolated data dir.
+
+  openclaw-gateway:
+    cli: openclaw
+    version: "2026.11.1"
+    transport: websocket-jsonrpc
+    owner: agentabi-a7
+    status: done
+    output: captures/openclaw/ws.ndjson
+    notes: sessions.list, sessions.describe, sessions.create, sessions.send, sessions.subscribe, sessions.changed. send ack is {runId,status:"started"}.
+
+  pi:
+    cli: pi
+    version: "1.2.0"
+    transport: stdio-ndjson
+    owner: agentabi-a7
+    status: partial
+    output: captures/pi/session.jsonl
+    notes: session/message_start/message_end/turn_end. Core has no peer discovery or send. RPC mode not captured.
+
+  openhands:
+    cli: openhands
+    version: unknown
+    transport: sdk-events
+    install: 'pipx install openhands (requires Python 3.12)'
+    owner: agentabi-a7
+    status: blocked
+    notes: Python version mismatch; no LLM key/runtime.
+
+  copilot-cli:
+    cli: copilot
+    version: "1.0.107"
+    transport: stdio-jsonl
+    owner: agentabi-ba
+    status: done
+    output: captures/copilot/
+    schema: schemas/copilot/events.schema.json
+    notes: user.message/assistant.message_delta/tool_call_delta/tool.execution_start/shell_output/execution_complete. Non-interactive denial is error.code="denied"; no separate permission request.
+
+  cursor-cli:
+    cli: cursor-agent
+    version: "2026.11.05-86047df"
+    transport: https
+    owner: agentabi-ba
+    status: blocked
+    notes: requires agent login or CURSOR_API_KEY. No cross-session send per Cursor staff.
+
+  amp-http:
+    cli: amp
+    version: "0.0.1794067235-gf8712b"
+    transport: https
+    owner: agentabi-ba
+    status: blocked
+    notes: custom-url router exists (--base-url, --api-format chat-completions, --model-mapping); model-providers list requires amp login; wildcard -> mapping rejected. No official account.
+
+  roo-code:
+    cli: roo
+    version: unknown
+    transport: vscode-extension
+    owner: agentabi-7d
+    status: skipped
+    notes: product sunset 2026-05-15.
+
+  kilo-code:
+    cli: kilo
+    version: unknown
+    transport: vscode-extension
+    owner: agentabi-7d
+    status: skipped
+    notes: Kilo Swarm board is session-tree-scoped, not a cross-session bus.

@@ -1,0 +1,2 @@
+{"ts": "2026-11-07T18:18:46.753887+00:00", "dir": "sent", "line": "{\"msgV\": 1, \"type\": \"auth\", \"token\": <redacted>}"}
+{"ts": "2026-11-07T18:18:46.753991+00:00", "dir": "sent", "line": "{\"msgV\": 1, \"msgId\": \"9b5fd4cc-b876-4319-a6b5-22e5878c86d2\", \"type\": \"user\", \"from\": \"\", \"fromName\": \"wireprobe\", \"fromMode\": \"prompting\", \"toSessionId\": \"13ccf960-f522-4128-95c4-07780c325632\", \"priority\": \"next\", \"message\": {\"role\": \"user\", \"content\": \"wire probe: prompting-parity\"}}"}

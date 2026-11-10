@@ -1,0 +1,13 @@
+{
+  "cli": "crush",
+  "version": "v0.100.0",
+  "os": "linux",
+  "captured_at": "2026-11-07T18:24:05Z",
+  "transport": "http-sse (client/server mode)",
+  "install": "npm install -g @charmland/crush (user-level; go and brew unavailable)",
+  "command": "crush server --host http://127.0.0.1:36000 --cwd /tmp/crush-wire --data-dir /tmp/crush-wire-data",
+  "files": ["server-events.ndjson"],
+  "schema_file": "../../schemas/crush/openapi.json",
+  "status": "partial",
+  "notes": "Workspace create and session create captured over HTTP+SSE. Agent init failed with 'coder agent configuration is missing'; POST /v1/workspaces/{id}/agent failed with 'agent coordinator not initialized'. No provider/model is configured for this data dir, and no CLI config was changed. OpenAPI 3.2.1 snapshot saved."
+}

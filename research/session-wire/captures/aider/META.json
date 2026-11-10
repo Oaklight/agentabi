@@ -1,0 +1,34 @@
+{
+  "cli": "aider",
+  "version": "0.86.2",
+  "transport": "stdio-text",
+  "install": "pipx install --python ~/.local/bin/python3.11 aider-chat",
+  "install_note": "pipx with the default Python 3.14 failed to build scipy 1.15.3 (no wheel). Python 3.11 installed aider-chat 0.86.2 successfully.",
+  "capture_date": "2026-11-07T18:22:54Z",
+  "outputs": [
+    "captures/aider/oneshot.txt",
+    "captures/aider/oneshot-stub.txt"
+  ],
+  "status": "done",
+  "runs": [
+    {
+      "name": "oneshot",
+      "command": "aider --message \"Reply OK\" --yes --no-stream --no-check-update --no-analytics",
+      "exit_code": 124,
+      "result": "blocked: no model and no API keys. aider offered OpenRouter OAuth and waited 5 minutes; timeout killed it."
+    },
+    {
+      "name": "oneshot-stub",
+      "command": "OPENAI_API_KEY=$STUB_KEY aider --model gpt-4o-mini --openai-api-base http://127.0.0.1:8899/v1 --message \"Reply OK\" --yes --no-stream --no-check-update --no-analytics --no-git",
+      "note": "STUB_KEY was the literal placeholder value 'dummy'; the local stub accepted any value. The aider key option was also set to the same placeholder.",
+      "exit_code": 0,
+      "result": "success against a local OpenAI-compatible stub (stub returned assistant content 'OK')."
+    }
+  ],
+  "history_file": ".aider.chat.history.md (written in the working directory)",
+  "peer_protocol": "none. aider --help has no session, agent, peer, socket, or message-routing options. One process = one chat. The only coordination surface is the repo (git) and AI comments scanned by --watch-files.",
+  "caveats": [
+    "The stub run exercises aider's client-side output and history formatting, not a real model.",
+    "No peer protocol exists to capture."
+  ]
+}

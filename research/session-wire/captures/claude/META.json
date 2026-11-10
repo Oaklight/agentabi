@@ -1,0 +1,15 @@
+{
+  "cli": "claude",
+  "version": "2.1.299",
+  "os": "linux",
+  "captured_at": "2026-11-07T18:13:37Z",
+  "transport": "stdio-ndjson + peer unix socket",
+  "command": "claude -p \"Reply with exactly: OK\" --output-format stream-json --verbose --include-partial-messages; background sessions tapped via /run/user/1000/cc-socks/<pid>.sock",
+  "files": [
+    "stream.jsonl",
+    "socket.frames.redacted.jsonl",
+    "socket.accept-test.redacted.jsonl",
+    "socket.refuse-test.redacted.jsonl"
+  ],
+  "notes": "stream.jsonl is the CLI stream-json lifecycle. socket.*.redacted.jsonl are transparent-proxy taps of the per-session peer socket: auth frame, user frame, fire-and-forget delivery, no dedup, 1 MiB frame cap, and crossSessionInbound accept/hold/refuse. Tokens redacted; large payloads truncated."
+}

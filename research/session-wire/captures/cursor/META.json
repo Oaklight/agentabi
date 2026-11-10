@@ -1,0 +1,19 @@
+{
+  "cli": "cursor-agent",
+  "version": "2026.11.05-86047df",
+  "os": "Linux 6.18.59-1-lts x86_64",
+  "capture_date": "2026-11-07",
+  "transport_expected": "HTTPS API (api2.cursor.sh) and Cloud Agents",
+  "transport_captured": null,
+  "status": "blocked",
+  "install_command": "curl -fsSL https://cursor.com/install | bash",
+  "installed_to": "/home/pding/.local/bin/agent",
+  "reason": "`agent -p 'Reply with exactly: OK' --output-format json` -> 'Error: Authentication required. Please run agent login first, or set CURSOR_API_KEY environment variable.' No user account was logged in and no config was changed.",
+  "captures": [],
+  "cross_session_messaging": "无此能力。No command exists to send a message to a running session from outside it. Official Cursor staff reply, 2026-10-24: 'no command to send a message to a running session from outside it'.",
+  "evidence": [
+    "https://forum.cursor.com/t/cursor-cli-agent-view-multi-session-dashboard-background-like-claude-code/176031 (staff reply 2026-10-24)",
+    "https://cursor.com/docs/agent/subagents (subagents within one session)",
+    "https://cursor.com/docs/cli/overview (agent ls/resume are user-side history pickers)"
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "cli": "cline",
+  "version": "3.0.74",
+  "transport": "in-process (teams.db), no cross-session socket",
+  "capture_date": "2026-11-07",
+  "os": "Linux 6.18.59-1-lts",
+  "install": "npm install -g cline",
+  "status": "blocked",
+  "blocked_reason": "Cline CLI needs a provider API key and a model turn before any team tool runs. No key is configured in this environment, and this task must not change the target's config. Note: the npm package `@cline/cli` is a stub (0.0.13, binary `clite`); the real package is `cline`.",
+  "doc_based_schema": {
+    "source": "https://docs.cline.bot/cli/agent-teams.md ; https://docs.cline.bot/sdk/guides/multi-agent-teams ; https://docs.cline.bot/features/subagents",
+    "scope": "Team state belongs to one session; no discovery of unrelated sessions.",
+    "tools": [
+      "team_spawn_teammate", "team_shutdown_teammate", "team_status",
+      "team_task", "team_run_task", "team_list_runs", "team_await_runs",
+      "team_cancel_run", "team_send_message", "team_broadcast",
+      "team_read_mailbox", "team_mission_log",
+      "team_create_outcome", "team_attach_outcome_fragment",
+      "team_review_outcome_fragment", "team_finalize_outcome",
+      "team_list_outcomes", "team_cleanup"
+    ],
+    "persistence": "~/.cline/data/db/teams.db keyed by session ID; restored on `cline --id <session-id>`",
+    "approval": "approving spawn_agent/teams covers the subagent's later tool calls; approval settings do not apply inside a subagent"
+  },
+  "outputs": []
+}

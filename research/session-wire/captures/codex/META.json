@@ -1,0 +1,13 @@
+{
+  "cli": "codex",
+  "version": "0.162.1",
+  "os": "linux x86_64 (Arch Linux Rolling Release)",
+  "captured_at": "2026-11-07",
+  "captures": {
+    "exec.jsonl": "codex exec --json \"Reply with exactly OK\" (stdin closed)",
+    "app-server-turn.jsonl": "app-server initialize + thread/start + turn/start",
+    "app-server-approval.jsonl": "app-server approval: read-only sandbox + on-request, declined"
+  },
+  "driver": "driver_turn.py",
+  "notes": "Raw captures are gitignored. *.redacted.jsonl are redacted copies."
+}

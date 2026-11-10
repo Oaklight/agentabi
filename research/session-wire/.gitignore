@@ -1,0 +1,11 @@
+# Raw captures stay local. Commit only metadata and redacted samples.
+captures/**
+!captures/**/
+!captures/.gitkeep
+!captures/**/META.json
+!captures/**/README.md
+!captures/**/*.redacted.jsonl
+!captures/**/redacted-sample.jsonl
+
+# peerctl handover exports are ephemeral
+peerpool-snapshot.json

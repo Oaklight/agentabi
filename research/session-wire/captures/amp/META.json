@@ -1,0 +1,19 @@
+{
+  "cli": "amp",
+  "version": "0.0.1794067235-gf8712b",
+  "os": "Linux 6.18.59-1-lts x86_64",
+  "capture_date": "2026-11-07",
+  "transport_expected": "HTTPS API (threads/orbs)",
+  "transport_captured": null,
+  "status": "blocked",
+  "install_command": "curl -fsSL https://ampcode.com/install.sh | bash",
+  "installed_to": "/home/pding/.amp/bin/amp (symlink /home/pding/.local/bin/amp)",
+  "reason": "No saved accounts (`amp account list` -> 'No saved accounts'). `amp -x 'Reply with exactly: OK'` blocked for 30s waiting for interactive login/browser. Capture aborted; no user account was logged in and no config was changed.",
+  "captures": [],
+  "cross_session_messaging": "产品有跨 thread agent-to-agent 消息（start another thread, send instructions, exchange files, get results）；本次未捕获线上帧。",
+  "evidence": [
+    "https://ampcode.com/docs/orbs/agent-to-agent (lastModified 2026-08-25)",
+    "https://ampcode.com/news/from-agent-to-agent (2026-07-17)",
+    "https://ampcode.com/docs/threads (lastModified 2026-11-06)"
+  ]
+}
