@@ -74,7 +74,7 @@ agentabi acp --router --agent claude --agent opencode
 
 - Claude 通过 SDK 控制协议询问。回答 `allow_once` 会执行工具；`reject_once` 不执行，回合继续。
 - `allow_always` 与 `reject_always` 由网关按会话缓存。不使用 Claude 自身的 `updatedPermissions`：它会写入 `.claude/settings.local.json`，且实测不会抑制下一次提示。
-- 没有权限通道的后端（`codex`、`agy`、`pi`）不会得到 `permission_mode` 配置项，适用提供者自身的策略。ACP 直通后端（`opencode`、`--agent acp`）可以用子进程的选项 id 发起询问。
+- 没有权限通道的后端（`codex`、`agy`）仍提供 `deny` 与 `allow_all`，网关用提供者自身的参数强制执行：codex 以 `-s read-only` 加 `approval_policy="never"` 运行，agy 去掉跳过权限的参数后 print 模式自动拒绝。`pi` 没有这类参数，因此不提供该选项。ACP 直通后端（`opencode`、`--agent acp`）可以用子进程的选项 id 发起询问。
 - `--permission-timeout N` 在客户端 N 秒内不答复时拒绝请求；默认 `0` 表示一直等待。
 - 请求挂起时 `session/cancel` 会将其解决为取消并结束回合。
 
