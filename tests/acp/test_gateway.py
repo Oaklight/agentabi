@@ -110,7 +110,7 @@ async def test_gateway_initializes_and_overrides_agent_info():
     agent = GatewayAgent(backend)
     result = await agent.on_initialize(InitializeParams())
     assert backend.started is False  # GatewayAgent does not start the backend
-    assert result.protocol_version == 1
+    assert result.protocol_version == 2
     assert result.agent_info is not None
     assert result.agent_info.name == "agentabi"
     assert result.agent_capabilities is not None
@@ -128,7 +128,37 @@ async def test_gateway_new_session_delegates():
 async def test_gateway_negotiates_its_own_protocol_version():
     agent = GatewayAgent(FakeBackend())
     result = await agent.on_initialize(InitializeParams(protocol_version=2))
+    assert result.protocol_version == 2
+
+
+@pytest.mark.asyncio
+async def test_gateway_downgrades_to_the_backend_version():
+    class _V1Backend(FakeBackend):
+        async def initialize(self, params: InitializeParams) -> InitializeResult:
+            return InitializeResult(
+                protocol_version=1,
+                agent_capabilities=AgentCapabilities(load_session=True),
+            )
+
+    agent = GatewayAgent(_V1Backend())
+    result = await agent.on_initialize(InitializeParams(protocol_version=2))
     assert result.protocol_version == 1
+
+
+@pytest.mark.asyncio
+async def test_gateway_tells_ir_backend_which_version_to_emit():
+    class _VersionBackend(FakeBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.version: int | None = None
+
+        def set_protocol_version(self, version: int) -> None:
+            self.version = version
+
+    backend = _VersionBackend()
+    agent = GatewayAgent(backend)
+    await agent.on_initialize(InitializeParams(protocol_version=2))
+    assert backend.version == 2
 
 
 @pytest.mark.asyncio

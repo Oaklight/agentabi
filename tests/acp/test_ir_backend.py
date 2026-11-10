@@ -334,3 +334,85 @@ def test_registry_exposes_ir_backends(name, agent):
     backend = create_backend(name)
     assert isinstance(backend, IRBackend)
     assert backend.name == agent
+
+
+@pytest.mark.asyncio
+async def test_prompt_maps_ir_events_to_v2_updates():
+    events = [
+        {"type": "session_start", "session_id": "conv-1", "agent": "agy"},
+        {"type": "message_start", "role": "assistant"},
+        {"type": "message_delta", "text": "4"},
+        {"type": "reasoning_delta", "reasoning": "thinking"},
+        {
+            "type": "tool_use",
+            "tool_use_id": "t1",
+            "tool_name": "run_command",
+            "tool_input": {"command": "ls"},
+        },
+        {
+            "type": "tool_result",
+            "tool_use_id": "t1",
+            "content": "file.txt",
+            "is_error": False,
+        },
+        {"type": "message_end", "stop_reason": "end_turn", "text": "4"},
+    ]
+    backend, _ = _backend(events)
+    backend.set_protocol_version(2)
+    created = await backend.new_session(NewSessionParams(cwd="/work"))
+
+    updates = [
+        u
+        async for u in backend.prompt(
+            PromptParams(
+                session_id=created.session_id,
+                prompt=[TextContent(text="2+2?")],
+            )
+        )
+    ]
+
+    kinds = [u["sessionUpdate"] for u in updates]
+    assert kinds == [
+        "agent_message_chunk",
+        "agent_thought_chunk",
+        "tool_call_update",
+        "tool_call_update",
+    ]
+    assert updates[0]["messageId"]
+    # A thought stream is a different message from the assistant text.
+    assert updates[0]["messageId"] != updates[1]["messageId"]
+
+
+@pytest.mark.asyncio
+async def test_prompt_scopes_v2_message_ids_per_message():
+    events = [
+        {"type": "message_start", "role": "assistant", "message_id": "m1"},
+        {"type": "reasoning_delta", "reasoning": "think-A"},
+        {"type": "message_delta", "text": "A"},
+        {"type": "message_start", "role": "assistant"},
+        {"type": "reasoning_delta", "reasoning": "think-B"},
+        {"type": "message_delta", "text": "B1"},
+        {"type": "message_delta", "text": "B2"},
+        {"type": "message_end", "stop_reason": "end_turn"},
+    ]
+    backend, _ = _backend(events)
+    backend.set_protocol_version(2)
+    created = await backend.new_session(NewSessionParams(cwd="/work"))
+
+    updates = [
+        u
+        async for u in backend.prompt(
+            PromptParams(
+                session_id=created.session_id,
+                prompt=[TextContent(text="two messages")],
+            )
+        )
+    ]
+
+    thought_a, text_a, thought_b, text_b1, text_b2 = updates
+    assert text_a["messageId"] == "m1"
+    assert text_a["messageId"] != thought_a["messageId"]
+    assert text_b1["messageId"] != text_a["messageId"]
+    assert text_b1["messageId"] == text_b2["messageId"]
+    assert thought_b["messageId"] != thought_a["messageId"]
+    assert thought_b["messageId"] != text_b1["messageId"]
