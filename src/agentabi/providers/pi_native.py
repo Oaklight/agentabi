@@ -82,6 +82,8 @@ class PiNativeProvider:
             "supports_streaming": True,
             "supports_mcp": True,
             "supports_thinking": True,
+            # The provider emits no file_diff event.
+            "supports_file_diffs": False,
             "supports_ephemeral": True,
             "supports_session_resume": True,
             "supports_system_prompt": True,

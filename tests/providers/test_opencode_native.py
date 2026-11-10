@@ -580,6 +580,7 @@ class TestCapabilities:
         assert caps["supports_structured_output"] is False
         assert caps["supports_ephemeral"] is False
         assert caps["supports_additional_dirs"] is False
+        assert caps["supports_file_diffs"] is False
 
     def test_system_prompt_not_supported(self):
         caps = OpenCodeNativeProvider().capabilities()

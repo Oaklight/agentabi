@@ -88,6 +88,9 @@ class AgyNativeProvider:
             "supports_structured_output": True,
             "supports_additional_dirs": True,
             "supports_multi_turn": True,
+            # The provider emits no file_diff event; agy reports edits as
+            # tool results.
+            "supports_file_diffs": False,
             # Measured with agy 1.5.5: a print run persists its
             # conversation (resuming one with --conversation restored the
             # prior turn) and `agy --help` lists no flag that disables

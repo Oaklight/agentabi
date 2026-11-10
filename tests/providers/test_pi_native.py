@@ -968,4 +968,5 @@ class TestCapabilities:
         assert caps["supports_structured_output"] is False
         assert caps["supports_additional_dirs"] is False
         assert caps["supports_file_attachments"] is False
+        assert caps["supports_file_diffs"] is False
         assert caps["transport"] == "subprocess"

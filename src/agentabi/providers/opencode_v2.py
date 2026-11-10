@@ -635,6 +635,9 @@ class OpenCodeV2Provider:
             "supports_permissions": True,
             "supports_multi_turn": True,
             "supports_thinking": True,
+            # No V2 event carries a diff, and the provider emits no
+            # file_diff event.
+            "supports_file_diffs": False,
             # Measured against opencode 1.19.0's V2 schema: PromptInput
             # carries text, files, and agents only (no response schema),
             # and session create has no persistence-off flag. A session
