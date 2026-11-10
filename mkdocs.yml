@@ -94,6 +94,7 @@ nav:
       - Streaming: usage/streaming.md
       - Agent Discovery: usage/discovery.md
       - Native vs SDK: usage/native-vs-sdk.md
+      - Agent Settings: usage/settings.md
       - Middleware: usage/middleware.md
       - ACP Gateway: usage/acp.md
       - Claude TUI Transport: usage/tui.md

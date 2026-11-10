@@ -18,6 +18,7 @@ Session(
     agent: str | None = None,
     model: str | None = None,
     middleware: list[Middleware] | None = None,
+    settings: AgentSettings | None = None,
 )
 ```
 
@@ -26,6 +27,7 @@ Session(
 | `agent` | Agent type to use (e.g., `"claude_code"`, `"codex"`, `"pi"`). Auto-detects if `None`. |
 | `model` | Default model to use. Can be overridden per-task. |
 | `middleware` | List of [middleware](../usage/middleware.md) to apply to the stream pipeline. |
+| `settings` | Default [settings](../usage/settings.md) for endpoint, auth, and escape hatches. Per-call settings merge over these. |
 
 Raises `AgentNotAvailable` if no provider is available for the requested agent.
 
@@ -37,6 +39,7 @@ Raises `AgentNotAvailable` if no provider is available for the requested agent.
 | `model` | `str \| None` | The default model, if set |
 | `provider` | `Provider` | The underlying provider instance |
 | `middleware` | `list[Middleware]` | Current middleware stack (returns a copy) |
+| `settings` | `AgentSettings` | Session-default settings (returns a copy) |
 
 ### add_middleware()
 
@@ -67,6 +70,7 @@ Run a task to completion and return the aggregated result.
 | `working_dir` | Working directory for the agent |
 | `max_turns` | Maximum number of LLM turns |
 | `system_prompt` | Custom system prompt |
+| `settings` | Per-call settings, merged over the session defaults |
 
 Returns a [`SessionResult`](ir-types.md#sessionresult) dictionary.
 
@@ -91,6 +95,7 @@ Stream IR events from a task execution in real time.
 | `working_dir` | Working directory for the agent |
 | `max_turns` | Maximum number of LLM turns |
 | `system_prompt` | Custom system prompt |
+| `settings` | Per-call settings, merged over the session defaults |
 
 Yields [`IREvent`](ir-events.md) dictionaries.
 

@@ -46,6 +46,9 @@ class TaskConfig(TypedDict):
 
     # Agent-specific extensions
     agent_extensions: NotRequired[dict[str, Any]]
+
+    # Unified endpoint/auth settings
+    settings: NotRequired[AgentSettings]
 ```
 
 ### Session ID semantics
@@ -157,6 +160,25 @@ PermissionLevel = Literal[
 ]
 ```
 
+## AgentSettings
+
+Canonical endpoint and authentication settings, translated per transport. See [Settings](../usage/settings.md) for the mechanism each agent uses.
+
+```python
+class AgentSettings(TypedDict):
+    base_url: NotRequired[str]           # absolute http(s) model endpoint
+    api_key: NotRequired[str]            # literal key; prefer api_key_env
+    api_key_env: NotRequired[str]        # environment variable holding the key
+    model_provider: NotRequired[str]     # provider id for codex/opencode/pi
+    headers: NotRequired[dict[str, str]]
+    env: NotRequired[dict[str, str]]     # extra child-process env
+    args: NotRequired[list[str]]         # extra CLI args before the prompt
+    native: NotRequired[dict[str, Any]]  # CLI-specific block
+    on_unsupported: NotRequired[Literal["error", "ignore"]]
+```
+
+`api_key` and `api_key_env` are mutually exclusive. Unsupported fields raise `UnsupportedSettingsError` unless `on_unsupported` is `"ignore"`.
+
 ## AgentCapabilities
 
 ```python
@@ -179,6 +201,10 @@ class AgentCapabilities(TypedDict):
     supports_ephemeral: NotRequired[bool]
     supports_additional_dirs: NotRequired[bool]
     supports_file_attachments: NotRequired[bool]
+
+    # Settings
+    supported_settings: NotRequired[list[str]]  # fields this transport honours
+    settings_mechanism: NotRequired[str]        # how values reach the CLI
 
     # Transport and limits
     transport: NotRequired[str]

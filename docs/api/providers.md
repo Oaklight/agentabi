@@ -52,6 +52,18 @@ SDK providers use the agent's official Python SDK for direct API integration.
 
 SDK providers require installing the corresponding optional dependency (e.g., `pip install agentabi[claude]`).
 
+## Settings support
+
+Each transport declares the settings fields it honours and the mechanism it uses. See [Settings](../usage/settings.md) for the full table.
+
+```python
+caps = get_agent_capabilities("codex")
+caps["supported_settings"]
+caps["settings_mechanism"]
+```
+
+`Session(settings=...)` and per-call `settings` are translated by an adapter per transport. SDK providers claim nothing and reject settings.
+
 ## Provider Registry
 
 The registry maps agent identifiers to ordered provider chains:

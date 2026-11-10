@@ -20,6 +20,17 @@ python examples/quickstart.py --agent codex
 python examples/quickstart.py --agent opencode --prompt "List files"
 ```
 
+## Settings
+
+The [`examples/settings.py`](https://github.com/oaklight/agentabi/blob/master/examples/settings.py) script points any agent at one endpoint through the unified `settings` mapping:
+
+```bash
+LLM_BASE_URL=https://llm.example.com/v1 LLM_API_KEY=... \
+python examples/settings.py --agent codex
+```
+
+It prints the transport's settings mechanism and supported fields first, then runs the prompt. See [Settings](../usage/settings.md).
+
 ## Streaming
 
 The [`examples/streaming.py`](https://github.com/oaklight/agentabi/blob/master/examples/streaming.py) script demonstrates real-time event streaming:
