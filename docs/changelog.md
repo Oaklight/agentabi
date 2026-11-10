@@ -4,6 +4,27 @@
 
 ### 新增
 
+- **ACP 网关** — `agentabi acp --agent <name>` 通过 stdio 把一个 agent 暴露为 ACP 端点。`opencode` 使用自带的 ACP 服务器；`agy`、`claude`、`codex`、`pi` 走 IR 流。ACP 与 JSON-RPC 已 vendor 自 zerodep，无需外部 ACP SDK 或 Node 运行时。(#44, #47)
+- **ACP v2 与外部 ACP 服务器** — `initialize` 协商 ACP v2，`session/prompt` 返回后端真实的 `stopReason`。`--agent acp --acp-command "<cmd>"` 可转发到任意外部 ACP 服务器，并原样传递其更新。(#48, #50)
+- **路由模式** — `--router` 配合重复的 `--agent`，一个网关进程服务多个 agent。客户端在 `session/new` 中用 `_meta.agent` 按会话选择；未知名称返回 `-32602` 并列出已启用的 agent。`initialize` 只声明可达后端能力的交集。权限默认拒绝，每次路由调用都记录到 `agentabi.acp.audit` 日志。(#64, PR #68)
+- **Claude Code TUI 传输** — 通过 `--prefer pty` 启用。在 PTY 上运行交互式 Claude CLI 并读取会话 transcript。Anthropic 把 `-p` 归类为 `sdk-cli`，计入额度约为交互式 `cli` 的两倍，因此订阅账号应使用此传输。第一阶段按整条消息输出，不做 token 增量。(#49)
+- **OpenCode V2 提供者** — `OpenCodeV2Provider` 使用 V2 HTTP/SSE API：服务器启动与复用、会话创建与恢复、模型切换、流式回合状态机。传输选择由 `agent_extensions.opencode.transport` 或 `AGENTABI_OPENCODE_TRANSPORT`（`auto`、`v1`、`v2`）决定；原生提供者仍留在链中作为回退。V2 服务器不发送 `session.idle`，回合在 `session.next.step.ended` 结束，除非该步以 `tool-calls` 结束。(#62, PR #67)
+- **TestPyPI 发布** — `.github/workflows/test-release.yml` 通过可信发布把手工构建上传到 TestPyPI。两个 README 和文档首页已添加徽章。
+- **每周 zerodep 检查** — 当 vendor 的 `acp`/`jsonrpc`/`ptyx` 落后于上游时，CI 会报告。
+- **`tools/peerctl.py`** — Claude Code 后台 peer 的原型工具：spawn、按 workspace 与 name 列出、stop，以及按 `sessionId` 导出/导入交接快照。
+
+### 修复
+
+- **提供者 CLI 变化** — codex 先探测 `codex exec --help`，使用当前 CLI 接受的审批参数；opencode 使用 `--auto`；agy 每个 `agent_response` 步输出一条消息，并在 `ACTIVE` 与 `DONE` 更新之间累计文本。`turn.failed` 与 `error` 事件现在转为致命 `ErrorEvent`，不再被丢弃。codex 还会传 `--skip-git-repo-check`，因此非 git 目录也可用。
+- **提供者 stdin** — 子进程的 stdin 改为 `/dev/null`。在网关下宿主 stdin 是 JSON-RPC 管道，pi 会从其中读走 ACP 消息。
+- **Codex 临时 schema 泄漏** — 生成的 `--output-schema` 文件在流结束后删除；类路径的 schema 值按文件路径处理。(#51, PR #52)
+- **Claude TUI 错误路径** — API 错误与内部失败以 `ErrorEvent` 呈现，不再静默结束。含控制字符的提示词在任何字节写入前被拒绝；粘贴与提交在回合开始前都会确认。(#55, #58)
+- **ptyx** — Windows ConPTY 数据块不再丢失；管道失败抛出 `PtyReadError`/`PtyWriteError`；只回应光标位置查询。(#56)
+
+## v0.4.0 (2026-09-08)
+
+### 新增
+
 - **Antigravity CLI (agy) 提供者** — Google 的新 AI 编程助手 CLI，替代已停止维护的 Gemini CLI
 - `ThinkingLevel` 类型和 `thinking_level` 字段 — 跨 Claude（`--effort`）、Pi（`--thinking`）、OpenCode（`--variant`）的统一推理控制
 - `output_schema` 字段 — 结构化输出支持（Claude `--json-schema`、Codex `--output-schema`、agy `--json-schema`）
