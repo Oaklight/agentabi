@@ -94,11 +94,11 @@ from agentabi import UnsupportedSettingsError
 ## 传输细节
 
 - **Claude Code** 在 OAuth 激活时忽略 `ANTHROPIC_BASE_URL`，因此端点和 `CLAUDE_CODE_SKIP_ANTHROPIC_AUTH` 开关写进 `--settings`。密钥由 `apiKeyHelper` 从子进程环境读取 `AGENTABI_CLAUDE_API_KEY`，不进入 argv。
-- **codex** 忽略 `OPENAI_BASE_URL`，所以适配器用 `-c` 重写 provider 块。密钥通过 `env_key` 引用，以 `AGENTABI_CODEX_API_KEY` 传入；codex 0.162.1 会把 `model_providers.<id>.api_key` 记为未识别配置。
+- **codex** 忽略 `OPENAI_BASE_URL`，所以适配器用 `-c` 重写 provider 块。provider id 默认是 `agentabi`；codex 拒绝内置 id（如 `openai`），且 provider 块必须同时有 `name` 与 `base_url`。密钥通过 `env_key` 引用，以 `AGENTABI_CODEX_API_KEY` 传入；codex 0.162.1 会把 `model_providers.<id>.api_key` 记为未识别配置。
 - **agy** 的 `GOOGLE_GEMINI_BASE_URL` 不能带结尾 `/v1`，适配器会去掉。`native` 指定 model 时不再发 `--model`，因为 agy 会用它校验自有目录。
-- **opencode V1** 把 provider 块写进 `OPENCODE_CONFIG_CONTENT`，并用 `<provider>/<model>` 选择模型。已有配置会被合并；非法 JSON 报错。
+- **opencode V1** 把 provider 块写进 `OPENCODE_CONFIG_CONTENT`，并用 `<provider>/<model>` 选择模型。provider id 默认是 `agentabi`。已有配置会被合并；非法 JSON 报错。
 - **opencode V2** 的模型目录来自用户自己的 OpenCode 配置，看不到注入的 provider。`auto` 下这类任务走 V1；显式 `v2` 返回明确错误。
-- **pi** 没有端点参数。适配器创建权限为 `0700` 的临时 agent 目录，写入 `models.json`（`0600`）并复制 `settings.json`，把 `PI_CODING_AGENT_DIR` 指向它，运行结束后删除。该次运行中，用户 agent 目录里安装的扩展不可用。
+- **pi** 没有端点参数。`models.json` 中的 provider id 默认是 `agentabi`。适配器创建权限为 `0700` 的临时 agent 目录，写入 `models.json`（`0600`）并复制 `settings.json`，把 `PI_CODING_AGENT_DIR` 指向它，运行结束后删除。该次运行中，用户 agent 目录里安装的扩展不可用。
 
 ## 密钥
 
