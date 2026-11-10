@@ -33,7 +33,7 @@ Native providers run the agent CLI as a subprocess and parse its structured outp
 | Provider | Agent | CLI Command |
 |----------|-------|-------------|
 | `ClaudeNativeProvider` | `claude_code` | `claude -p <prompt> --output-format stream-json` |
-| `CodexNativeProvider` | `codex` | `codex exec --json --full-auto <prompt>` |
+| `CodexNativeProvider` | `codex` | `codex exec --json --approve-for-me <prompt>` (a `resume` task uses `codex exec resume`) |
 | `~~GeminiNativeProvider~~ (deprecated)` | `gemini_cli` | `gemini -o stream-json --approval-mode <mode> -p <prompt>` |
 | `OpenCodeNativeProvider` | `opencode` | `opencode run --format json -- <prompt>` |
 | `PiNativeProvider` | `pi` | `pi --print --mode json <prompt>` |
