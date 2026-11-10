@@ -21,7 +21,7 @@ AI 编程助手 CLI 的统一接口层。
 | [Claude Code](https://github.com/anthropics/claude-code) | Anthropic | 已实现 |
 | [Codex](https://github.com/openai/codex) | OpenAI | 已实现 |
 | [Antigravity (agy)](https://github.com/google/anthropic-agy) | Google | 已实现 |
-| [OpenCode](https://github.com/opencode-ai/opencode) | 社区 | 已实现 |
+| [OpenCode](https://github.com/opencode-ai/opencode) | 社区 | 已实现（V2 HTTP/SSE + V1 回退） |
 | [Pi](https://github.com/anthropics/pi) | 社区 | 已实现 |
 | ~~Gemini CLI~~ | Google | 已废弃（请使用 agy） |
 
@@ -75,6 +75,36 @@ ACP 网关使用同一个选项：
 ```bash
 agentabi acp --agent claude --prefer pty
 ```
+
+## OpenCode V2 传输
+
+OpenCode 1.19.0 及以上版本提供第二套 API：`opencode serve`，用 HTTP 命令
+加 server-sent events 事件流。agentabi 默认使用它，同时保留
+`opencode run --format json` 的 V1 子进程作为回退。
+
+```python
+session = Session(agent="opencode")
+result = await session.run(prompt="修复失败的测试")
+```
+
+- **选择规则。** 当 `opencode` CLI 不低于 1.19.0，或已配置 server URL 时使用
+  V2；否则使用 V1。可用 `AGENTABI_OPENCODE_TRANSPORT=v1|v2` 强制指定，也可按
+  任务设置 `agent_extensions={"opencode": {"transport": "v2"}}`。
+- **Server。** 未配置 URL 时，provider 会在本机空闲端口启动
+  `opencode serve`，并在后续调用中复用该进程。设置 `OPENCODE_BASE_URL`
+  （或 `agent_extensions={"opencode": {"base_url": ...}}`）可连接已运行的
+  `opencode serve`，也支持 `http://user:pass@host:port` 形式的远程地址。显式
+  配置的 URL 是权威的：该服务端不支持 V2 API 时任务直接报错，不会静默退回 V1。
+- **会话。** 传入 `session_id` 并设置 `resume=True` 会复用服务端会话，多轮
+  对话因此保留上下文。
+- **权限。** `permissions={"level": "full_auto"}` 自动批准；`accept_edits`
+  逐次批准。其他级别会以明确错误结束本轮，因为流式 API 无法交互询问。交互
+  式问题会被拒绝并结束本轮。
+- **限制。** 没有 system prompt 入口。`usage` 和 `cost_usd` 按步骤上报，带
+  工具调用的轮次每一步各一对。轮次结束以 `session.next.step.ended` 为准，因为
+  V2 服务端不发 `session.idle`。
+
+`agentabi acp --agent opencode` 不受影响，仍走原生 ACP 直通。
 
 ## ACP 网关
 

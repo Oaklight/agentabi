@@ -21,7 +21,7 @@ One interface. Any coding agent.
 | [Claude Code](https://github.com/anthropics/claude-code) | Anthropic | Implemented |
 | [Codex](https://github.com/openai/codex) | OpenAI | Implemented |
 | [Antigravity (agy)](https://github.com/google/anthropic-agy) | Google | Implemented |
-| [OpenCode](https://github.com/opencode-ai/opencode) | Community | Implemented |
+| [OpenCode](https://github.com/opencode-ai/opencode) | Community | Implemented (V2 HTTP/SSE + V1 fallback) |
 | [Pi](https://github.com/anthropics/pi) | Community | Implemented |
 | ~~Gemini CLI~~ | Google | Deprecated (use agy) |
 
@@ -77,6 +77,42 @@ The ACP gateway takes the same choice:
 ```bash
 agentabi acp --agent claude --prefer pty
 ```
+
+## OpenCode V2 transport
+
+OpenCode 1.19.0 and later expose a second API: `opencode serve` with HTTP
+commands and a server-sent event stream. agentabi uses it by default and
+keeps the `opencode run --format json` V1 subprocess as a fallback.
+
+```python
+session = Session(agent="opencode")
+result = await session.run(prompt="Fix the failing test")
+```
+
+- **Selection.** V2 is used when the `opencode` CLI is at least 1.19.0 or a
+  server URL is configured. Otherwise the V1 provider runs. Force either
+  transport with `AGENTABI_OPENCODE_TRANSPORT=v1|v2`, or per task with
+  `agent_extensions={"opencode": {"transport": "v2"}}`.
+- **Server.** Without a URL, the provider starts `opencode serve` on a free
+  localhost port and reuses that process for later calls. Set
+  `OPENCODE_BASE_URL` (or `agent_extensions={"opencode": {"base_url": ...}}`)
+  to use an existing `opencode serve`, including a remote one with
+  `http://user:pass@host:port`. A configured URL is authoritative: if that
+  server does not answer the V2 API the task fails instead of silently
+  running V1.
+- **Sessions.** `session_id` with `resume=True` reuses the server session, so
+  multi-turn conversations keep their context.
+- **Permissions.** With `permissions={"level": "full_auto"}` requests are
+  approved automatically; `accept_edits` approves each request once. Any
+  other level fails the turn with a clear error, because the streaming API
+  cannot prompt. Interactive questions are rejected and fail the turn.
+- **Limits.** There is no system-prompt hook. `usage` and `cost_usd` are
+  reported per step; a turn with tool calls emits one pair per step. The
+  turn ends at `session.next.step.ended` because V2 servers do not emit
+  `session.idle`.
+
+`agentabi acp --agent opencode` is unaffected; it keeps using the native ACP
+pass-through.
 
 ## ACP gateway
 

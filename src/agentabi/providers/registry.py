@@ -37,6 +37,7 @@ def _build_provider_chain() -> dict[str, list[type[Provider]]]:
     from .gemini_native import GeminiNativeProvider
     from .gemini_sdk import GeminiSDKProvider
     from .opencode_native import OpenCodeNativeProvider
+    from .opencode_v2 import OpenCodeV2Provider
     from .pi_native import PiNativeProvider
 
     return {
@@ -44,7 +45,9 @@ def _build_provider_chain() -> dict[str, list[type[Provider]]]:
         "codex": [CodexNativeProvider, CodexSDKProvider],
         # deprecated — use "agy" instead
         "gemini_cli": [GeminiNativeProvider, GeminiSDKProvider],
-        "opencode": [OpenCodeNativeProvider],
+        # V2 (HTTP/SSE) first; it declines when the CLI lacks V2 support or
+        # AGENTABI_OPENCODE_TRANSPORT=v1 is set.
+        "opencode": [OpenCodeV2Provider, OpenCodeNativeProvider],
         "pi": [PiNativeProvider],
         "agy": [AgyNativeProvider],
     }
