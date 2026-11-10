@@ -48,6 +48,9 @@ class OpenCodeNativeProvider:
 
     def __init__(self) -> None:
         self._pending_text: list[str] = []
+        self._session_id = ""
+        self._session_started = False
+        self._session_ended = False
 
     @staticmethod
     def is_available() -> bool:
@@ -64,8 +67,11 @@ class OpenCodeNativeProvider:
             "supports_system_prompt": False,
             "supports_tool_filtering": False,
             "supports_permissions": True,
-            "supports_multi_turn": False,
+            "supports_multi_turn": True,
             "supports_thinking": True,
+            "supports_structured_output": False,
+            "supports_ephemeral": False,
+            "supports_additional_dirs": False,
             "supports_file_attachments": True,
             "transport": "subprocess",
         }
@@ -73,6 +79,10 @@ class OpenCodeNativeProvider:
     async def stream(self, task: TaskConfig) -> AsyncIterator[IREvent]:
         """Run task via opencode CLI and yield IR events."""
         from .base import collect_subprocess_errors
+
+        self._session_id = ""
+        self._session_started = False
+        self._session_ended = False
 
         cmd = self._build_command(task)
         merged_env = {**os.environ, **(task.get("env") or {})}
@@ -118,6 +128,8 @@ class OpenCodeNativeProvider:
                 proc, timed_out=timed_out, timeout_seconds=timeout
             ):
                 yield err
+            for event in self._end_session():
+                yield event
         finally:
             if timeout_task and not timeout_task.done():
                 timeout_task.cancel()
@@ -158,6 +170,8 @@ class OpenCodeNativeProvider:
 
         if task.get("resume") and "session_id" in task:
             cmd.extend(["--session", task["session_id"]])
+        elif task.get("resume"):
+            cmd.append("--continue")
 
         permissions = task.get("permissions")
         if permissions:
@@ -190,7 +204,9 @@ class OpenCodeNativeProvider:
         session_id = raw.get("sessionID", "")
 
         if event_type == "step_start":
-            return self._handle_step_start(part, session_id)
+            return self._start_session(session_id) + self._handle_step_start(
+                part, session_id
+            )
         elif event_type == "text":
             return self._handle_text(part)
         elif event_type == "tool_use":
@@ -224,12 +240,6 @@ class OpenCodeNativeProvider:
     @staticmethod
     def _handle_step_start(part: dict[str, Any], session_id: str) -> list[IREvent]:
         results: list[IREvent] = []
-        start: SessionStartEvent = {
-            "type": "session_start",
-            "session_id": session_id,
-            "agent": "opencode",
-        }
-        results.append(start)
 
         msg_start: MessageStartEvent = {
             "type": "message_start",
@@ -240,6 +250,45 @@ class OpenCodeNativeProvider:
             msg_start["message_id"] = message_id
         results.append(msg_start)
         return results
+
+    def _start_session(self, session_id: str) -> list[IREvent]:
+        """Emit ``session_start`` once per run.
+
+        opencode sends one ``step_start`` per model step, so a tool loop
+        produces several. The session begins at the first one.
+
+        Returns:
+            One ``session_start`` the first time, then nothing.
+        """
+        if self._session_started:
+            return []
+        self._session_started = True
+        self._session_id = session_id
+        start: SessionStartEvent = {
+            "type": "session_start",
+            "session_id": session_id,
+            "agent": "opencode",
+        }
+        return [start]
+
+    def _end_session(self) -> list[IREvent]:
+        """Emit the closing ``session_end`` exactly once.
+
+        The CLI signals a clean ending with ``reason: "stop"``, but it can
+        also exit after a failed step or an interrupted stream. The caller
+        emits the missing event at end of stream so a consumer waiting for
+        ``session_end`` is not left hanging.
+
+        Returns:
+            One ``session_end`` when none was emitted, else nothing.
+        """
+        if not self._session_started or self._session_ended:
+            return []
+        self._session_ended = True
+        end: SessionEndEvent = {"type": "session_end"}
+        if self._session_id:
+            end["session_id"] = self._session_id
+        return [end]
 
     def _handle_text(self, part: dict[str, Any]) -> list[IREvent]:
         text = part.get("text", "")
@@ -330,6 +379,7 @@ class OpenCodeNativeProvider:
         results.append(end)
 
         if reason == "stop":
+            self._session_ended = True
             session_end: SessionEndEvent = {"type": "session_end"}
             if session_id:
                 session_end["session_id"] = session_id
