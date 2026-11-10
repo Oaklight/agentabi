@@ -130,11 +130,11 @@ agentabi acp --agent acp --acp-command "npx -y @agentclientprotocol/claude-agent
 `session/new` 返回 `permission_mode` 配置项（`ask`、`deny`、`allow_all`），
 可用 `session/set_config_option` 按会话修改。
 
-本版本只有 Claude backend（`agentabi acp --agent claude`）能发起询问：它把
-Claude 的 `can_use_tool` 请求转成 ACP 的 `session/request_permission`，再把
-客户端的选择写回。其他 backend 使用静态策略（默认 `deny`）；网关不会把缺失的
-权限通道当成允许。ACP 直通 backend（`opencode`、`--agent acp`）原样转发子进程
-的 `session/request_permission`。
+Claude backend（`agentabi acp --agent claude`）与 ACP 直通 backend
+（`opencode`、`--agent acp`）可以发起询问：请求以
+`session/request_permission` 到达客户端，选择会写回。没有权限通道的 backend
+（`codex`、`agy`、`pi`）不会得到 `permission_mode` 配置项，适用提供者自身的
+策略；网关不会把缺失的通道当成允许。
 
 `--permission-timeout SECONDS` 限制等待时间（默认 `0` 表示一直等待），
 `--permission-policy ask|deny|allow_all` 设置初始策略。
@@ -168,10 +168,10 @@ backend 会记录日志并排除在交集之外；之后选择它会返回明确
 可达 backend 报告的最低版本；IR backend 被告知按该版本输出，原生 ACP
 backend 会重启后重新协商到该版本。
 
-**权限策略。** 默认拒绝。网关绝不会把下游的 `session/request_permission`
-回答成 allow：ACP backend 会收到明确的 `cancelled`。IR backend 根本没有 ACP
-权限通道，因此按 provider 自身的默认策略执行，网关不会放宽它。目前尚未把
-权限请求转发给客户端询问。
+**权限策略。** 默认拒绝。路由模式采用失败关闭：内部 backend 使用自己的会话
+id，客户端并不知道，因此路由模式不声明权限往返，并以明确的 `cancelled` 回答
+下游的 `session/request_permission`。需要客户端回答权限请求时，每个 agent 单独
+运行一个网关（`agentabi acp --agent claude`）。
 
 **审计。** 每个经路由的方法都会在 `agentabi.acp.audit` logger 上记录
 method、agent、session、耗时和结果。

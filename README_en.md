@@ -138,12 +138,12 @@ The gateway speaks ACP to that process and forwards its `session/update` payload
 `session/new` returns a `permission_mode` config option (`ask`, `deny`,
 `allow_all`). `session/set_config_option` changes it for the session.
 
-In this release only the Claude backend (`agentabi acp --agent claude`) can
-ask: it forwards Claude's `can_use_tool` request to the ACP client as
-`session/request_permission` and writes the answer back. Other backends keep a
-static policy (`deny` by default); the gateway never turns a missing permission
-channel into an allow. ACP pass-through backends (`opencode`, `--agent acp`)
-forward the child's `session/request_permission` unchanged.
+The Claude backend (`agentabi acp --agent claude`) and ACP pass-through
+backends (`opencode`, `--agent acp`) can ask: a request reaches the client as
+`session/request_permission` and the answer is written back. Backends without a
+permission channel (`codex`, `agy`, `pi`) get no `permission_mode` option at
+all; their provider's own policy applies, and the gateway never turns a missing
+channel into an allow.
 
 Use `--permission-timeout SECONDS` to bound the wait (default `0` waits
 forever) and `--permission-policy ask|deny|allow_all` to choose the initial
@@ -184,11 +184,12 @@ protocol version is the lowest version any reachable backend reports; IR
 backends are told to emit that version, and native ACP backends are
 restarted so their downstream negotiates it too.
 
-**Permission policy.** Deny by default. The gateway never answers a
-downstream `session/request_permission` with an allow: an ACP backend gets an
-explicit `cancelled` outcome. IR backends have no ACP permission channel at
-all, so their provider's own default policy applies and the gateway never
-widens it. Asking the client is not proxied yet.
+**Permission policy.** Deny by default. Router mode fails closed: an inner
+backend uses its own session id, which the client does not know, so the router
+never claims a permission round trip and answers a downstream
+`session/request_permission` with an explicit `cancelled`. Run one gateway per
+agent (`agentabi acp --agent claude`) when the client must answer permission
+requests.
 
 **Audit.** Every routed method is recorded with method, agent, session,
 duration, and outcome on the `agentabi.acp.audit` logger.

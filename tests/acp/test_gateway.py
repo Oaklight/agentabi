@@ -381,7 +381,7 @@ async def test_new_session_advertises_permission_mode():
 
 
 @pytest.mark.asyncio
-async def test_non_capable_backend_does_not_offer_ask():
+async def test_non_capable_backend_has_no_permission_mode():
     class _StaticBackend(FakeBackend):
         permission_capable = False
 
@@ -391,12 +391,16 @@ async def test_non_capable_backend_does_not_offer_ask():
 
     result = await agent.on_new_session(NewSessionParams(cwd="/tmp"))
 
-    assert result.config_options is not None
-    option = next(
-        item for item in result.config_options if item.id == "permission_mode"
-    )
-    assert option.current_value == "deny"
-    assert [value.value for value in option.options] == ["deny", "allow_all"]
+    options = result.config_options or []
+    assert all(item.id != "permission_mode" for item in options)
+    with pytest.raises(JSONRPCException) as exc:
+        await agent.on_set_config_option(
+            SetConfigOptionParams(
+                session_id="s1", config_id="permission_mode", value="deny"
+            )
+        )
+    assert isinstance(exc.value, JSONRPCException)
+    assert exc.value.error.code == METHOD_NOT_FOUND
 
 
 @pytest.mark.asyncio

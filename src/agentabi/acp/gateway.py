@@ -62,9 +62,7 @@ class GatewayAgent(ACPAgent):
         return bool(getattr(self._backend, "permission_capable", False))
 
     def _permission_values(self) -> list[str]:
-        if self._permission_capable():
-            return ["ask", "deny", "allow_all"]
-        return ["deny", "allow_all"]
+        return ["ask", "deny", "allow_all"]
 
     def _permission_option(self, session_id: str) -> ConfigOption:
         values = self._permission_values()
@@ -85,7 +83,9 @@ class GatewayAgent(ACPAgent):
         )
 
     def _add_permission_option(self, result: NewSessionResult) -> None:
-        if self._permission_broker is None:
+        if self._permission_broker is None or not self._permission_capable():
+            # A backend without a permission channel cannot honour any of the
+            # values, so offering the option would be a false safety signal.
             return
         option = self._permission_option(result.session_id)
         existing = [
@@ -179,11 +179,14 @@ class GatewayAgent(ACPAgent):
     ) -> SetConfigOptionResult:
         """Handle ``permission_mode`` and delegate other options."""
         if params.config_id == _PERMISSION_MODE:
-            if self._permission_broker is None:
+            if self._permission_broker is None or not self._permission_capable():
                 raise JSONRPCException(
                     JSONRPCError(
                         code=METHOD_NOT_FOUND,
-                        message="permission_mode is not available for this backend",
+                        message=(
+                            "permission_mode is not available: this backend "
+                            "cannot round-trip permission requests"
+                        ),
                     )
                 )
             values = self._permission_values()
