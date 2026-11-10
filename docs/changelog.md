@@ -10,7 +10,7 @@
 - **Claude Code TUI 传输** — 通过 `--prefer pty` 启用。在 PTY 上运行交互式 Claude CLI 并读取会话 transcript。Anthropic 把 `-p` 归类为 `sdk-cli`，计入额度约为交互式 `cli` 的两倍，因此订阅账号应使用此传输。第一阶段按整条消息输出，不做 token 增量。(#49)
 - **OpenCode V2 提供者** — `OpenCodeV2Provider` 使用 V2 HTTP/SSE API：服务器启动与复用、会话创建与恢复、模型切换、流式回合状态机。传输选择由 `agent_extensions.opencode.transport` 或 `AGENTABI_OPENCODE_TRANSPORT`（`auto`、`v1`、`v2`）决定；原生提供者仍留在链中作为回退。V2 服务器不发送 `session.idle`，回合在 `session.next.step.ended` 结束，除非该步以 `tool-calls` 结束。(#62, PR #67)
 - **TestPyPI 发布** — `.github/workflows/test-release.yml` 通过可信发布把手工构建上传到 TestPyPI。两个 README 和文档首页已添加徽章。
-- **每周 zerodep 检查** — 当 vendor 的 `acp`/`jsonrpc`/`ptyx` 落后于上游时，CI 会报告。
+- **每周 zerodep 检查** — 定时任务运行 `zerodep outdated`，更新 vendor 的 `acp`/`jsonrpc`/`ptyx`，落后于上游时自动开 PR。
 - **`tools/peerctl.py`** — Claude Code 后台 peer 的原型工具：spawn、按 workspace 与 name 列出、stop，以及按 `sessionId` 导出/导入交接快照。
 
 ### 修复
