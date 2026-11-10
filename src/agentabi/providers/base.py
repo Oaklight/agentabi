@@ -8,13 +8,19 @@ abstraction layer between Session and agent CLIs/SDKs.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from typing_extensions import Protocol, runtime_checkable
 
 from ..types.ir.capabilities import AgentCapabilities
-from ..types.ir.events import ErrorEvent, IREvent, UsageInfo
+from ..types.ir.events import (
+    ErrorEvent,
+    IREvent,
+    PermissionRequestEvent,
+    UsageInfo,
+)
+from ..types.ir.permissions import PermissionDecision
 from ..types.ir.session import SessionResult, SessionStatus
 from ..types.ir.task import TaskConfig
 
@@ -68,6 +74,30 @@ class Provider(Protocol):
 
         Returns:
             Aggregated session result.
+        """
+        ...
+
+
+#: Callable a provider awaits to obtain a permission decision.  It returns
+#: ``{"option_id": ..., "outcome": "selected"}`` or
+#: ``{"option_id": None, "outcome": "cancelled"}``.
+PermissionHandler = Callable[[PermissionRequestEvent], Awaitable[PermissionDecision]]
+
+
+@runtime_checkable
+class PermissionAwareProvider(Protocol):
+    """Provider that can round-trip a permission request during a turn.
+
+    Kept separate from :class:`Provider` so providers without a permission
+    channel do not have to implement it.  The ACP gateway tests for this
+    protocol before attaching a handler.
+    """
+
+    def set_permission_handler(self, handler: PermissionHandler | None) -> None:
+        """Attach (or clear) the handler called for each permission request.
+
+        Args:
+            handler: Awaitable callable, or ``None`` to detach.
         """
         ...
 
@@ -220,6 +250,8 @@ async def default_run(provider: Any, task: TaskConfig) -> SessionResult:
 
 __all__ = [
     "Provider",
+    "PermissionAwareProvider",
+    "PermissionHandler",
     "collect_subprocess_errors",
     "default_run",
 ]
