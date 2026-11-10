@@ -29,6 +29,7 @@ from ..types.ir.events import (
     UsageInfo,
 )
 from ..types.ir.session import SessionResult
+from ..types.ir.stop_reasons import stop_reason
 from ..types.ir.task import TaskConfig
 from .base import collect_subprocess_errors
 
@@ -314,7 +315,10 @@ class AgyNativeProvider:
             results.append(delta)
 
         if state == "DONE":
-            end: MessageEndEvent = {"type": "message_end"}
+            end: MessageEndEvent = {
+                "type": "message_end",
+                "stop_reason": stop_reason(step.get("stop_reason"), default="end_turn"),
+            }
             if self._step_text:
                 end["text"] = "".join(self._step_text)
             results.append(end)

@@ -56,6 +56,7 @@ from ..types.ir.events import (
     UsageInfo,
 )
 from ..types.ir.session import SessionResult
+from ..types.ir.stop_reasons import stop_reason
 from ..types.ir.task import TaskConfig
 from ._http_sse import HTTPError, SSEMessage, SSEStream, request, request_json
 
@@ -352,7 +353,10 @@ class _TurnState:
             events.append(usage_event)
 
         finish = str(data.get("finish") or "")
-        end: MessageEndEvent = {"type": "message_end", "stop_reason": finish or "stop"}
+        end: MessageEndEvent = {
+            "type": "message_end",
+            "stop_reason": stop_reason(finish, default="end_turn"),
+        }
         if self._text:
             end["text"] = "".join(self._text)
         message_id = data.get("assistantMessageID")

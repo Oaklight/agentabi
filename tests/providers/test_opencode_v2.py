@@ -224,7 +224,7 @@ class TestTurnState:
         assert end[0]["cost_usd"] == 0.25
         assert end[0]["usage"]["total_tokens"] == 12
         assert end[1]["text"] == "OK"
-        assert end[1]["stop_reason"] == "stop"
+        assert end[1]["stop_reason"] == "end_turn"
         assert state.finished is True
 
     def test_tool_calls_finish_does_not_end_session(self):

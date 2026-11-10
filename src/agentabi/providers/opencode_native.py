@@ -29,6 +29,7 @@ from ..types.ir.events import (
     UsageInfo,
 )
 from ..types.ir.session import SessionResult
+from ..types.ir.stop_reasons import stop_reason
 from ..types.ir.task import TaskConfig
 
 _THINKING_LEVEL_MAP: dict[str, str] = {
@@ -318,7 +319,7 @@ class OpenCodeNativeProvider:
         reason = part.get("reason", "")
         end: MessageEndEvent = {
             "type": "message_end",
-            "stop_reason": reason,
+            "stop_reason": stop_reason(reason, default="end_turn"),
         }
         if self._pending_text:
             end["text"] = "".join(self._pending_text)

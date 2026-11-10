@@ -43,6 +43,11 @@ from .permissions import (
     PermissionRequest,
 )
 from .session import SessionResult, SessionStatus
+from .stop_reasons import (
+    CANONICAL_STOP_REASONS,
+    STOP_REASON_ALIASES,
+    canonical_stop_reason,
+)
 from .task import AgentType, TaskConfig
 from .type_guards import (
     EVENT_TYPE_MAP,
@@ -73,6 +78,9 @@ __all__ = [
     "FileDiffEvent",
     # Session
     "SessionResult",
+    "CANONICAL_STOP_REASONS",
+    "STOP_REASON_ALIASES",
+    "canonical_stop_reason",
     "SessionStatus",
     # Capabilities
     "AgentCapabilities",
