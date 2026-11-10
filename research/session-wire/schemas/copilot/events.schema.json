@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/schemas/copilot/events.schema.json",
+  "title": "GitHub Copilot CLI JSONL session event",
+  "description": "Envelope observed from `copilot -p ... --output-format json` (v1.0.107). One JSON object per stdout line.",
+  "type": "object",
+  "required": ["type", "timestamp"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "examples": [
+        "user.message",
+        "assistant.turn_start",
+        "assistant.message_start",
+        "assistant.message_delta",
+        "assistant.message",
+        "assistant.tool_call_delta",
+        "tool.execution_start",
+        "tool.shell_output",
+        "tool.execution_partial_result",
+        "tool.execution_complete",
+        "assistant.turn_end",
+        "result"
+      ]
+    },
+    "data": {
+      "type": "object",
+      "description": "Type-specific payload. See $defs."
+    },
+    "ephemeral": {
+      "type": "boolean",
+      "description": "True for streaming/progress events that are not replayed on resume."
+    },
+    "id": {
+      "type": "string",
+      "description": "Event UUID; used with parentId to chain events."
+    },
+    "parentId": {
+      "type": "string",
+      "description": "UUID of the event that caused this event."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "userMessage": {
+      "type": "object",
+      "properties": {
+        "content": {"type": "string"},
+        "transformedContent": {"type": "string"},
+        "messageId": {"type": "string"},
+        "interactionId": {"type": "string"},
+        "turnId": {"type": "string"},
+        "delivery": {"type": "string"},
+        "parentAgentTaskId": {"type": "string"}
+      }
+    },
+    "assistantMessage": {
+      "type": "object",
+      "properties": {
+        "messageId": {"type": "string"},
+        "originatingMessageId": {"type": "string"},
+        "model": {"type": "string"},
+        "providerId": {"type": "string"},
+        "content": {"type": "string"},
+        "toolRequests": {"type": "array", "items": {"type": "object"}},
+        "interactionId": {"type": "string"},
+        "turnId": {"type": "string"},
+        "phase": {"type": "string"}
+      }
+    },
+    "toolCallDelta": {
+      "type": "object",
+      "properties": {
+        "toolCallId": {"type": "string"},
+        "toolName": {"type": "string"},
+        "toolType": {"type": "string"},
+        "inputDelta": {"type": "string", "description": "Incremental JSON fragment of the tool arguments."}
+      }
+    },
+    "toolExecutionStart": {
+      "type": "object",
+      "properties": {
+        "toolCallId": {"type": "string"},
+        "toolName": {"type": "string"},
+        "arguments": {"type": "object"},
+        "turnId": {"type": "string"},
+        "model": {"type": "string"},
+        "toolTitle": {"type": "string"},
+        "shellToolInfo": {"type": "object"}
+      }
+    },
+    "toolExecutionComplete": {
+      "type": "object",
+      "properties": {
+        "toolCallId": {"type": "string"},
+        "turnId": {"type": "string"},
+        "interactionId": {"type": "string"},
+        "success": {"type": "boolean"},
+        "result": {
+          "type": "object",
+          "properties": {
+            "content": {"type": "string"},
+            "structuredContent": {"type": "object"}
+          }
+        },
+        "error": {
+          "type": "object",
+          "description": "Permission denials surface here in non-interactive mode.",
+          "properties": {
+            "code": {"type": "string", "examples": ["denied"]},
+            "message": {"type": "string"}
+          }
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "properties": {
+        "sessionId": {"type": "string", "description": "Session/thread identifier."},
+        "exitCode": {"type": "integer"},
+        "usage": {"type": "object"}
+      }
+    }
+  },
+  "additionalProperties": true
+}

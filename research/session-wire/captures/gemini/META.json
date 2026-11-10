@@ -1,0 +1,14 @@
+{
+  "cli": "gemini",
+  "version": "0.67.0",
+  "os": "linux",
+  "captured_at": "2026-11-07T18:22:00Z",
+  "transport": "stdio-json",
+  "commands": [
+    "gemini -p \"Reply with exactly: OK\" --output-format json",
+    "gemini -p \"Reply with exactly: OK\" --output-format stream-json"
+  ],
+  "files": ["json.jsonl", "stream-json.jsonl"],
+  "status": "blocked",
+  "notes": "Installed user-level with npm -g (fnm prefix). No auth method configured: output is an error object with session_id and error.code=41. No model turn, no tool call, no session/resume frame. Set GEMINI_API_KEY or run interactive OAuth to capture a successful turn."
+}

@@ -1,0 +1,14 @@
+{
+  "cli": "openclaw",
+  "version": "2026.11.1",
+  "os": "linux 6.18.59-1-lts",
+  "date": "2026-11-07",
+  "transport": "websocket-jsonrpc",
+  "protocol_version": 4,
+  "endpoint": "ws://127.0.0.1:18799",
+  "install": "npm install --prefix /tmp/openclaw-probe openclaw@latest (Node v24.22.2 via fnm)",
+  "isolation": "OPENCLAW_STATE_DIR=/tmp/openclaw-probe/state; OPENCLAW_CONFIG_PATH=/tmp/openclaw-probe/openclaw.json; gateway run --dev --port 18799 --bind loopback --auth token; no existing gateway touched",
+  "capture": "captures/openclaw/ws.ndjson",
+  "redaction": "bin/redact.py plus targeted redaction of token/secret/password/api_key/recoveryScope/capability/nonce keys and /__openclaw__/cap/<id> URLs",
+  "notes": "Default agent was dev, main session key agent:dev:main. Created agent:dev:probe and sent one message. The model run failed because the isolated gateway had no provider credentials, so status=failed and no assistant reply; the sessions.send acknowledgment was captured."
+}

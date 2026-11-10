@@ -1,0 +1,277 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/goose/acp-observed.schema.json",
+  "title": "Goose ACP frames observed on stdio (goose 1.57.0, 2026-11-07)",
+  "$comment": "Observed from a live `goose acp` process. Not an official schema. Official ACP: https://agentclientprotocol.com",
+  "$defs": {
+    "JsonRpcRequest": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "method"],
+      "properties": {
+        "jsonrpc": {"const": "2.0"},
+        "id": {"type": ["integer", "string"]},
+        "method": {"type": "string"},
+        "params": {"type": "object"}
+      }
+    },
+    "JsonRpcNotification": {
+      "type": "object",
+      "required": ["jsonrpc", "method"],
+      "properties": {
+        "jsonrpc": {"const": "2.0"},
+        "method": {"type": "string"},
+        "params": {"type": "object"}
+      }
+    },
+    "JsonRpcResponse": {
+      "type": "object",
+      "required": ["jsonrpc", "id"],
+      "properties": {
+        "jsonrpc": {"const": "2.0"},
+        "id": {"type": ["integer", "string"]},
+        "result": {"type": "object"},
+        "error": {
+          "type": "object",
+          "required": ["code", "message"],
+          "properties": {
+            "code": {"type": "integer"},
+            "message": {"type": "string"},
+            "data": {}
+          }
+        }
+      }
+    },
+    "InitializeParams": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {"type": "integer", "const": 1},
+        "clientCapabilities": {
+          "type": "object",
+          "properties": {
+            "fs": {
+              "type": "object",
+              "properties": {
+                "readTextFile": {"type": "boolean"},
+                "writeTextFile": {"type": "boolean"}
+              }
+            }
+          }
+        },
+        "clientInfo": {
+          "type": "object",
+          "properties": {"name": {"type": "string"}, "version": {"type": "string"}}
+        }
+      }
+    },
+    "InitializeResult": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {"type": "integer"},
+        "agentCapabilities": {
+          "type": "object",
+          "properties": {
+            "loadSession": {"type": "boolean"},
+            "promptCapabilities": {"type": "object"},
+            "mcpCapabilities": {"type": "object"},
+            "sessionCapabilities": {
+              "type": "object",
+              "properties": {
+                "list": {"type": "object"},
+                "delete": {"type": "object"},
+                "close": {"type": "object"}
+              }
+            },
+            "auth": {"type": "object"},
+            "_meta": {"type": "object"}
+          }
+        },
+        "authMethods": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {"type": "string"},
+              "name": {"type": "string"},
+              "description": {"type": "string"}
+            }
+          }
+        },
+        "agentInfo": {
+          "type": "object",
+          "properties": {"name": {"type": "string"}, "version": {"type": "string"}}
+        }
+      }
+    },
+    "SessionNewParams": {
+      "type": "object",
+      "required": ["cwd"],
+      "properties": {
+        "cwd": {"type": "string"},
+        "mcpServers": {"type": "array"}
+      }
+    },
+    "SessionNewResult": {
+      "type": "object",
+      "required": ["sessionId"],
+      "properties": {
+        "sessionId": {"type": "string"},
+        "modes": {
+          "type": "object",
+          "properties": {
+            "currentModeId": {"type": "string"},
+            "availableModes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {"type": "string"},
+                  "name": {"type": "string"},
+                  "description": {"type": "string"}
+                }
+              }
+            }
+          }
+        },
+        "configOptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {"type": "string"},
+              "name": {"type": "string"},
+              "type": {"type": "string"},
+              "currentValue": {},
+              "category": {"type": "string"},
+              "options": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "value": {"type": "string"},
+                    "name": {"type": "string"},
+                    "description": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "_meta": {
+          "type": "object",
+          "properties": {
+            "extensionResults": {"type": "array"},
+            "workingDir": {"type": "string"}
+          }
+        }
+      }
+    },
+    "SessionSetModeParams": {
+      "type": "object",
+      "required": ["sessionId", "modeId"],
+      "properties": {
+        "sessionId": {"type": "string"},
+        "modeId": {"enum": ["auto", "approve", "smart_approve", "chat"]}
+      }
+    },
+    "SessionPromptParams": {
+      "type": "object",
+      "required": ["sessionId", "prompt"],
+      "properties": {
+        "sessionId": {"type": "string"},
+        "prompt": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type", "text"],
+            "properties": {"type": {"const": "text"}, "text": {"type": "string"}}
+          }
+        }
+      }
+    },
+    "SessionUpdateNotification": {
+      "type": "object",
+      "required": ["sessionId", "update"],
+      "properties": {
+        "sessionId": {"type": "string"},
+        "update": {
+          "type": "object",
+          "required": ["sessionUpdate"],
+          "properties": {
+            "sessionUpdate": {
+              "enum": [
+                "session_info_update",
+                "usage_update",
+                "available_commands_update",
+                "tool_call",
+                "tool_call_update",
+                "agent_message_chunk"
+              ]
+            },
+            "toolCallId": {"type": "string"},
+            "title": {"type": "string"},
+            "rawInput": {"type": "object"},
+            "status": {"type": "string"},
+            "content": {"type": "array"},
+            "rawOutput": {"type": "object"},
+            "_meta": {"type": "object"}
+          }
+        }
+      }
+    },
+    "SessionRequestPermission": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "method", "params"],
+      "properties": {
+        "jsonrpc": {"const": "2.0"},
+        "id": {"type": ["integer", "string"]},
+        "method": {"const": "session/request_permission"},
+        "params": {
+          "type": "object",
+          "required": ["sessionId", "toolCall", "options"],
+          "properties": {
+            "sessionId": {"type": "string"},
+            "toolCall": {
+              "type": "object",
+              "properties": {
+                "toolCallId": {"type": "string"},
+                "kind": {"type": "string"},
+                "status": {"type": "string"},
+                "title": {"type": "string"},
+                "rawInput": {"type": "object"}
+              }
+            },
+            "options": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["optionId", "name", "kind"],
+                "properties": {
+                  "optionId": {"type": "string"},
+                  "name": {"type": "string"},
+                  "kind": {"enum": ["allow_always", "allow_once", "reject_once", "reject_always"]}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "SessionRequestPermissionResponse": {
+      "type": "object",
+      "properties": {
+        "outcome": {
+          "type": "object",
+          "required": ["outcome", "optionId"],
+          "properties": {
+            "outcome": {"const": "selected"},
+            "optionId": {"type": "string"}
+          }
+        }
+      }
+    },
+    "SessionPromptResult": {
+      "type": "object",
+      "properties": {"stopReason": {"enum": ["end_turn", "max_tokens", "cancelled"]}}
+    }
+  }
+}

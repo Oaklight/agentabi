@@ -1,0 +1,25 @@
+{
+  "cli": "agy",
+  "version": "1.5.3",
+  "os": "linux",
+  "captured_at": "2026-11-07T18:26:00Z",
+  "transport": "stdio-ndjson",
+  "commands": [
+    "agy -p \"Reply with exactly: OK\" --output-format stream-json",
+    "agy --input-format stream-json --output-format stream-json -p=",
+    "agy acp",
+    "agy -p \"Run the shell command ls /tmp ...\" --output-format stream-json",
+    "agy --dangerously-skip-permissions -p \"Run the shell command ls /tmp ...\" --output-format stream-json"
+  ],
+  "files": [
+    "stream.jsonl",
+    "input-format.jsonl",
+    "acp-probe.jsonl",
+    "acp-tool.jsonl",
+    "tool-call-rosetta.jsonl",
+    "tool-result-rosetta.jsonl",
+    "acp-permission-rosetta.jsonl",
+    "tool-permission-sample.redacted.jsonl"
+  ],
+  "notes": "Tool call and permission frames captured through a local pass-through proxy. Provider rejects schemas for send_message, define_subagent, write_file, edit_file, ask_question ('\"1\" is not of type \"integer\"') and MCP names containing '/'; the proxy dropped only those declarations. Temp HOME avoided the user's MCP config; no user config was changed. Headless -p auto-denies a command under request-review (tool step ERROR + denied_actions); --dangerously-skip-permissions yields the tool result. ACP session/request_permission was captured and answered with optionId=allow."
+}

@@ -1,0 +1,21 @@
+{
+  "cli": "opencode",
+  "version": "1.19.0",
+  "os": "linux",
+  "captured_at": "2026-11-07T18:23:00Z",
+  "transport": ["http-sse", "jsonrpc-stdio"],
+  "command": "opencode serve --port 4099 --hostname 127.0.0.1; opencode acp",
+  "files": [
+    "events.ndjson",
+    "session-flow.ndjson",
+    "session-flow-rosetta.ndjson",
+    "session-flow-v1.ndjson",
+    "acp.ndjson",
+    "acp-permission.ndjson",
+    "export.json",
+    "export.redacted.json",
+    "FIELDS.md"
+  ],
+  "schema_dir": "../../schemas/opencode",
+  "notes": "SSE session.created/prompt/message events via both V1 /session/{id}/message and V2 /api/session/{id}/prompt; ACP initialize, session/new, session/set_model, session/prompt, session/update, session/request_permission. Initial V2 prompt hit provider 401 (missing_api_key); rerun with explicit rosetta/deepseek-v4.1-flash model succeeded. No secrets observed."
+}

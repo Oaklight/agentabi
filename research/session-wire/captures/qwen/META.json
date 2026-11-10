@@ -1,0 +1,26 @@
+{
+  "cli": "qwen",
+  "version": "0.26.9",
+  "transport": "unix-socket-ndjson",
+  "capture_date": "2026-11-07",
+  "os": "Linux 6.18.59-1-lts",
+  "install": "npm install -g @qwen-code/qwen-code",
+  "sessions": [
+    {"name": "a-58", "kind": "tui", "cwd": "/tmp/qwen-wire-3322903/a"},
+    {"name": "b-6c", "kind": "tui", "cwd": "/tmp/qwen-wire-3322903/b"}
+  ],
+  "note": "Temp QWEN_HOME; sessions stopped on the first-run auth screen, so no model turn and no real send_message tool call. Sender side is a hand-registered kind=external peer.",
+  "outputs": [
+    "captures/qwen/01-send-prompting.jsonl",
+    "captures/qwen/02-receipts.jsonl",
+    "captures/qwen/03-statuses.jsonl"
+  ],
+  "redacted": [
+    "captures/qwen/01-send-prompting.redacted.jsonl",
+    "captures/qwen/02-receipts.redacted.jsonl",
+    "captures/qwen/03-statuses.redacted.jsonl"
+  ],
+  "schema": "schemas/qwen/peer-protocol.md",
+  "status": "partial",
+  "not_captured": ["/peers release and deny UI", "hold expiry", "rate-limited drop", "queue-full drop", "controller token"]
+}

@@ -1,0 +1,12 @@
+{
+  "cli": "pi",
+  "version": "1.2.0",
+  "os": "linux 6.18.59-1-lts",
+  "date": "2026-11-07",
+  "transport": "stdio-ndjson-json-mode",
+  "command": "pi -p \"Reply with exactly OK\" --mode json --no-session --no-tools --no-mcp --no-extensions --no-skills --no-context-files",
+  "capture": "captures/pi/session.jsonl",
+  "peer_capture": "core has no peer messaging; see captures/pi/PEER.md",
+  "redaction": "bin/redact.py",
+  "notes": "Installed Pi 1.2.0. JSON mode emits NDJSON on stdout. RPC mode exists but was not captured. First attempts with extension/MCP discovery enabled produced no stdout within the timeout; disabling discovery made the run deterministic."
+}
