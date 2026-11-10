@@ -64,11 +64,26 @@ The client chooses the agent per session with `_meta.agent` in `session/new`:
 
 ## Permission policy
 
-Deny by default.
+Deny by default. Every session has a `permission_mode` config option:
 
-- An ACP pass-through backend answers a downstream `session/request_permission` with an explicit `cancelled` outcome.
-- IR backends have no ACP permission channel, so their provider's own policy applies and the gateway never widens it.
-- Forwarding permission requests to the ACP client is not implemented yet; it is tracked in [#63](https://github.com/Oaklight/agentabi/issues/63).
+| Value | Behaviour |
+| --- | --- |
+| `ask` | Forward each request to the client and wait for the answer. Default where the backend can ask. |
+| `deny` | Reject every request without contacting the client. |
+| `allow_all` | Allow every request. Reachable only by an explicit choice. |
+
+- Claude asks over the SDK control protocol. Answering `allow_once` runs the tool; `reject_once` leaves it unrun and the turn continues.
+- `allow_always` and `reject_always` are cached per session by the gateway. Claude's own `updatedPermissions` is not used: it writes `.claude/settings.local.json` and was measured not to suppress the next prompt.
+- Backends that cannot round-trip (`codex`, `agy`, `opencode`, `pi`) offer only `deny` and `allow_all`; their provider's own policy applies otherwise.
+- `--permission-timeout N` denies a request the client does not answer within N seconds. The default `0` waits.
+- `session/cancel` while a request is pending resolves it as cancelled and ends the turn.
+
+A client answers `session/request_permission` with the id of the option it was offered:
+
+```json
+{"outcome": {"outcome": "selected", "optionId": "allow_once"}}
+{"outcome": {"outcome": "cancelled"}}
+```
 
 ## Audit
 
