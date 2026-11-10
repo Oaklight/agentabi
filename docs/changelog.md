@@ -4,6 +4,7 @@
 
 ### 新增
 
+- **Codex 思考等级** — `thinking_level` 现在以 `-c model_reasoning_effort="<level>"` 传给 codex，`codex exec` 与 `codex exec resume` 都适用；`max` 映射为 `high`，`off` 不传。`supports_thinking` 声明为 `True`。codex 不输出推理文本，因此这是控制项，不是 `reasoning_delta` 流。已在 codex 0.162.1 上验证。(#86)
 - **ACP 网关** — `agentabi acp --agent <name>` 通过 stdio 把一个 agent 暴露为 ACP 端点。`opencode` 使用自带的 ACP 服务器；`agy`、`claude`、`codex`、`pi` 走 IR 流。ACP 与 JSON-RPC 已 vendor 自 zerodep，无需外部 ACP SDK 或 Node 运行时。(#44, #47)
 - **ACP v2 与外部 ACP 服务器** — `initialize` 协商 ACP v2，`session/prompt` 返回后端真实的 `stopReason`。`--agent acp --acp-command "<cmd>"` 可转发到任意外部 ACP 服务器，并原样传递其更新。(#48, #50)
 - **路由模式** — `--router` 配合重复的 `--agent`，一个网关进程服务多个 agent。客户端在 `session/new` 中用 `_meta.agent` 按会话选择；未知名称返回 `-32602` 并列出已启用的 agent。`initialize` 只声明可达后端能力的交集。权限默认拒绝，每次路由调用都记录到 `agentabi.acp.audit` 日志。(#64, PR #68)
