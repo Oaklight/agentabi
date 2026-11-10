@@ -1268,6 +1268,21 @@ def test_prompt_ready_accepts_an_empty_input_box():
     assert _prompt_is_ready("❯ ") is True
 
 
+def test_prompt_ready_accepts_the_placeholder_hint_in_the_input_box():
+    # Captured from Claude Code 2.1.299: the empty input box renders the
+    # marker followed by a non-breaking space and the placeholder hint.
+    screen = (
+        "  Claude Code v2.1.299\n"
+        "  ────────────────────────────────────────\n"
+        '  ❯\xa0 Try "write a test for __init__.py"\n'
+        "  ────────────────────────────────────────\n"
+        "   ⏵⏵ auto mode on  (shift+tab to cycle) · ← for agents\n"
+        "   1 agent\n"
+        "   PR     #72    · ← 1 agent\n"
+    )
+    assert _prompt_is_ready(screen) is True
+
+
 def test_prompt_ready_rejects_menu_items():
     assert _prompt_is_ready("Select a theme\n❯   1.   Red\n  2.   Blue\n") is False
     assert _prompt_is_ready("Do you want to proceed?\n❯  1.  Yes\n  2.  No\n") is False

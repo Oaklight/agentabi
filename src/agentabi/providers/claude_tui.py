@@ -100,6 +100,8 @@ _ANSI_RE = re.compile(
 #: `` ❯`` between two rules, with the status bar below.  A menu item such
 #: as ``❯  1.  Red`` and assistant text quoting ``❯`` are not a prompt.
 _PROMPT_LINE_RE = re.compile(r"^\s*❯\s*$")
+#: A horizontal rule: the top and bottom border of the input box.
+_RULE_RE = re.compile(r"^\s*[─━╌╍═]{10,}\s*$")
 #: Non-empty screen lines below the prompt line that still count as chrome
 #: (the closing rule and the status bar).  Anything further up is scrollback.
 _PROMPT_BOTTOM_LINES = 4
@@ -674,24 +676,41 @@ def _screen_is_busy(screen: str) -> bool:
     )
 
 
+def _framed_by_rule(lines: list[str], index: int) -> bool:
+    """Return whether *index* sits inside a box drawn by two rule lines."""
+    above = next((line for line in reversed(lines[:index]) if line.strip()), "")
+    below = next((line for line in lines[index + 1 :] if line.strip()), "")
+    return bool(_RULE_RE.match(above) and _RULE_RE.match(below))
+
+
 def _prompt_is_ready(screen: str) -> bool:
     """Return whether *screen* shows the input prompt, not a menu or text.
 
     The TUI does not use the alternate screen, so the captured stream holds
-    stale frames and scrollback.  The input box renders the marker alone on
-    its own line, with only the closing rule and the status bar below it.
+    stale frames and scrollback.  Two shapes count as the prompt:
+
+    - the marker alone on its line, with at most four non-empty lines below
+      it (the closing rule and the status bar);
+    - the marker line inside the input box, whose top and bottom borders are
+      rule lines.  A non-empty input box renders the marker followed by the
+      typed text or the placeholder hint, so the marker is not alone there.
+
     A menu item (``❯  1.  Red``), a theme picker, and assistant text that
-    quotes the marker are therefore not prompts.
+    quotes the marker are neither: their neighbours are option or message
+    text, not rules.
 
     The last matching line wins: a redraw appends a new frame, and the
     newest frame's prompt is the live one.
     """
     lines = screen.splitlines()
     for index in range(len(lines) - 1, -1, -1):
-        if not _PROMPT_LINE_RE.match(lines[index]):
+        line = lines[index]
+        if "❯" not in line:
             continue
-        below = [line for line in lines[index + 1 :] if line.strip()]
-        return len(below) <= _PROMPT_BOTTOM_LINES
+        if _PROMPT_LINE_RE.match(line):
+            below = [text for text in lines[index + 1 :] if text.strip()]
+            return len(below) <= _PROMPT_BOTTOM_LINES
+        return _framed_by_rule(lines, index)
     return False
 
 
