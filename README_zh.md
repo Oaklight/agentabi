@@ -125,6 +125,46 @@ agentabi acp --agent acp --acp-command "npx -y @agentclientprotocol/claude-agent
 
 网关对该进程说 ACP，并把其 `session/update` 原样转发。
 
+### Router 模式
+
+一个网关进程可以服务多个 agent。用 `--router` 和重复的 `--agent` 启用：
+
+```bash
+agentabi acp --router --agent claude --agent opencode
+```
+
+客户端在 `session/new` 里用 `_meta.agent` 为每个会话选择 agent：
+
+```json
+{"jsonrpc": "2.0", "id": 1, "method": "session/new",
+ "params": {"cwd": "/work", "_meta": {"agent": "opencode"}}}
+```
+
+未提供 `_meta.agent` 时使用第一个启用的 agent。未知名字返回 `-32602`
+（invalid params），并列出已启用的 agent。选中的 agent 会作为 `agent`
+配置项出现在会话配置里。该配置项只用于展示：ACP 配置项由 `session/new`
+返回、之后才能设置，因此无法在创建会话时选择 agent。用
+`session/set_config_option` 修改它会返回错误；要换 agent 请新建会话。
+
+**能力策略。** `initialize` 只广播所有已启用且可达 backend 都支持的交集，
+并进一步受网关自身实现限制：`session/load`、`session/list`、
+`session/resume`、`session/delete` 一律不广播，认证也不代理。启动失败的
+backend 会记录日志并排除在交集之外；之后选择它会返回明确错误。因为 agent
+在 `initialize` 之后才选定，所以不广播 per-agent 能力。协商的协议版本取所有
+可达 backend 报告的最低版本；IR backend 被告知按该版本输出，原生 ACP
+backend 会重启后重新协商到该版本。
+
+**权限策略。** 默认拒绝。网关绝不会把下游的 `session/request_permission`
+回答成 allow：ACP backend 会收到明确的 `cancelled`。IR backend 根本没有 ACP
+权限通道，因此按 provider 自身的默认策略执行，网关不会放宽它。目前尚未把
+权限请求转发给客户端询问。
+
+**审计。** 每个经路由的方法都会在 `agentabi.acp.audit` logger 上记录
+method、agent、session、耗时和结果。
+
+**生命周期。** 每个 agent 只有一个 backend 实例，由它的会话共享；最后一个
+会话关闭时停止。新会话会重新启动它。
+
 ## 核心特性
 
 ### 统一的 TaskConfig

@@ -133,6 +133,53 @@ agentabi acp --agent acp --acp-command "npx -y @agentclientprotocol/claude-agent
 
 The gateway speaks ACP to that process and forwards its `session/update` payloads unchanged.
 
+### Router mode
+
+One gateway process can serve several agents. Enable more than one with
+`--router` and repeated `--agent`:
+
+```bash
+agentabi acp --router --agent claude --agent opencode
+```
+
+The client picks an agent per session with `_meta.agent` in `session/new`:
+
+```json
+{"jsonrpc": "2.0", "id": 1, "method": "session/new",
+ "params": {"cwd": "/work", "_meta": {"agent": "opencode"}}}
+```
+
+The first enabled agent is the default when `_meta.agent` is absent. An
+unknown name fails with `-32602` (invalid params) and lists the enabled
+agents. The selected agent is reported in the session config as an `agent`
+option. That option is informational: ACP config options are returned by
+`session/new` and set afterwards, so they cannot choose an agent at creation
+time. Changing it with `session/set_config_option` returns an error; create a
+new session to switch agents.
+
+**Capability policy.** `initialize` advertises the intersection of what every
+enabled and reachable backend honours, further limited by what the gateway
+itself implements: `session/load`, `session/list`, `session/resume`, and
+`session/delete` are never advertised, and authentication is not proxied.
+A backend that cannot start is logged and left out of the intersection;
+selecting it later returns a clear error. Per-agent capabilities are not
+advertised because the agent is chosen after `initialize`. The negotiated
+protocol version is the lowest version any reachable backend reports; IR
+backends are told to emit that version, and native ACP backends are
+restarted so their downstream negotiates it too.
+
+**Permission policy.** Deny by default. The gateway never answers a
+downstream `session/request_permission` with an allow: an ACP backend gets an
+explicit `cancelled` outcome. IR backends have no ACP permission channel at
+all, so their provider's own default policy applies and the gateway never
+widens it. Asking the client is not proxied yet.
+
+**Audit.** Every routed method is recorded with method, agent, session,
+duration, and outcome on the `agentabi.acp.audit` logger.
+
+**Lifecycle.** One backend instance per agent is shared by its sessions and
+stopped when its last session closes. A new session starts it again.
+
 ## Key Features
 
 ### Unified TaskConfig

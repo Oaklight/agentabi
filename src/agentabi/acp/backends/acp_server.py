@@ -14,18 +14,25 @@ from agentabi._vendor.acp import (
     ACPClient,
     InitializeParams,
     InitializeResult,
+    JSONRPCError,
+    JSONRPCException,
     LoadSessionParams,
     NewSessionParams,
     NewSessionResult,
     PromptParams,
     PromptResult,
 )
+from agentabi._vendor.jsonrpc import METHOD_NOT_FOUND
 
 from .base import split_prompt_blocks
 
 
 class ACPBackend:
     """Backend that delegates to an external ACP server process."""
+
+    #: The gateway answers downstream permission requests (with a deny), so
+    #: this backend does not silently inherit the downstream's policy.
+    mediates_permissions = True
 
     def __init__(self, command: list[str], *, name: str = "acp") -> None:
         """Create a backend for *command*.
@@ -37,8 +44,29 @@ class ACPBackend:
         self.name = name
         self._command = list(command)
         self._client = ACPClient(self._command)
+        self._client.set_request_handler(self._handle_client_request)
         self._started = False
         self._prompt_results: dict[str, PromptResult] = {}
+
+    async def _handle_client_request(
+        self, method: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Answer downstream agent requests without granting anything.
+
+        The gateway has no permission UI and does not proxy client
+        filesystem or terminal methods, so a downstream
+        ``session/request_permission`` is denied explicitly.  Denying
+        (rather than erroring) keeps the outcome unambiguous for agents
+        that treat an error as a transport failure.
+        """
+        if method == "session/request_permission":
+            return {"outcome": {"outcome": "cancelled"}}
+        raise JSONRPCException(
+            JSONRPCError(
+                code=METHOD_NOT_FOUND,
+                message=f"the agentabi gateway does not proxy {method}",
+            )
+        )
 
     async def start(self) -> None:
         if not self._started:
