@@ -74,6 +74,7 @@ async def test_unknown_agent_over_the_wire_is_invalid_params(
             "session/new",
             {"cwd": str(tmp_path), "_meta": {"agent": "nope"}},
         )
+    assert isinstance(exc.value, JSONRPCException)
     assert exc.value.error.code == INVALID_PARAMS
     assert "enabled agents: acp" in exc.value.error.message
 

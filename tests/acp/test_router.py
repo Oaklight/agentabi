@@ -196,6 +196,7 @@ async def test_unknown_agent_is_rejected_with_enabled_agents():
         await router.new_session_with_meta(
             NewSessionParams(cwd="/tmp"), {"agent": "nope"}
         )
+    assert isinstance(exc.value, JSONRPCException)
     assert exc.value.error.code == INVALID_PARAMS
     assert "enabled agents: a, b" in exc.value.error.message
 
@@ -248,6 +249,7 @@ async def test_unknown_session_prompt_is_rejected():
     router = make_router("a")
     with pytest.raises(JSONRPCException) as exc:
         router.prompt(PromptParams(session_id="missing", prompt=[]))
+    assert isinstance(exc.value, JSONRPCException)
     assert exc.value.error.code == INVALID_PARAMS
 
 
@@ -355,6 +357,7 @@ async def test_unavailable_agent_is_left_out_and_reported_on_selection():
         await router.new_session_with_meta(
             NewSessionParams(cwd="/tmp"), {"agent": "bad"}
         )
+    assert isinstance(exc.value, JSONRPCException)
     assert exc.value.error.code == INTERNAL_ERROR
     assert "bad" in exc.value.error.message
 
@@ -364,6 +367,7 @@ async def test_initialize_fails_when_no_agent_is_available():
     router = make_router("bad", config={"bad": {"fail_initialize": True}})
     with pytest.raises(JSONRPCException) as exc:
         await router.initialize(InitializeParams(protocol_version=2))
+    assert isinstance(exc.value, JSONRPCException)
     assert exc.value.error.code == INTERNAL_ERROR
     assert "no enabled agent could be initialized" in exc.value.error.message
 
@@ -418,6 +422,7 @@ async def test_agent_config_option_is_reported_and_immutable():
                 session_id=created.session_id, config_id="agent", value="b"
             )
         )
+    assert isinstance(exc.value, JSONRPCException)
     assert exc.value.error.code == INVALID_PARAMS
     assert "fixed for the lifetime of a session" in exc.value.error.message
 
@@ -515,6 +520,7 @@ async def test_acp_backend_denies_downstream_permission_requests():
     assert outcome == {"outcome": {"outcome": "cancelled"}}
     with pytest.raises(JSONRPCException) as exc:
         await backend._handle_client_request("fs/read_text_file", {})
+    assert isinstance(exc.value, JSONRPCException)
     assert exc.value.error.code == METHOD_NOT_FOUND
 
 
