@@ -141,9 +141,10 @@ The gateway speaks ACP to that process and forwards its `session/update` payload
 The Claude backend (`agentabi acp --agent claude`) and ACP pass-through
 backends (`opencode`, `--agent acp`) can ask: a request reaches the client as
 `session/request_permission` and the answer is written back. Backends without a
-permission channel (`codex`, `agy`, `pi`) get no `permission_mode` option at
-all; their provider's own policy applies, and the gateway never turns a missing
-channel into an allow.
+permission channel (`codex`, `agy`) still get `deny` and `allow_all`, which the
+gateway enforces with the provider's own flags (codex runs read-only with no
+approvals; agy drops its skip-permissions flag). `pi` has no such flags, so it
+gets no option. The gateway never turns a missing channel into an allow.
 
 Use `--permission-timeout SECONDS` to bound the wait (default `0` waits
 forever) and `--permission-policy ask|deny|allow_all` to choose the initial

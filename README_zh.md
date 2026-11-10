@@ -133,8 +133,9 @@ agentabi acp --agent acp --acp-command "npx -y @agentclientprotocol/claude-agent
 Claude backend（`agentabi acp --agent claude`）与 ACP 直通 backend
 （`opencode`、`--agent acp`）可以发起询问：请求以
 `session/request_permission` 到达客户端，选择会写回。没有权限通道的 backend
-（`codex`、`agy`、`pi`）不会得到 `permission_mode` 配置项，适用提供者自身的
-策略；网关不会把缺失的通道当成允许。
+（`codex`、`agy`）仍提供 `deny` 与 `allow_all`，网关用提供者自身的参数强制执行
+（codex 以只读且不请求审批的方式运行；agy 去掉跳过权限参数）。`pi` 没有这类
+参数，因此不提供该选项。网关不会把缺失的通道当成允许。
 
 `--permission-timeout SECONDS` 限制等待时间（默认 `0` 表示一直等待），
 `--permission-policy ask|deny|allow_all` 设置初始策略。
