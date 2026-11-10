@@ -7,6 +7,7 @@ hide:
 # agentabi
 
 [![PyPI version](https://img.shields.io/pypi/v/agentabi?color=green)](https://pypi.org/project/agentabi/)
+[![TestPyPI](https://img.shields.io/pypi/v/agentabi?pypiBaseUrl=https://test.pypi.org&label=TestPyPI&color=orange)](https://test.pypi.org/project/agentabi/)
 [![GitHub release](https://img.shields.io/github/v/release/Oaklight/agentabi?color=green)](https://github.com/Oaklight/agentabi/releases/latest)
 [![CI](https://github.com/Oaklight/agentabi/actions/workflows/ci.yml/badge.svg)](https://github.com/Oaklight/agentabi/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
