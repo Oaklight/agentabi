@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from typing import cast
 
+from agentabi._vendor.ptyx import PtyProcess
 from agentabi.providers import registry
 from agentabi.providers.claude_native import ClaudeNativeProvider
 from agentabi.providers.claude_sdk import ClaudeSDKProvider
@@ -133,6 +134,102 @@ def _write_script(tmp_path: Path, body: str) -> Path:
     path.write_text(body.replace("__PYTHON__", sys.executable))
     path.chmod(0o755)
     return path
+
+
+_SCRIPT_HEADER = r"""#!__PYTHON__
+import json, os, re, sys, time
+
+
+def arg(name):
+    try:
+        return sys.argv[sys.argv.index(name) + 1]
+    except ValueError:
+        return None
+
+
+sid = arg("--session-id") or arg("--resume") or "fake-session"
+cwd = os.getcwd()
+base = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+slug = re.sub(r"[^A-Za-z0-9]", "-", cwd)
+path = os.path.join(base, "projects", slug, sid + ".jsonl")
+os.makedirs(os.path.dirname(path), exist_ok=True)
+
+sys.stdout.write("❯ ")
+sys.stdout.flush()
+
+buf = b""
+while b"\n" not in buf and b"\r" not in buf:
+    ch = os.read(0, 1)
+    if not ch:
+        sys.exit(0)
+    buf += ch
+text = buf.decode("utf-8", "replace")
+text = text.replace("\x1b[200~", "").replace("\x1b[201~", "")
+text = text.replace("\r", "\n").split("\n")[0]
+
+
+def append(row):
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row) + "\n")
+
+
+def wait():
+    while True:
+        if not os.read(0, 1):
+            break
+"""
+
+
+def _script(body: str) -> str:
+    """Combine the fake TUI header with a per-test row-writing body."""
+    return _SCRIPT_HEADER + body
+
+
+_API_RETRY_TUI = _script(
+    r"""
+append({"type": "system", "subtype": "api_error", "level": "error",
+        "error": {"message": "502 upstream unavailable", "status": 502},
+        "retryAttempt": 1, "maxRetries": 10})
+append({"type": "assistant", "message": {"id": "msg_ok", "role": "assistant",
+        "content": [{"type": "text", "text": "RECOVERED: " + text}],
+        "usage": {"input_tokens": 5, "output_tokens": 1}}})
+append({"type": "system", "subtype": "turn_duration"})
+wait()
+"""
+)
+
+_API_EXHAUSTED_TUI = _script(
+    r"""
+append({"type": "system", "subtype": "api_error", "level": "error",
+        "error": {"message": "502 upstream unavailable", "status": 502},
+        "retryAttempt": 10, "maxRetries": 10})
+wait()
+"""
+)
+
+_API_MESSAGE_TUI = _script(
+    r"""
+append({"type": "assistant", "isApiErrorMessage": True, "error": "server_error",
+        "apiErrorStatus": 502,
+        "message": {"id": "msg_err", "role": "assistant", "model": "<synthetic>",
+                    "content": [{"type": "text",
+                                 "text": "API Error: 502 bad gateway"}],
+                    "usage": {"input_tokens": 0, "output_tokens": 0}}})
+wait()
+"""
+)
+
+_RESULT_TUI = _script(
+    r"""
+append({"type": "assistant", "message": {"id": "msg_r", "role": "assistant",
+        "content": [{"type": "text", "text": "RESULT: " + text}],
+        "usage": {"input_tokens": 3, "output_tokens": 2}}})
+append({"type": "result", "subtype": "success", "session_id": sid,
+        "usage": {"input_tokens": 3, "output_tokens": 2},
+        "total_cost_usd": 0.01})
+wait()
+"""
+)
 
 
 def _task(
@@ -320,3 +417,231 @@ async def test_resume_skips_existing_transcript(tmp_path):
     assert [
         event["text"] for event in second_events if event["type"] == "message_end"
     ] == ["ECHO: second"]
+
+
+# ========== API errors end the turn instead of timing out ==========
+
+
+def test_system_api_error_ends_turn_when_retries_are_exhausted():
+    row = {
+        "type": "system",
+        "subtype": "api_error",
+        "level": "error",
+        "error": {"message": "502 upstream unavailable", "status": 502},
+        "retryAttempt": 10,
+        "maxRetries": 10,
+    }
+    events, turn_done = _turn_row(row, set())
+
+    assert turn_done is True
+    assert len(events) == 1
+    assert events[0]["type"] == "error"
+    assert events[0]["is_fatal"] is True
+    assert "502" in events[0]["error"]
+    assert "upstream unavailable" in events[0]["error"]
+
+
+def test_system_api_error_stays_non_fatal_while_retries_remain():
+    row = {
+        "type": "system",
+        "subtype": "api_error",
+        "error": {"message": "502 upstream unavailable", "status": 502},
+        "retryAttempt": 1,
+        "maxRetries": 10,
+    }
+    events, turn_done = _turn_row(row, set())
+
+    assert turn_done is False
+    assert events[0]["type"] == "error"
+    assert events[0]["is_fatal"] is False
+    assert "retry 1/10" in events[0]["error"]
+
+
+def test_system_api_error_without_retry_budget_ends_turn():
+    events, turn_done = _turn_row(
+        {"type": "system", "subtype": "api_error", "error": "socket closed"}, set()
+    )
+
+    assert turn_done is True
+    assert events[0]["is_fatal"] is True
+    assert "socket closed" in events[0]["error"]
+
+
+def test_assistant_api_error_message_becomes_fatal_error():
+    row = {
+        "type": "assistant",
+        "isApiErrorMessage": True,
+        "error": "server_error",
+        "apiErrorStatus": 502,
+        "message": {
+            "id": "msg-err",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "API Error: 502 bad gateway"}],
+        },
+    }
+    events, turn_done = _turn_row(row, set())
+
+    assert turn_done is True
+    assert [event["type"] for event in events] == ["error"]
+    assert events[0]["is_fatal"] is True
+    assert "502" in events[0]["error"]
+    assert "API Error" in events[0]["error"]
+
+
+async def test_exhausted_api_error_row_ends_turn_promptly(tmp_path):
+    binary = _write_script(tmp_path, _API_EXHAUSTED_TUI)
+    started = time.monotonic()
+    events = [
+        event
+        async for event in ClaudeTuiProvider().stream(
+            _task(tmp_path, binary, timeout=30.0)
+        )
+    ]
+    elapsed = time.monotonic() - started
+
+    errors = [event for event in events if event["type"] == "error"]
+    assert errors
+    assert errors[0]["is_fatal"] is True
+    assert "timed out" not in errors[0]["error"]
+    assert elapsed < 10.0
+    assert [event["type"] for event in events].count("session_end") == 1
+
+
+async def test_retrying_api_error_does_not_end_the_turn(tmp_path):
+    binary = _write_script(tmp_path, _API_RETRY_TUI)
+    events = [
+        event async for event in ClaudeTuiProvider().stream(_task(tmp_path, binary))
+    ]
+
+    texts = [event["text"] for event in events if event["type"] == "message_end"]
+    assert texts == ["RECOVERED: hello"]
+    errors = [event for event in events if event["type"] == "error"]
+    assert errors and errors[0]["is_fatal"] is False
+
+
+async def test_assistant_api_error_message_is_not_answer_text(tmp_path):
+    binary = _write_script(tmp_path, _API_MESSAGE_TUI)
+    events = [
+        event
+        async for event in ClaudeTuiProvider().stream(
+            _task(tmp_path, binary, timeout=30.0)
+        )
+    ]
+
+    errors = [event for event in events if event["type"] == "error"]
+    assert errors and errors[0]["is_fatal"] is True
+    assert "502 bad gateway" in errors[0]["error"]
+    assert [event for event in events if event["type"] == "message_end"] == []
+
+
+# ========== Internal failures surface as ErrorEvent ==========
+
+
+class _RaisingProc:
+    """A PTY stand-in whose reads fail."""
+
+    returncode = None
+
+    def __init__(self, exc: BaseException) -> None:
+        self._exc = exc
+
+    async def read(self, size: int = 65536) -> bytes:
+        raise self._exc
+
+
+class _ExitedProc:
+    """A PTY stand-in that reports end of stream."""
+
+    returncode = 1
+
+    async def read(self, size: int = 65536) -> bytes:
+        return b""
+
+
+async def test_pty_read_failure_becomes_error_event(tmp_path):
+    proc = cast(PtyProcess, _RaisingProc(OSError("EIO")))
+    task = cast(TaskConfig, {"timeout": 30.0})
+    path = tmp_path / "missing.jsonl"
+
+    events = [
+        event
+        async for event in ClaudeTuiProvider()._turn_events(  # noqa: SLF001
+            proc, path, "sid", task, 0
+        )
+    ]
+
+    errors = [event for event in events if event["type"] == "error"]
+    assert errors
+    assert errors[0]["is_fatal"] is True
+    assert "terminal read failed" in errors[0]["error"]
+
+
+async def test_transcript_read_failure_becomes_error_event(tmp_path):
+    # A directory cannot be opened as a file: reading it raises OSError.
+    proc = cast(PtyProcess, _ExitedProc())
+    task = cast(TaskConfig, {"timeout": 30.0})
+    events = [
+        event
+        async for event in ClaudeTuiProvider()._turn_events(  # noqa: SLF001
+            proc, tmp_path, "sid", task, 0
+        )
+    ]
+
+    errors = [event for event in events if event["type"] == "error"]
+    assert errors
+    assert errors[0]["is_fatal"] is True
+    assert "cannot read Claude Code transcript" in errors[0]["error"]
+
+
+async def test_invalid_timeout_becomes_error_event(tmp_path):
+    binary = _write_script(tmp_path, _FAKE_TUI)
+    task = _task(tmp_path, binary, timeout=30.0)
+    task["timeout"] = "not-a-number"  # type: ignore[typeddict-item]
+
+    events = [event async for event in ClaudeTuiProvider().stream(task)]
+
+    errors = [event for event in events if event["type"] == "error"]
+    assert errors
+    assert errors[0]["is_fatal"] is True
+    assert "invalid timeout" in errors[0]["error"]
+    assert [event["type"] for event in events].count("session_end") == 1
+
+
+async def test_invalid_ready_timeout_becomes_error_event(tmp_path):
+    binary = _write_script(tmp_path, _FAKE_TUI)
+    task = _task(tmp_path, binary)
+    task["agent_extensions"] = {
+        "claude_binary": str(binary),
+        "ready_timeout": "soon",
+    }
+
+    events = [event async for event in ClaudeTuiProvider().stream(task)]
+
+    errors = [event for event in events if event["type"] == "error"]
+    assert errors
+    assert errors[0]["is_fatal"] is True
+    assert "invalid agent_extensions.ready_timeout" in errors[0]["error"]
+
+
+# ========== A result row emits session_end once ==========
+
+
+def test_result_row_does_not_emit_session_end():
+    row = {"type": "result", "subtype": "success", "session_id": "sid-1"}
+    events, turn_done = _turn_row(row, set())
+
+    assert turn_done is True
+    assert [event["type"] for event in events].count("session_end") == 0
+    assert any(event["type"] == "usage" for event in events)
+
+
+async def test_result_row_yields_one_session_end(tmp_path):
+    binary = _write_script(tmp_path, _RESULT_TUI)
+    events = [
+        event async for event in ClaudeTuiProvider().stream(_task(tmp_path, binary))
+    ]
+
+    assert [event["type"] for event in events].count("session_end") == 1
+    assert [event["text"] for event in events if event["type"] == "message_end"] == [
+        "RESULT: hello"
+    ]

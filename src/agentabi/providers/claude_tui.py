@@ -83,6 +83,10 @@ _LOGIN_MARKERS = ("select login method", "sign in to claude", "log in to claude"
 _THEME_MARKERS = ("select a theme", "choose a theme")
 
 
+class _PtyReadError(RuntimeError):
+    """The PTY could not be read while a turn was running."""
+
+
 def strip_ansi(text: str) -> str:
     """Remove terminal escape sequences from *text*."""
     return _ANSI_RE.sub(" ", text)
@@ -134,9 +138,12 @@ def _read_new_rows(path: Path, offset: int) -> tuple[list[dict[str, Any]], int]:
         if newline < 0:
             break
         try:
-            rows.append(json.loads(data[used:newline]))
+            row = json.loads(data[used:newline])
         except json.JSONDecodeError:
             pass
+        else:
+            if isinstance(row, dict):
+                rows.append(row)
         used = newline + 1
     return rows, offset + used
 
@@ -253,22 +260,101 @@ def _usage_once(message: dict[str, Any], seen: set[str]) -> UsageEvent | None:
     return usage
 
 
+def _float_option(value: Any, default: float, name: str) -> float:
+    """Parse a numeric task option, naming it when the value is invalid."""
+    if value is None or value == "":
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"invalid {name}: {value!r}") from exc
+
+
+def _collapse_whitespace(text: str, limit: int = 500) -> str:
+    """Flatten *text* to one line and truncate it to *limit* characters."""
+    flat = " ".join(text.split())
+    if len(flat) > limit:
+        flat = flat[: limit - 3].rstrip() + "..."
+    return flat
+
+
+def _api_error_event(message: str, status: Any, suffix: str, fatal: bool) -> ErrorEvent:
+    """Build an ``ErrorEvent`` for an API failure reported by Claude Code."""
+    detail = _collapse_whitespace(message) or "Claude Code reported an API error"
+    prefix = f"API error {status}: " if status else "API error: "
+    return ErrorEvent(type="error", error=prefix + detail + suffix, is_fatal=fatal)
+
+
+def _system_api_error(row: dict[str, Any]) -> tuple[ErrorEvent, bool]:
+    """Map a ``system/api_error`` row to an event and a turn-end signal.
+
+    Claude Code writes one row per failed attempt.  While retries remain the
+    turn continues, so the event is not fatal; once the retry budget is spent
+    (or the row carries none) the turn cannot produce an answer.
+    """
+    raw = row.get("error")
+    if isinstance(raw, dict):
+        status = raw.get("status")
+        message = str(raw.get("message") or raw.get("formatted") or "")
+    else:
+        status = None
+        message = str(raw) if raw else ""
+    attempt = row.get("retryAttempt")
+    limit = row.get("maxRetries")
+    retrying = isinstance(attempt, int) and isinstance(limit, int) and attempt < limit
+    suffix = f" (retry {attempt}/{limit})" if retrying else ""
+    return _api_error_event(message, status, suffix, fatal=not retrying), not retrying
+
+
+def _assistant_api_error(row: dict[str, Any]) -> ErrorEvent:
+    """Map an ``isApiErrorMessage`` assistant row to a fatal event.
+
+    The row repeats the failure as ordinary answer text; emitting it as a
+    message would make the failure look like a response.
+    """
+    message = row.get("message")
+    text = ""
+    content = message.get("content") if isinstance(message, dict) else None
+    if isinstance(content, list):
+        text = "".join(
+            block.get("text", "")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+    if not text:
+        text = str(row.get("error") or "")
+    return _api_error_event(text, row.get("apiErrorStatus"), "", fatal=True)
+
+
 def _turn_row(row: dict[str, Any], seen_usage: set[str]) -> tuple[list[IREvent], bool]:
     """Convert one transcript row into IR events and a turn-end signal.
 
     Returns:
-        ``(events, turn_done)``.  Only ``system/turn_duration`` and
-        ``result`` rows finish the turn; an assistant ``stop_reason`` is not
+        ``(events, turn_done)``.  Only ``system/turn_duration``, ``result``,
+        and API failures finish the turn; an assistant ``stop_reason`` is not
         a boundary because one API message can be split across several
         JSONL rows written seconds apart.
     """
     row_type = row.get("type")
     if row_type == "system":
         # The provider already emitted session_start; only the duration row
-        # is meaningful here.
-        return [], row.get("subtype") == "turn_duration"
+        # and API failures are meaningful here.
+        subtype = row.get("subtype")
+        if subtype == "turn_duration":
+            return [], True
+        if subtype == "api_error":
+            event, turn_done = _system_api_error(row)
+            return [event], turn_done
+        return [], False
+    if row_type == "assistant" and row.get("isApiErrorMessage"):
+        return [_assistant_api_error(row)], True
+    if row_type == "assistant" and not isinstance(row.get("message"), dict):
+        return [], False
     events = _with_message_delta(ClaudeNativeProvider._parse_event(row))
     if row_type == "result":
+        # The native parser ends the session too; the turn loop owns that
+        # event, so a result row must not emit session_end a second time.
+        events = [event for event in events if event.get("type") != "session_end"]
         return events, True
     if row_type != "assistant":
         return events, False
@@ -276,6 +362,28 @@ def _turn_row(row: dict[str, Any], seen_usage: set[str]) -> tuple[list[IREvent],
     if usage is not None:
         events.append(usage)
     return events, False
+
+
+def _remove_stale(path: Path) -> str | None:
+    """Delete a transcript this provider is about to rewrite.
+
+    Returns:
+        ``None`` on success, otherwise an error message.  On Windows an open
+        transcript can refuse deletion with ``PermissionError``.
+    """
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        return f"cannot replace the stale transcript {path}: {exc}"
+    return None
+
+
+def _resume_offset(path: Path) -> int:
+    """Return the transcript's current end, or 0 when it does not exist."""
+    try:
+        return path.stat().st_size
+    except FileNotFoundError:
+        return 0
 
 
 class ClaudeTuiProvider:
@@ -332,19 +440,27 @@ class ClaudeTuiProvider:
                 # under a new id; pass resume=True to continue that one.
                 session_id = str(uuid.uuid4())
                 path = transcript_path(cwd, session_id, env.get("CLAUDE_CONFIG_DIR"))
-            path.unlink(missing_ok=True)
+            problem = _remove_stale(path)
+            if problem is not None:
+                yield ErrorEvent(type="error", error=problem, is_fatal=True)
+                return
 
         command = _build_command(binary, task, session_id, resume)
 
+        proc: PtyProcess | None = None
+        started = False
+        ended = False
         try:
-            proc = await PtyProcess.spawn(command, cwd=cwd, env=env)
-        except (OSError, PtyStartupError) as exc:
-            yield ErrorEvent(
-                type="error", error=f"cannot start Claude Code: {exc}", is_fatal=True
-            )
-            return
+            try:
+                proc = await PtyProcess.spawn(command, cwd=cwd, env=env)
+            except (OSError, PtyStartupError) as exc:
+                yield ErrorEvent(
+                    type="error",
+                    error=f"cannot start Claude Code: {exc}",
+                    is_fatal=True,
+                )
+                return
 
-        try:
             failure = await self._wait_ready(proc, task)
             if failure is not None:
                 reason, screen = failure
@@ -355,25 +471,40 @@ class ClaudeTuiProvider:
                 )
                 return
 
-            offset = 0
-            if resume:
-                # Do not replay history from a resumed session; only rows
-                # written after this point belong to the current turn.
-                try:
-                    offset = path.stat().st_size
-                except FileNotFoundError:
-                    offset = 0
+            # Do not replay history from a resumed session; only rows
+            # written after this point belong to the current turn.
+            offset = _resume_offset(path) if resume else 0
 
             yield SessionStartEvent(
                 type="session_start",
                 session_id=session_id,
                 agent="claude_code",
             )
+            started = True
             await self._send_prompt(proc, task["prompt"])
             async for event in self._turn_events(proc, path, session_id, task, offset):
+                if event.get("type") == "session_end":
+                    ended = True
                 yield event
+        except _PtyReadError as exc:
+            yield ErrorEvent(type="error", error=str(exc), is_fatal=True)
+            if started and not ended:
+                yield SessionEndEvent(type="session_end", session_id=session_id)
+        except Exception as exc:
+            # The IR contract is an event stream: internal failures such as a
+            # malformed timeout option must surface as ErrorEvent, not raise.
+            yield ErrorEvent(
+                type="error", error=f"Claude Code TUI failed: {exc}", is_fatal=True
+            )
+            if started and not ended:
+                yield SessionEndEvent(type="session_end", session_id=session_id)
         finally:
-            await proc.close()
+            if proc is not None:
+                try:
+                    await proc.close()
+                except Exception:
+                    # Cleanup must not mask the turn's own outcome.
+                    pass
 
     async def run(self, task: TaskConfig) -> SessionResult:
         """Run task and return an aggregated result."""
@@ -400,7 +531,9 @@ class ClaudeTuiProvider:
             ``None`` when ready, otherwise ``(reason, screen_tail)``.
         """
         extensions = task.get("agent_extensions") or {}
-        timeout = float(extensions.get("ready_timeout", 30.0))
+        timeout = _float_option(
+            extensions.get("ready_timeout"), 30.0, "agent_extensions.ready_timeout"
+        )
         deadline = time.monotonic() + timeout
         screen = ""
         while time.monotonic() < deadline:
@@ -466,7 +599,7 @@ class ClaudeTuiProvider:
         can append the text block seconds after the thinking block, so
         ending on ``end_turn`` would kill the CLI before the answer lands.
         """
-        timeout = float(task.get("timeout") or 600.0)
+        timeout = _float_option(task.get("timeout") or None, 600.0, "timeout")
         deadline = time.monotonic() + timeout
         seen_usage: set[str] = set()
         done = False
@@ -483,11 +616,23 @@ class ClaudeTuiProvider:
                 break
 
             if not exited:
-                chunk = await self._read_chunk(proc, min(0.1, remaining))
+                try:
+                    chunk = await self._read_chunk(proc, min(0.1, remaining))
+                except _PtyReadError as exc:
+                    yield ErrorEvent(type="error", error=str(exc), is_fatal=True)
+                    break
                 if chunk == b"":
                     exited = True
 
-            rows, offset = _read_new_rows(path, offset)
+            try:
+                rows, offset = _read_new_rows(path, offset)
+            except OSError as exc:
+                yield ErrorEvent(
+                    type="error",
+                    error=f"cannot read Claude Code transcript {path}: {exc}",
+                    is_fatal=True,
+                )
+                break
             for row in rows:
                 events, turn_done = _turn_row(row, seen_usage)
                 for event in events:
@@ -513,11 +658,17 @@ class ClaudeTuiProvider:
 
     @staticmethod
     async def _read_chunk(proc: PtyProcess, timeout: float) -> bytes | None:
-        """Read a PTY chunk, returning ``None`` when *timeout* elapses."""
+        """Read a PTY chunk, returning ``None`` when *timeout* elapses.
+
+        Raises:
+            _PtyReadError: If the terminal itself cannot be read.
+        """
         try:
             return await asyncio.wait_for(proc.read(), timeout)
         except asyncio.TimeoutError:
             return None
+        except OSError as exc:
+            raise _PtyReadError(f"Claude Code terminal read failed: {exc}") from exc
 
 
 __all__ = ["ClaudeTuiProvider", "strip_ansi", "transcript_path"]
