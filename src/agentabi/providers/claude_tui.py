@@ -91,11 +91,12 @@ def strip_ansi(text: str) -> str:
 def _slug_from_resolved(resolved: str) -> str:
     """Return Claude Code's ``projects/`` directory name for a path.
 
-    Claude Code replaces every path separator and the drive colon with a
-    hyphen: ``C:\\Users\\user\\probe`` becomes
-    ``C--Users-user-probe``, and ``/home/x`` becomes ``-home-x``.
+    Claude Code replaces every character that is not an ASCII letter or
+    digit with a hyphen, keeping case: ``/home/x/.local`` becomes
+    ``-home-x--local`` and ``C:\\Users\\user_probe`` becomes
+    ``C--Users-user-probe``.
     """
-    return re.sub(r"[:\\/]", "-", resolved)
+    return re.sub(r"[^A-Za-z0-9]", "-", resolved)
 
 
 def transcript_path(cwd: str, session_id: str, config_dir: str | None = None) -> Path:
@@ -235,6 +236,46 @@ def _with_message_delta(events: list[IREvent]) -> list[IREvent]:
             out.append(delta)
         out.append(event)
     return out
+
+
+def _usage_once(message: dict[str, Any], seen: set[str]) -> UsageEvent | None:
+    """Return usage for an assistant message, once per message id.
+
+    The interactive transcript writes one row per content block and repeats
+    the same usage object on every row of that message.
+    """
+    message_id = message.get("id")
+    if message_id and message_id in seen:
+        return None
+    usage = _usage_event(message)
+    if usage is not None and message_id:
+        seen.add(message_id)
+    return usage
+
+
+def _turn_row(row: dict[str, Any], seen_usage: set[str]) -> tuple[list[IREvent], bool]:
+    """Convert one transcript row into IR events and a turn-end signal.
+
+    Returns:
+        ``(events, turn_done)``.  Only ``system/turn_duration`` and
+        ``result`` rows finish the turn; an assistant ``stop_reason`` is not
+        a boundary because one API message can be split across several
+        JSONL rows written seconds apart.
+    """
+    row_type = row.get("type")
+    if row_type == "system":
+        # The provider already emitted session_start; only the duration row
+        # is meaningful here.
+        return [], row.get("subtype") == "turn_duration"
+    events = _with_message_delta(ClaudeNativeProvider._parse_event(row))
+    if row_type == "result":
+        return events, True
+    if row_type != "assistant":
+        return events, False
+    usage = _usage_once(row.get("message", {}), seen_usage)
+    if usage is not None:
+        events.append(usage)
+    return events, False
 
 
 class ClaudeTuiProvider:
@@ -409,9 +450,17 @@ class ClaudeTuiProvider:
         task: TaskConfig,
         offset: int = 0,
     ) -> AsyncIterator[IREvent]:
-        """Read transcript rows until the turn ends."""
+        """Read transcript rows until the turn ends.
+
+        Only ``system/turn_duration`` and ``result`` rows end a turn.  Do
+        not infer the boundary from an assistant ``stop_reason``: Claude
+        Code splits one message across one JSONL row per content block and
+        can append the text block seconds after the thinking block, so
+        ending on ``end_turn`` would kill the CLI before the answer lands.
+        """
         timeout = float(task.get("timeout") or 600.0)
         deadline = time.monotonic() + timeout
+        seen_usage: set[str] = set()
         done = False
         exited = False
 
@@ -432,21 +481,14 @@ class ClaudeTuiProvider:
 
             rows, offset = _read_new_rows(path, offset)
             for row in rows:
-                row_type = row.get("type")
-                if row_type == "system":
-                    if row.get("subtype") == "turn_duration":
-                        done = True
-                    continue
-                for event in _with_message_delta(
-                    ClaudeNativeProvider._parse_event(row)
-                ):
+                events, turn_done = _turn_row(row, seen_usage)
+                for event in events:
                     yield event
-                if row_type == "assistant":
-                    usage = _usage_event(row.get("message", {}))
-                    if usage is not None:
-                        yield usage
-                if row_type == "result":
+                if turn_done:
                     done = True
+
+            if done:
+                break
 
             if exited and not done:
                 yield ErrorEvent(
