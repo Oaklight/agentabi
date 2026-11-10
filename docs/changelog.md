@@ -20,6 +20,7 @@
 - **Codex 临时 schema 泄漏** — 生成的 `--output-schema` 文件在流结束后删除；类路径的 schema 值按文件路径处理。(#51, PR #52)
 - **Claude TUI 错误路径** — API 错误与内部失败以 `ErrorEvent` 呈现，不再静默结束。含控制字符的提示词在任何字节写入前被拒绝；粘贴与提交在回合开始前都会确认。(#55, #58)
 - **Claude TUI transcript 与启动检测** — 截断或 inode 重写后重置读取位置，不越过未完成行，并能恢复被中断写入粘在前缀上的行。usage 跨消息累加，`cost_usd` 取自 result 行。提示符按输入框上下边框识别，因此占位提示（`❯ Try "..."`）会被接受，菜单项不会。trust 或登录失败时回退到 native 或 SDK 传输，并发出非致命 `ErrorEvent`。已在 Claude Code 2.1.299 上验证。(#59, PR #72)
+- **Claude TUI 对话框处理** — 传输层按 `agent_extensions.tui_answers` 检测并回答 `AskUserQuestion`、权限、计划、通知和安全确认对话框。以状态栏作为帧边界，以 transcript 中的工具调用作为闩锁，过期帧不会重发按键。未配置或无法解析的对话框以 `tui_dialog_unanswered` 结束回合，而不是等待；安全确认永不自动接受。已在 Claude Code 2.1.299 上验证 AskUserQuestion。(#57, PR #73)
 - **ptyx** — Windows ConPTY 数据块不再丢失；管道失败抛出 `PtyReadError`/`PtyWriteError`；只回应光标位置查询。(#56)
 
 ## v0.4.0 (2026-09-08)
