@@ -31,6 +31,7 @@ from ..types.ir.events import (
     UsageInfo,
 )
 from ..types.ir.session import SessionResult
+from ..types.ir.stop_reasons import stop_reason
 from ..types.ir.task import TaskConfig
 from .base import collect_subprocess_errors
 
@@ -64,6 +65,7 @@ class PiNativeProvider:
     """
 
     def __init__(self) -> None:
+        self._session_id = ""
         self._pending_text: list[str] = []
         self._block_index: int = 0
 
@@ -268,12 +270,12 @@ class PiNativeProvider:
             return self._handle_agent_end(raw)
         return []
 
-    @staticmethod
-    def _handle_session(raw: dict[str, Any]) -> list[IREvent]:
+    def _handle_session(self, raw: dict[str, Any]) -> list[IREvent]:
         """Handle session event — emits SessionStartEvent."""
+        self._session_id = str(raw.get("id") or "")
         start: SessionStartEvent = {
             "type": "session_start",
-            "session_id": raw.get("id", ""),
+            "session_id": self._session_id,
             "agent": "pi",
         }
         cwd = raw.get("cwd")
@@ -366,7 +368,7 @@ class PiNativeProvider:
 
         end: MessageEndEvent = {
             "type": "message_end",
-            "stop_reason": message.get("stopReason", ""),
+            "stop_reason": stop_reason(message.get("stopReason"), default="end_turn"),
         }
 
         # Prefer full text from content blocks, fallback to pending
@@ -445,10 +447,11 @@ class PiNativeProvider:
         results.append(usage_event)
         return results
 
-    @staticmethod
-    def _handle_agent_end(raw: dict[str, Any]) -> list[IREvent]:
+    def _handle_agent_end(self, raw: dict[str, Any]) -> list[IREvent]:
         """Handle agent_end — emits SessionEndEvent."""
         end: SessionEndEvent = {"type": "session_end"}
+        if self._session_id:
+            end["session_id"] = self._session_id
         return [end]
 
 

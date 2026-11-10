@@ -200,7 +200,7 @@ class TestParseEvent:
         assert events[0]["usage"]["cache_creation_tokens"] == 10
         assert events[0]["cost_usd"] == 0.005
         assert events[1]["type"] == "message_end"
-        assert events[1]["stop_reason"] == "tool-calls"
+        assert events[1]["stop_reason"] == "end_turn"
 
     def test_step_finish_stop_emits_session_end(self):
         raw = {

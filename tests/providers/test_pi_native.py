@@ -574,7 +574,7 @@ class TestParseEvent:
         assert len(events) == 1
         assert events[0]["type"] == "message_end"
         assert events[0]["text"] == "The answer is 4"
-        assert events[0]["stop_reason"] == "stop"
+        assert events[0]["stop_reason"] == "end_turn"
 
     def test_message_end_user_skipped(self):
         raw = {

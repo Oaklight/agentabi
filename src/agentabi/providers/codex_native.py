@@ -38,6 +38,7 @@ from ..types.ir.events import (
     UsageInfo,
 )
 from ..types.ir.session import SessionResult
+from ..types.ir.stop_reasons import stop_reason
 from ..types.ir.task import TaskConfig
 
 # Cached result of the one-time `codex exec --help` probe.
@@ -119,6 +120,7 @@ class CodexNativeProvider:
 
     def __init__(self) -> None:
         self._pending_text: list[str] = []
+        self._session_id = ""
 
     @staticmethod
     def is_available() -> bool:
@@ -328,11 +330,11 @@ class CodexNativeProvider:
         }
         return [err]
 
-    @staticmethod
-    def _handle_thread_started(raw: dict[str, Any]) -> list[IREvent]:
+    def _handle_thread_started(self, raw: dict[str, Any]) -> list[IREvent]:
+        self._session_id = str(raw.get("thread_id") or "")
         start: SessionStartEvent = {
             "type": "session_start",
-            "session_id": raw.get("thread_id", ""),
+            "session_id": self._session_id,
             "agent": "codex",
         }
         return [start]
@@ -367,13 +369,18 @@ class CodexNativeProvider:
         usage_event: UsageEvent = {"type": "usage", "usage": usage}
         results.append(usage_event)
 
-        end: MessageEndEvent = {"type": "message_end", "stop_reason": "end_turn"}
+        end: MessageEndEvent = {
+            "type": "message_end",
+            "stop_reason": stop_reason(raw.get("stop_reason"), default="end_turn"),
+        }
         if self._pending_text:
             end["text"] = "".join(self._pending_text)
             self._pending_text = []
         results.append(end)
 
         session_end: SessionEndEvent = {"type": "session_end"}
+        if self._session_id:
+            session_end["session_id"] = self._session_id
         results.append(session_end)
 
         return results

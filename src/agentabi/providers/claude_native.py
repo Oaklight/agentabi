@@ -36,6 +36,7 @@ from ..types.ir.events import (
 )
 from ..types.ir.permissions import PermissionDecision, PermissionOption
 from ..types.ir.session import SessionResult
+from ..types.ir.stop_reasons import stop_reason
 from ..types.ir.task import TaskConfig
 from .base import PermissionHandler
 
@@ -643,6 +644,10 @@ class ClaudeNativeProvider:
 
     @staticmethod
     def _handle_system(event: dict[str, Any]) -> list[IREvent]:
+        # Claude emits one ``system`` row per state change (``init``,
+        # ``status``, ...).  Only the init row starts a session.
+        if event.get("subtype", "init") not in (None, "init"):
+            return []
         ir: SessionStartEvent = {
             "type": "session_start",
             "session_id": event.get("session_id", ""),
@@ -694,7 +699,7 @@ class ClaudeNativeProvider:
 
         end: MessageEndEvent = {
             "type": "message_end",
-            "stop_reason": message.get("stop_reason", ""),
+            "stop_reason": stop_reason(message.get("stop_reason"), default="end_turn"),
         }
         if message_id:
             end["message_id"] = message_id
