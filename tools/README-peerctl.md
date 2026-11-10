@@ -1,5 +1,9 @@
 # peerctl (prototype)
 
+Skill entry point: `tools/peerctl/SKILL.md`. The project skill at
+`.claude/skills/peerctl/SKILL.md` is a symlink to that file; keep the
+source of truth in `tools/`.
+
 Minimal peer control for Claude Code background sessions. It opens,
 lists, and stops sessions. It does not send messages; the main session
 handles that itself.
