@@ -111,7 +111,9 @@ class TestCodex:
         resolved = adapter_for("codex_native").resolve(
             _task(base_url=BASE, api_key=SECRET, headers={"X-Tenant": "a"})
         )
-        assert 'model_providers.openai.http_headers={"X-Tenant" = "a"}' in resolved.argv
+        assert (
+            'model_providers.agentabi.http_headers={"X-Tenant" = "a"}' in resolved.argv
+        )
 
     def test_native_keys_become_config_overrides(self) -> None:
         resolved = adapter_for("codex_native").resolve(
@@ -124,7 +126,7 @@ class TestCodex:
             _task(base_url=BASE, api_key=SECRET), resume=True
         )
         assert any(
-            part.startswith("model_providers.openai.base_url=")
+            part.startswith("model_providers.agentabi.base_url=")
             for part in resolved.argv
         )
 

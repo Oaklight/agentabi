@@ -13,6 +13,9 @@ from ..base import Adapter, ResolvedSettings
 _CANONICAL_KEYS = {"base_url", "model_provider", "api_key", "api_key_env"}
 #: Child-env variable that carries the key when codex resolves it by name.
 KEY_ENV = "AGENTABI_CODEX_API_KEY"
+#: Provider id used when the caller names none.  codex 0.162.1 refuses to
+#: override built-in provider ids such as ``openai``.
+DEFAULT_PROVIDER = "agentabi"
 
 
 def provider_overrides(task: TaskConfig) -> list[str]:
@@ -25,6 +28,8 @@ def provider_overrides(task: TaskConfig) -> list[str]:
     The key is referenced as ``env_key``, never written into argv: codex
     0.162.1 rejects ``api_key`` and logs "unrecognized configuration
     setting" for it.  The value travels in ``AGENTABI_CODEX_API_KEY``.
+    A provider needs both ``name`` and ``base_url``; with only a base URL
+    codex refuses to load the config ("provider name must not be empty").
 
     Returns:
         Flag list, empty when the task sets no custom endpoint.
@@ -34,10 +39,12 @@ def provider_overrides(task: TaskConfig) -> list[str]:
     if not base_url:
         return []
     api_key = task_env.get("OPENAI_API_KEY")
-    provider = task_env.get("CODEX_PROVIDER", "openai")
+    provider = task_env.get("CODEX_PROVIDER", DEFAULT_PROVIDER)
     flags = [
         "-c",
         f"model_provider={provider}",
+        "-c",
+        f"model_providers.{provider}.name={json.dumps(provider)}",
         "-c",
         f"model_providers.{provider}.base_url={base_url}",
     ]
@@ -88,7 +95,7 @@ class CodexNativeSettings(Adapter):
         argv = provider_overrides(rewritten_task)
         settings = applied.settings
         provider = applied.model_provider or (rewritten_task.get("env") or {}).get(
-            "CODEX_PROVIDER", "openai"
+            "CODEX_PROVIDER", DEFAULT_PROVIDER
         )
 
         headers = settings.get("headers") or {}
@@ -127,6 +134,7 @@ class CodexSdkSettings(Adapter):
 
 
 __all__ = [
+    "DEFAULT_PROVIDER",
     "KEY_ENV",
     "CodexNativeSettings",
     "CodexSdkSettings",
