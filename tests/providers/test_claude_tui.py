@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 import sys
 import time
 from pathlib import Path
 from typing import cast
 
-from agentabi._vendor.ptyx import PtyProcess
+import pytest
+
+from agentabi._vendor.ptyx import PtyProcess, PtyWriteError
 from agentabi.providers import registry
 from agentabi.providers.claude_native import ClaudeNativeProvider
 from agentabi.providers.claude_sdk import ClaudeSDKProvider
 from agentabi.providers.claude_tui import (
     ClaudeTuiProvider,
     _build_command,
+    _prompt_problem,
+    _PromptSubmitError,
     _slug_from_resolved,
     _turn_row,
     transcript_path,
@@ -645,3 +651,259 @@ async def test_result_row_yields_one_session_end(tmp_path):
     assert [event["text"] for event in events if event["type"] == "message_end"] == [
         "RESULT: hello"
     ]
+
+
+# ========== Prompt submission is confirmed and bounded ==========
+
+
+def _problem(prompt: str) -> str:
+    problem = _prompt_problem(prompt)
+    assert problem is not None
+    return problem
+
+
+def test_prompt_problem_rejects_control_characters():
+    assert "U+001B" in _problem("hi\x1b[201~rm -rf /")
+    assert "U+000D" in _problem("a\rb")
+    assert "U+009B" in _problem("a\x9bb")
+    assert "U+007F" in _problem("a\x7fb")
+    assert _prompt_problem("line one\nline two\tindented") is None
+
+
+class _RecordingProc:
+    """A PTY stand-in that records writes."""
+
+    returncode = None
+
+    def __init__(self) -> None:
+        self.written: list[bytes] = []
+
+    async def write(self, data: bytes) -> None:
+        self.written.append(data)
+
+    async def read(self, size: int = 65536) -> bytes:
+        return b""
+
+
+class _WriteFailingProc:
+    """A PTY stand-in whose nth write fails."""
+
+    returncode = None
+
+    def __init__(self, fail_on: int, echo: bytes = b"") -> None:
+        self.fail_on = fail_on
+        self.echo = echo
+        self.writes = 0
+
+    async def write(self, data: bytes) -> None:
+        if self.writes == self.fail_on:
+            raise PtyWriteError("terminal write failed after 0 of 4 bytes: EIO")
+        self.writes += 1
+
+    async def read(self, size: int = 65536) -> bytes:
+        if self.echo:
+            data, self.echo = self.echo, b""
+            return data
+        return b""
+
+
+class _SilentProc:
+    """A PTY stand-in that never produces output."""
+
+    returncode = None
+
+    async def write(self, data: bytes) -> None:
+        return None
+
+    async def read(self, size: int = 65536) -> bytes:
+        await asyncio.sleep(10)
+        return b""
+
+
+class _BusyProc:
+    """A PTY stand-in that renders a busy screen once."""
+
+    returncode = None
+
+    def __init__(self, chunk: bytes) -> None:
+        self.chunk = chunk
+
+    async def write(self, data: bytes) -> None:
+        return None
+
+    async def read(self, size: int = 65536) -> bytes:
+        if self.chunk:
+            data, self.chunk = self.chunk, b""
+            return data
+        await asyncio.sleep(10)
+        return b""
+
+
+async def test_escape_injection_is_rejected_before_any_write(tmp_path):
+    proc = _RecordingProc()
+    task = cast(TaskConfig, {"prompt": "ignored"})
+
+    with pytest.raises(_PromptSubmitError) as info:
+        await ClaudeTuiProvider()._send_prompt(  # noqa: SLF001
+            cast(PtyProcess, proc),
+            "hi\x1b[201~rm -rf /",
+            tmp_path / "t.jsonl",
+            0,
+            task,
+        )
+
+    assert proc.written == []
+    assert "U+001B" in str(info.value)
+    assert "ESC[201~" in str(info.value)
+
+
+async def test_escape_injection_through_stream_is_a_fatal_error(tmp_path):
+    binary = _write_script(tmp_path, _FAKE_TUI)
+    task = _task(tmp_path, binary, "hello\x1b[201~rm -rf /")
+
+    events = [event async for event in ClaudeTuiProvider().stream(task)]
+
+    errors = [event for event in events if event["type"] == "error"]
+    assert errors
+    assert errors[0]["is_fatal"] is True
+    assert "control character" in errors[0]["error"]
+    assert not [event for event in events if event["type"] == "message_end"]
+    assert [event["type"] for event in events].count("session_end") == 1
+
+
+async def test_paste_write_failure_is_reported(tmp_path):
+    proc = _WriteFailingProc(fail_on=0)
+    task = cast(TaskConfig, {"prompt": "hello"})
+
+    with pytest.raises(_PromptSubmitError, match="cannot paste"):
+        await ClaudeTuiProvider()._send_prompt(  # noqa: SLF001
+            cast(PtyProcess, proc), "hello", tmp_path / "t.jsonl", 0, task
+        )
+
+
+async def test_submit_write_failure_is_reported(tmp_path):
+    proc = _WriteFailingProc(fail_on=1, echo=b"hello")
+    task = cast(TaskConfig, {"prompt": "hello"})
+
+    with pytest.raises(_PromptSubmitError, match="cannot submit"):
+        await ClaudeTuiProvider()._send_prompt(  # noqa: SLF001
+            cast(PtyProcess, proc), "hello", tmp_path / "t.jsonl", 0, task
+        )
+
+
+async def test_paste_confirmation_times_out():
+    proc = _SilentProc()
+
+    with pytest.raises(_PromptSubmitError, match="did not echo"):
+        await ClaudeTuiProvider()._confirm_paste(  # noqa: SLF001
+            cast(PtyProcess, proc), "hello", 0.1
+        )
+
+
+async def test_submit_confirmation_times_out(tmp_path):
+    proc = _SilentProc()
+
+    with pytest.raises(_PromptSubmitError, match="after Enter"):
+        await ClaudeTuiProvider()._confirm_submit(  # noqa: SLF001
+            cast(PtyProcess, proc), tmp_path / "missing.jsonl", 0, 0.1
+        )
+
+
+async def test_busy_screen_confirms_submission(tmp_path):
+    proc = _BusyProc("✻ Thinking… (esc to interrupt)".encode())
+
+    await ClaudeTuiProvider()._confirm_submit(  # noqa: SLF001
+        cast(PtyProcess, proc), tmp_path / "missing.jsonl", 0, 1.0
+    )
+
+
+async def test_new_transcript_row_confirms_submission(tmp_path):
+    path = tmp_path / "s.jsonl"
+    path.write_text('{"type": "user"}\n')
+    proc = _SilentProc()
+
+    await ClaudeTuiProvider()._confirm_submit(  # noqa: SLF001
+        cast(PtyProcess, proc), path, 0, 1.0
+    )
+
+
+async def test_rows_before_the_resume_offset_do_not_confirm(tmp_path):
+    row = '{"type": "user"}\n'
+    path = tmp_path / "s.jsonl"
+    path.write_text(row)
+    proc = _SilentProc()
+
+    with pytest.raises(_PromptSubmitError, match="after Enter"):
+        await ClaudeTuiProvider()._confirm_submit(  # noqa: SLF001
+            cast(PtyProcess, proc), path, len(row), 0.2
+        )
+
+
+_PASTE_DROPPED_TUI = r"""#!__PYTHON__
+import sys, time
+
+try:
+    import tty
+    tty.setraw(0)  # no echo, so a dropped paste leaves no trace
+except Exception:
+    pass
+
+sys.stdout.write("❯ ")
+sys.stdout.flush()
+time.sleep(30)
+"""
+
+_ENTER_DROPPED_TUI = r"""#!__PYTHON__
+import os, sys
+
+sys.stdout.write("❯ ")
+sys.stdout.flush()
+
+while True:
+    chunk = os.read(0, 4096)
+    if not chunk:
+        sys.exit(0)
+"""
+
+
+@pytest.mark.skipif(os.name == "nt", reason="tty.setraw is POSIX-only")
+async def test_dropped_paste_errors_without_the_turn_timeout(tmp_path):
+    binary = _write_script(tmp_path, _PASTE_DROPPED_TUI)
+    task = _task(tmp_path, binary, timeout=600.0)
+    task["agent_extensions"] = {
+        "claude_binary": str(binary),
+        "ready_timeout": 5.0,
+        "paste_timeout": 0.5,
+    }
+
+    started = time.monotonic()
+    events = [event async for event in ClaudeTuiProvider().stream(task)]
+    elapsed = time.monotonic() - started
+
+    errors = [event for event in events if event["type"] == "error"]
+    assert errors
+    assert errors[0]["is_fatal"] is True
+    assert "paste" in errors[0]["error"].lower()
+    assert elapsed < 5.0
+    assert [event["type"] for event in events].count("session_end") == 1
+
+
+async def test_dropped_enter_errors_without_the_turn_timeout(tmp_path):
+    binary = _write_script(tmp_path, _ENTER_DROPPED_TUI)
+    task = _task(tmp_path, binary, timeout=600.0)
+    task["agent_extensions"] = {
+        "claude_binary": str(binary),
+        "ready_timeout": 5.0,
+        "submit_timeout": 0.5,
+    }
+
+    started = time.monotonic()
+    events = [event async for event in ClaudeTuiProvider().stream(task)]
+    elapsed = time.monotonic() - started
+
+    errors = [event for event in events if event["type"] == "error"]
+    assert errors
+    assert errors[0]["is_fatal"] is True
+    assert "after Enter" in errors[0]["error"]
+    assert elapsed < 5.0
+    assert [event["type"] for event in events].count("session_end") == 1

@@ -8,8 +8,14 @@ it at roughly twice the interactive ``cli`` entrypoint's allowance
 
 The provider is deliberately opt-in.  It drives a terminal UI, so it is
 more fragile than ``ClaudeNativeProvider``: it waits for the prompt,
-pastes the message, and tails the transcript JSONL.  Phase 1 emits whole
-messages (no token deltas); a streaming tap can be added later.
+pastes the message, confirms that the TUI rendered it, submits it with
+Enter, confirms that a turn started, and tails the transcript JSONL.
+Phase 1 emits whole messages (no token deltas); a streaming tap can be
+added later.
+
+A prompt that carries control characters is rejected before any byte is
+written: bracketed paste is ended by ``ESC[201~``, so an embedded escape
+sequence would turn the rest of the prompt into keystrokes.
 """
 
 from __future__ import annotations
@@ -25,7 +31,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
-from .._vendor.ptyx import PtyProcess, PtyStartupError
+from .._vendor.ptyx import PtyProcess, PtyStartupError, PtyWriteError
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
     ErrorEvent,
@@ -82,9 +88,28 @@ _TRUST_MARKERS = ("trust this folder", "do you trust")
 _LOGIN_MARKERS = ("select login method", "sign in to claude", "log in to claude")
 _THEME_MARKERS = ("select a theme", "choose a theme")
 
+#: Bracketed paste delimiters.  A prompt must never carry these bytes
+#: itself: ``ESC[201~`` would end the paste and make the rest keystrokes.
+_PASTE_START = b"\x1b[200~"
+_PASTE_END = b"\x1b[201~"
+#: Characters of the prompt used to confirm that the TUI rendered it.
+#: The tail is checked because the input box scrolls to the cursor.
+_PASTE_ECHO_CHARS = 24
+_PASTE_TIMEOUT = 5.0
+_SUBMIT_TIMEOUT = 10.0
+#: Claude Code renders a spinner and "esc to interrupt" while a turn runs.
+_BUSY_MARKERS = ("esc to interrupt",)
+_SPINNER_MARKS = "✱✲✳✴✵✶"
+#: Control characters that are safe inside a bracketed paste.
+_SAFE_CONTROLS = frozenset("\n\t")
+
 
 class _PtyReadError(RuntimeError):
     """The PTY could not be read while a turn was running."""
+
+
+class _PromptSubmitError(RuntimeError):
+    """The TUI did not accept the pasted prompt or the Enter key."""
 
 
 def strip_ansi(text: str) -> str:
@@ -276,6 +301,45 @@ def _collapse_whitespace(text: str, limit: int = 500) -> str:
     if len(flat) > limit:
         flat = flat[: limit - 3].rstrip() + "..."
     return flat
+
+
+def _prompt_problem(prompt: str) -> str | None:
+    """Return why *prompt* cannot be pasted safely, or ``None``.
+
+    Bracketed paste ends at ``ESC[201~``.  Any control character in the
+    payload could end the paste early or act as a key press, so the prompt
+    is rejected before a single byte reaches the terminal.  Newline and tab
+    are the only controls a TUI treats as text inside a paste.
+    """
+    for index, char in enumerate(prompt):
+        if char in _SAFE_CONTROLS:
+            continue
+        code = ord(char)
+        if code < 0x20 or 0x7F <= code <= 0x9F:
+            return (
+                f"prompt contains the control character U+{code:04X} at "
+                f"index {index}; it cannot be pasted safely because "
+                "ESC[201~ ends the bracketed paste and the rest would "
+                "arrive as keystrokes"
+            )
+    return None
+
+
+def _echo_fragment(prompt: str) -> str:
+    """Return the part of *prompt* to look for in the TUI's screen echo.
+
+    The tail is used because a long input box scrolls to the cursor.
+    """
+    flat = " ".join(prompt.split())
+    return flat[-_PASTE_ECHO_CHARS:]
+
+
+def _screen_is_busy(screen: str) -> bool:
+    """Return whether *screen* shows the TUI working on a turn."""
+    lowered = screen.lower()
+    return any(marker in lowered for marker in _BUSY_MARKERS) or any(
+        mark in screen for mark in _SPINNER_MARKS
+    )
 
 
 def _api_error_event(message: str, status: Any, suffix: str, fatal: bool) -> ErrorEvent:
@@ -481,12 +545,12 @@ class ClaudeTuiProvider:
                 agent="claude_code",
             )
             started = True
-            await self._send_prompt(proc, task["prompt"])
+            await self._send_prompt(proc, task["prompt"], path, offset, task)
             async for event in self._turn_events(proc, path, session_id, task, offset):
                 if event.get("type") == "session_end":
                     ended = True
                 yield event
-        except _PtyReadError as exc:
+        except (_PromptSubmitError, _PtyReadError) as exc:
             yield ErrorEvent(type="error", error=str(exc), is_fatal=True)
             if started and not ended:
                 yield SessionEndEvent(type="session_end", session_id=session_id)
@@ -573,15 +637,121 @@ class ClaudeTuiProvider:
             )
         return f"Claude Code did not reach its prompt: {screen.strip()[-300:]}"
 
-    @staticmethod
-    async def _send_prompt(proc: PtyProcess, prompt: str) -> None:
-        """Paste *prompt* into the TUI and submit it."""
+    async def _send_prompt(
+        self,
+        proc: PtyProcess,
+        prompt: str,
+        path: Path,
+        offset: int,
+        task: TaskConfig,
+    ) -> None:
+        """Paste *prompt*, submit it with Enter, and confirm acceptance.
+
+        A pasted prompt is only believed once the TUI renders it, and a
+        submitted prompt only once the turn starts (a busy marker or a new
+        transcript row).  Both waits are bounded; a dropped paste or Enter
+        raises instead of leaving the caller to the turn timeout.
+
+        Raises:
+            _PromptSubmitError: If the prompt is unsafe to paste, the TUI
+                does not echo it, or it does not start a turn in time.
+        """
+        problem = _prompt_problem(prompt)
+        if problem is not None:
+            raise _PromptSubmitError(problem)
+
+        extensions = task.get("agent_extensions") or {}
+        paste_timeout = _float_option(
+            extensions.get("paste_timeout"),
+            _PASTE_TIMEOUT,
+            "agent_extensions.paste_timeout",
+        )
+        submit_timeout = _float_option(
+            extensions.get("submit_timeout"),
+            _SUBMIT_TIMEOUT,
+            "agent_extensions.submit_timeout",
+        )
+
         if prompt[:1] in ("/", "!", "#", "&"):
             # A leading slash would be read as a command; a newline keeps it text.
             prompt = "\n" + prompt
-        await proc.write(b"\x1b[200~" + prompt.encode() + b"\x1b[201~")
-        await asyncio.sleep(0.15)
-        await proc.write(b"\r")
+
+        try:
+            await proc.write(_PASTE_START + prompt.encode() + _PASTE_END)
+        except PtyWriteError as exc:
+            raise _PromptSubmitError(
+                f"cannot paste the prompt into Claude Code: {exc}"
+            ) from exc
+        await self._confirm_paste(proc, prompt, paste_timeout)
+
+        try:
+            await proc.write(b"\r")
+        except PtyWriteError as exc:
+            raise _PromptSubmitError(
+                f"cannot submit the prompt to Claude Code: {exc}"
+            ) from exc
+        await self._confirm_submit(proc, path, offset, submit_timeout)
+
+    async def _confirm_paste(
+        self, proc: PtyProcess, prompt: str, timeout: float
+    ) -> None:
+        """Wait until the TUI echoes the pasted text back to the terminal."""
+        fragment = _echo_fragment(prompt)
+        if not fragment:
+            return
+        deadline = time.monotonic() + timeout
+        screen = ""
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise _PromptSubmitError(
+                    "Claude Code did not echo the pasted prompt within "
+                    f"{timeout:g}s; the paste was dropped"
+                )
+            chunk = await self._read_chunk(proc, min(0.25, remaining))
+            if chunk is None:
+                continue
+            if chunk == b"":
+                raise _PromptSubmitError(
+                    "Claude Code exited while the prompt was being pasted"
+                )
+            screen = (screen + strip_ansi(chunk.decode("utf-8", "replace")))[-8192:]
+            if fragment in " ".join(screen.split()):
+                return
+
+    async def _confirm_submit(
+        self, proc: PtyProcess, path: Path, offset: int, timeout: float
+    ) -> None:
+        """Wait until the TUI starts a turn for the submitted prompt.
+
+        A busy marker proves the TUI accepted Enter; a new transcript row is
+        the authoritative signal and covers a turn that finishes before the
+        marker is read.
+        """
+        deadline = time.monotonic() + timeout
+        screen = ""
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise _PromptSubmitError(
+                    f"Claude Code did not start a turn within {timeout:g}s "
+                    "after Enter; the prompt was not submitted"
+                )
+            chunk = await self._read_chunk(proc, min(0.25, remaining))
+            if chunk is None:
+                pass
+            elif chunk == b"":
+                raise _PromptSubmitError("Claude Code exited before starting the turn")
+            else:
+                screen = (screen + strip_ansi(chunk.decode("utf-8", "replace")))[-8192:]
+                if _screen_is_busy(screen):
+                    return
+            try:
+                rows, _ = _read_new_rows(path, offset)
+            except OSError:
+                rows = []
+            if rows:
+                return
 
     async def _turn_events(
         self,

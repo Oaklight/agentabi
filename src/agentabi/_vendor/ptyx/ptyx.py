@@ -6,8 +6,9 @@
 # note = "Install/update via `zerodep add ptyx`"
 # ///
 # Local agentabi patch for issue #56 (blocking queue handoff, pipe-read
-# errors, cursor-only query replies). Upstream zerodep needs the same fix;
-# re-check before the next `zerodep add ptyx`.
+# errors, cursor-only query replies) and issue #58 (write errors raise
+# PtyWriteError instead of returning silently). Upstream zerodep needs the
+# same fix; re-check before the next `zerodep add ptyx`.
 """Async pseudo-terminal transport — zero dependencies, stdlib only, Python 3.10+.
 
 Spawns a child process on a pseudo-terminal and exposes raw byte I/O.  A PTY
@@ -76,7 +77,7 @@ import time
 from ctypes import wintypes
 from typing import Any
 
-__all__ = ["PtyProcess", "PtyStartupError", "PtyReadError"]
+__all__ = ["PtyProcess", "PtyStartupError", "PtyReadError", "PtyWriteError"]
 
 _IS_WINDOWS = os.name == "nt"
 _QUERY_RE = re.compile(rb"\x1b\[6n")
@@ -96,6 +97,15 @@ class PtyReadError(RuntimeError):
 
     A pipe failure is reported instead of being folded into end-of-stream,
     so a caller can tell a broken terminal from a child that exited.
+    """
+
+
+class PtyWriteError(RuntimeError):
+    """Raised when bytes cannot be delivered to the pseudo-terminal.
+
+    A write failure used to be swallowed, which made a dropped prompt look
+    like a slow turn.  The error reports how much of the payload was
+    accepted so the caller can decide whether to retry or fail the turn.
     """
 
 
@@ -371,6 +381,10 @@ class PtyProcess:
         partial write; safe for multi-kilobyte pastes.  Keep reading while
         writing: a child that echoes input can fill the output side, and the
         wait is for a writable master, not a readable one.
+
+        Raises:
+            PtyWriteError: If the terminal is closed or the write fails.
+                A failed write is never reported as success.
         """
         raise NotImplementedError
 
@@ -508,8 +522,11 @@ class _PosixPtyProcess(PtyProcess):
         return chunk
 
     async def write(self, data: bytes) -> None:
-        if self._closed or not data:
+        if self._closed:
+            raise PtyWriteError("cannot write: the pseudo-terminal is closed")
+        if not data:
             return
+        total = len(data)
         view = memoryview(data)
         while view:
             try:
@@ -518,10 +535,19 @@ class _PosixPtyProcess(PtyProcess):
                 done = getattr(exc, "characters_written", 0)
                 view = view[done:]
                 if view:
-                    await self._wait_writable()
+                    try:
+                        await self._wait_writable()
+                    except OSError as wait_exc:
+                        raise PtyWriteError(
+                            "terminal write failed after "
+                            f"{total - len(view)} of {total} bytes: {wait_exc}"
+                        ) from wait_exc
                 continue
-            except OSError:
-                return
+            except OSError as exc:
+                raise PtyWriteError(
+                    f"terminal write failed after {total - len(view)} of "
+                    f"{total} bytes: {exc}"
+                ) from exc
             view = view[written:]
 
     async def _wait_writable(self) -> None:
@@ -773,7 +799,9 @@ class _ConPtyProcess(PtyProcess):
         return self._take(size)
 
     async def write(self, data: bytes) -> None:
-        if self._closed or not data:
+        if self._closed:
+            raise PtyWriteError("cannot write: the pseudo-terminal is closed")
+        if not data:
             return
         await asyncio.to_thread(self._write_raw, data)
 
@@ -800,6 +828,7 @@ class _ConPtyProcess(PtyProcess):
         return chunk
 
     def _write_raw(self, data: bytes) -> None:
+        total = len(data)
         view = memoryview(data)
         while view:
             buffer = ctypes.create_string_buffer(bytes(view), len(view))
@@ -811,9 +840,15 @@ class _ConPtyProcess(PtyProcess):
                 ctypes.byref(written),
                 None,
             ):
-                return
+                raise PtyWriteError(
+                    f"terminal write failed after {total - len(view)} of "
+                    f"{total} bytes (WinError {_last_error()})"
+                )
             if written.value == 0:
-                return
+                raise PtyWriteError(
+                    f"terminal write failed after {total - len(view)} of "
+                    f"{total} bytes (wrote 0 bytes)"
+                )
             view = view[written.value :]
 
     def _read_loop(self) -> None:
@@ -932,7 +967,11 @@ class _ConPtyProcess(PtyProcess):
 
     def _close_blocking(self, grace: float) -> int:
         if self._returncode is None:
-            self._write_raw(b"\x03")
+            try:
+                # A best-effort interrupt: a failed write must not stop close.
+                self._write_raw(b"\x03")
+            except PtyWriteError:
+                pass
             waited = _WaitForSingleObject(self._process, int(grace * 1000))
             if waited == _WAIT_TIMEOUT:
                 _TerminateProcess(self._process, 1)

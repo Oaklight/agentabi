@@ -14,7 +14,7 @@ import threading
 
 import pytest
 
-from agentabi._vendor.ptyx import PtyReadError
+from agentabi._vendor.ptyx import PtyReadError, PtyWriteError
 from agentabi._vendor.ptyx import ptyx as ptyx_module
 from agentabi._vendor.ptyx.ptyx import _ConPtyProcess, _PosixPtyProcess
 
@@ -153,3 +153,74 @@ def test_other_terminal_queries_get_no_reply():
     finally:
         os.close(read_fd)
         os.close(write_fd)
+
+
+# ========== Write failures are surfaced, not swallowed ==========
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX write path")
+async def test_posix_write_delivers_all_bytes():
+    read_fd, write_fd = os.pipe()
+    try:
+        proc = _posix_stub(write_fd)
+        proc._closed = False
+        await proc.write(b"hello")
+        assert os.read(read_fd, 64) == b"hello"
+    finally:
+        os.close(read_fd)
+        os.close(write_fd)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX write path")
+async def test_posix_write_failure_raises():
+    read_fd, write_fd = os.pipe()
+    os.close(read_fd)  # no reader: the write fails with EPIPE
+    try:
+        proc = _posix_stub(write_fd)
+        proc._closed = False
+        with pytest.raises(PtyWriteError, match="terminal write failed"):
+            await proc.write(b"hello")
+    finally:
+        os.close(write_fd)
+
+
+async def test_posix_write_after_close_raises():
+    read_fd, write_fd = os.pipe()
+    try:
+        proc = _posix_stub(write_fd)
+        proc._closed = True
+        with pytest.raises(PtyWriteError, match="closed"):
+            await proc.write(b"hello")
+    finally:
+        os.close(read_fd)
+        os.close(write_fd)
+
+
+async def test_conpty_write_failure_raises(monkeypatch):
+    proc = _conpty_stub()
+    monkeypatch.setattr(ptyx_module, "_WriteFile", lambda *args: 0, raising=False)
+    monkeypatch.setattr(ptyx_module, "_last_error", lambda: 5, raising=False)
+
+    with pytest.raises(PtyWriteError, match="WinError 5"):
+        await proc.write(b"hello")
+
+
+async def test_conpty_zero_byte_write_raises(monkeypatch):
+    proc = _conpty_stub()
+
+    def fake_write(handle, buffer, size, written, overlapped):
+        written._obj.value = 0
+        return 1
+
+    monkeypatch.setattr(ptyx_module, "_WriteFile", fake_write, raising=False)
+
+    with pytest.raises(PtyWriteError, match="wrote 0 bytes"):
+        await proc.write(b"hello")
+
+
+async def test_conpty_write_after_close_raises():
+    proc = _conpty_stub()
+    proc._closed = True
+
+    with pytest.raises(PtyWriteError, match="closed"):
+        await proc.write(b"hello")
