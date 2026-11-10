@@ -14,6 +14,7 @@ agentabi acp --agent opencode
 | `agy` | The agentabi IR stream (`agy -p --output-format stream-json`) |
 | `claude` | The agentabi IR stream (`claude --print --output-format stream-json`) |
 | `codex` | The agentabi IR stream (`codex exec --json`) |
+| `codex-app-server` | JSON-RPC to `codex app-server`, with permission round-trips |
 | `pi` | The agentabi IR stream (`pi --mode rpc`) |
 
 `agy`, `claude`, `codex`, and `pi` accept `--prefer`:
