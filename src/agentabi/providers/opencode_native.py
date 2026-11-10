@@ -69,6 +69,9 @@ class OpenCodeNativeProvider:
             "supports_permissions": True,
             "supports_multi_turn": True,
             "supports_thinking": True,
+            # The provider emits no file_diff event; opencode reports edits
+            # as tool results.
+            "supports_file_diffs": False,
             "supports_structured_output": False,
             "supports_ephemeral": False,
             "supports_additional_dirs": False,

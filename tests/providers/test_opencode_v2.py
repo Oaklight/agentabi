@@ -779,6 +779,7 @@ class TestAvailability:
         assert capabilities["supports_structured_output"] is False
         assert capabilities["supports_ephemeral"] is False
         assert capabilities["supports_additional_dirs"] is False
+        assert capabilities["supports_file_diffs"] is False
         assert capabilities["supports_file_attachments"] is True
 
     def test_explicit_v1_disables_provider(self, monkeypatch):
