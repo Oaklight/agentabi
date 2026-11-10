@@ -45,8 +45,14 @@ from .middleware import (
 from .providers.base import Provider
 from .providers.registry import AgentNotAvailable, get_provider
 from .session import Session, run_sync
+from .settings import (
+    InvalidSettingsError,
+    SettingsError,
+    UnsupportedSettingsError,
+)
 from .types.ir import (
     AgentCapabilities,
+    AgentSettings,
     AgentType,
     ErrorEvent,
     FileDiffEvent,
@@ -86,6 +92,11 @@ __all__ = [
     # IR types - Task
     "TaskConfig",
     "AgentType",
+    "AgentSettings",
+    # Settings errors
+    "SettingsError",
+    "InvalidSettingsError",
+    "UnsupportedSettingsError",
     # IR types - Events
     "IREvent",
     "SessionStartEvent",

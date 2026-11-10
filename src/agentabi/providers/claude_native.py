@@ -67,6 +67,7 @@ def _inject_settings_override(cmd: list[str], task: TaskConfig) -> None:
     """
     resolved = adapter_for("claude_native").resolve(task)
     cmd.extend(resolved.argv)
+    cmd.extend(resolved.extra_args)
 
 
 def _allow_rule(suggestions: list[Any]) -> str | None:
@@ -165,6 +166,8 @@ class ClaudeNativeProvider:
             "supports_file_attachments": True,
             "supports_multi_turn": True,
             "transport": "subprocess",
+            "supported_settings": sorted(adapter_for("claude_native").supported),
+            "settings_mechanism": adapter_for("claude_native").mechanism,
         }
 
     async def stream(self, task: TaskConfig) -> AsyncIterator[IREvent]:
@@ -213,6 +216,7 @@ class ClaudeNativeProvider:
         cmd: list[str], task: TaskConfig, permission: bool
     ) -> asyncio.subprocess.Process:
         task_env = task.get("env") or {}
+        settings_env = adapter_for("claude_native").resolve(task).env
         return await asyncio.create_subprocess_exec(
             *cmd,
             stdin=(
@@ -220,7 +224,7 @@ class ClaudeNativeProvider:
             ),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env={**os.environ, **task_env},
+            env={**os.environ, **task_env, **settings_env},
             cwd=task.get("working_dir"),
         )
 

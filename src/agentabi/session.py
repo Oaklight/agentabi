@@ -14,8 +14,10 @@ from typing import Any, cast
 from .middleware import Middleware, chain_middleware
 from .providers.base import Provider
 from .providers.registry import resolve_provider
+from .settings.resolve import merge_settings, validate_settings
 from .types.ir.events import IREvent
 from .types.ir.session import SessionResult
+from .types.ir.settings import AgentSettings
 from .types.ir.task import TaskConfig
 
 
@@ -60,6 +62,7 @@ class Session:
         model: str | None = None,
         prefer: str | None = None,
         middleware: Sequence[Middleware] | None = None,
+        settings: AgentSettings | None = None,
     ) -> None:
         """Initialize a Session.
 
@@ -75,17 +78,25 @@ class Session:
             middleware: Optional sequence of middleware to apply to the
                 stream pipeline. The first middleware in the sequence
                 is the outermost wrapper.
+            settings: Default endpoint/auth settings. Per-call settings
+                merge over these, with ``headers``, ``env``, and
+                ``native`` merged key by key.
 
         Raises:
             AgentNotAvailable: If no provider is available.
+            InvalidSettingsError: If ``settings`` has the wrong shape.
         """
         if agent is None:
             from .auto_detect import get_default_agent
 
             agent = get_default_agent()
 
+        if settings is not None:
+            validate_settings(settings)
+
         self._agent = agent
         self._model = model
+        self._settings: AgentSettings = dict(settings or {})
         self._provider: Provider = resolve_provider(agent, prefer=prefer)
         self._middleware: list[Middleware] = list(middleware) if middleware else []
 
@@ -103,6 +114,11 @@ class Session:
     def provider(self) -> Provider:
         """The underlying provider instance."""
         return self._provider
+
+    @property
+    def settings(self) -> AgentSettings:
+        """The session-default settings."""
+        return cast(AgentSettings, dict(self._settings))
 
     @property
     def middleware(self) -> list[Middleware]:
@@ -127,6 +143,7 @@ class Session:
         working_dir: str | None = None,
         max_turns: int | None = None,
         system_prompt: str | None = None,
+        settings: AgentSettings | None = None,
         **kwargs,
     ) -> AsyncIterator[IREvent]:
         """Stream IR events from a task execution.
@@ -139,6 +156,7 @@ class Session:
             working_dir: Optional working directory.
             max_turns: Optional max turns limit.
             system_prompt: Optional system prompt.
+            settings: Per-call settings, merged over the session defaults.
             **kwargs: Additional TaskConfig fields.
 
         Yields:
@@ -149,6 +167,7 @@ class Session:
             working_dir=working_dir,
             max_turns=max_turns,
             system_prompt=system_prompt,
+            settings=settings,
             **kwargs,
         )
         handler = self._get_stream_handler()
@@ -162,6 +181,7 @@ class Session:
         working_dir: str | None = None,
         max_turns: int | None = None,
         system_prompt: str | None = None,
+        settings: AgentSettings | None = None,
         **kwargs,
     ) -> SessionResult:
         """Run a task to completion.
@@ -175,6 +195,7 @@ class Session:
             working_dir: Optional working directory.
             max_turns: Optional max turns limit.
             system_prompt: Optional system prompt.
+            settings: Per-call settings, merged over the session defaults.
             **kwargs: Additional TaskConfig fields.
 
         Returns:
@@ -187,6 +208,7 @@ class Session:
                 working_dir=working_dir,
                 max_turns=max_turns,
                 system_prompt=system_prompt,
+                settings=settings,
                 **kwargs,
             )
             return await self._provider.run(task)
@@ -198,6 +220,7 @@ class Session:
             working_dir=working_dir,
             max_turns=max_turns,
             system_prompt=system_prompt,
+            settings=settings,
             **kwargs,
         )
         handler = self._get_stream_handler()
@@ -221,6 +244,7 @@ class Session:
         working_dir: str | None = None,
         max_turns: int | None = None,
         system_prompt: str | None = None,
+        settings: AgentSettings | None = None,
         **kwargs,
     ) -> TaskConfig:
         """Build a TaskConfig from arguments."""
@@ -239,6 +263,11 @@ class Session:
         for key, value in kwargs.items():
             if value is not None:
                 task[key] = value
+
+        merged = merge_settings(self._settings, settings)
+        if merged:
+            validate_settings(merged)
+            task["settings"] = merged
 
         return cast(TaskConfig, task)
 
@@ -269,6 +298,7 @@ def run_sync(
     *,
     agent: str | None = None,
     model: str | None = None,
+    settings: AgentSettings | None = None,
     **kwargs,
 ) -> SessionResult:
     """Synchronous convenience for running a task.
@@ -280,12 +310,13 @@ def run_sync(
         prompt: The task instruction.
         agent: Agent type. Auto-detected if None.
         model: Model to use.
+        settings: Endpoint/auth settings.
         **kwargs: Additional TaskConfig fields passed to Session.run().
 
     Returns:
         SessionResult.
     """
-    session = Session(agent=agent, model=model)
+    session = Session(agent=agent, model=model, settings=settings)
     return asyncio.run(session.run(prompt, **kwargs))
 
 

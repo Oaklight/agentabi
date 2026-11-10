@@ -43,6 +43,7 @@ from .permissions import (
     PermissionRequest,
 )
 from .session import SessionResult, SessionStatus
+from .settings import AgentSettings
 from .stop_reasons import (
     CANONICAL_STOP_REASONS,
     STOP_REASON_ALIASES,
@@ -59,6 +60,7 @@ __all__ = [
     # Task
     "TaskConfig",
     "AgentType",
+    "AgentSettings",
     # Events
     "IREvent",
     "SessionStartEvent",

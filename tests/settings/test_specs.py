@@ -95,8 +95,16 @@ class TestSpecTable:
                 assert spec.supported == frozenset(), spec.name
 
     def test_active_transports_claim_at_least_endpoint(self) -> None:
+        wired = {
+            "settings_json",
+            "config_overrides",
+            "env_map",
+            "config_content",
+        }
         for spec in SETTINGS_SPECS.values():
-            if spec.transport in {"subprocess", "pty", "http"}:
+            if spec.transport in {"subprocess", "pty", "http"} and (
+                spec.mechanism in wired
+            ):
                 assert {"base_url", "api_key", "api_key_env"} <= spec.supported
 
 

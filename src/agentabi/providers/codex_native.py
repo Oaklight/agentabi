@@ -170,6 +170,8 @@ class CodexNativeProvider:
             # usage of `turn.completed`.
             "supports_thinking": True,
             "transport": "subprocess",
+            "supported_settings": sorted(adapter_for("codex_native").supported),
+            "settings_mechanism": adapter_for("codex_native").mechanism,
         }
 
     async def stream(self, task: TaskConfig) -> AsyncGenerator[IREvent, None]:
@@ -190,7 +192,11 @@ class CodexNativeProvider:
         from .base import collect_subprocess_errors
 
         cmd = self._build_command(task)
-        merged_env = {**os.environ, **(task.get("env") or {})}
+        merged_env = {
+            **os.environ,
+            **(task.get("env") or {}),
+            **adapter_for("codex_native").resolve(task).env,
+        }
 
         timeout = task.get("timeout")
         proc = await asyncio.create_subprocess_exec(
@@ -285,7 +291,8 @@ class CodexNativeProvider:
         # Override codex config.toml provider when the task points at a
         # custom endpoint — codex ignores OPENAI_BASE_URL in favor of its
         # config file, so the adapter rewrites the provider block.
-        cmd.extend(adapter_for("codex_native").resolve(task).argv)
+        resolved = adapter_for("codex_native").resolve(task)
+        cmd.extend(resolved.argv)
 
         schema = task.get("output_schema")
         if isinstance(schema, (str, os.PathLike)):
@@ -300,6 +307,7 @@ class CodexNativeProvider:
         for f in task.get("files") or []:
             cmd.extend(["--image", f])
 
+        cmd.extend(resolved.extra_args)
         cmd.append(task["prompt"])
         return cmd
 
@@ -344,7 +352,8 @@ class CodexNativeProvider:
             roots = ",".join(json.dumps(d) for d in extra_dirs)
             cmd.extend(["-c", f"sandbox_workspace_write.writable_roots=[{roots}]"])
 
-        cmd.extend(adapter_for("codex_native").resolve(task, resume=True).argv)
+        resolved = adapter_for("codex_native").resolve(task, resume=True)
+        cmd.extend(resolved.argv)
 
         schema = task.get("output_schema")
         if isinstance(schema, (str, os.PathLike)):
@@ -360,6 +369,7 @@ class CodexNativeProvider:
             cmd.append(session_id)
         else:
             cmd.append("--last")
+        cmd.extend(resolved.extra_args)
         cmd.append(task["prompt"])
         return cmd
 
