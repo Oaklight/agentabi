@@ -10,7 +10,7 @@
 - **Claude Code TUI transport** — opt in with `--prefer pty`. It runs the interactive Claude CLI on a PTY and tails the session transcript. Anthropic classifies `-p` as `sdk-cli` and counts it at roughly twice the interactive `cli` allowance, so this is the transport to use with a subscription account. Phase 1 emits whole messages, not token deltas. (#49)
 - **OpenCode V2 provider** — `OpenCodeV2Provider` speaks the V2 HTTP/SSE API: server spawn and reuse, session create and resume, model switch, and a streaming turn state machine. Choose the transport with `agent_extensions.opencode.transport` or `AGENTABI_OPENCODE_TRANSPORT` (`auto`, `v1`, `v2`); the native provider stays in the chain as fallback. V2 servers emit no `session.idle`, so a turn ends at `session.next.step.ended` unless the step ended with `tool-calls`. (#62, PR #67)
 - **TestPyPI publishing** — `.github/workflows/test-release.yml` publishes a manual build to TestPyPI with trusted publishing. Badges added to both READMEs and the docs indexes.
-- **Weekly zerodep check** — CI reports when the vendored `acp`/`jsonrpc`/`ptyx` copies fall behind upstream.
+- **Weekly zerodep check** — a scheduled job runs `zerodep outdated`, updates the vendored `acp`/`jsonrpc`/`ptyx` copies, and opens a PR when they fall behind upstream.
 - **`tools/peerctl.py`** — prototype for Claude Code background peers: spawn, list by workspace and name, stop, and export/import a handover snapshot keyed by `sessionId`.
 
 ### Fixed
