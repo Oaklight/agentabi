@@ -34,6 +34,10 @@ class AgentCapabilities(TypedDict):
     supports_additional_dirs: NotRequired[bool]
     supports_file_attachments: NotRequired[bool]
 
+    # ========== Settings ==========
+    supported_settings: NotRequired[list[str]]  # fields from AgentSettings
+    settings_mechanism: NotRequired[str]  # how values reach the CLI
+
     # ========== Transport ==========
     transport: NotRequired[str]  # "subprocess", "http", "websocket"
 

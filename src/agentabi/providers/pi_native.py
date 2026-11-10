@@ -14,6 +14,7 @@ import shutil
 from collections.abc import AsyncIterator
 from typing import Any
 
+from ..settings.registry import adapter_for
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
     ContentBlockEndEvent,
@@ -95,6 +96,8 @@ class PiNativeProvider:
             "supports_additional_dirs": False,
             "supports_file_attachments": False,
             "transport": "subprocess",
+            "supported_settings": sorted(adapter_for("pi_native").supported),
+            "settings_mechanism": adapter_for("pi_native").mechanism,
         }
 
     async def stream(self, task: TaskConfig) -> AsyncIterator[IREvent]:

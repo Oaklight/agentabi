@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any
 
+from ..settings.registry import adapter_for
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
     ErrorEvent,
@@ -54,10 +55,13 @@ class ClaudeSDKProvider:
             "supports_tool_filtering": False,
             "supports_permissions": True,
             "supports_multi_turn": True,
+            "supported_settings": sorted(adapter_for("claude_sdk").supported),
+            "settings_mechanism": adapter_for("claude_sdk").mechanism,
         }
 
     async def stream(self, task: TaskConfig) -> AsyncIterator[IREvent]:
         """Run task via claude-agent-sdk and yield IR events."""
+        adapter_for("claude_sdk").resolve(task)
         from claude_agent_sdk import ClaudeAgentOptions, query
 
         options = ClaudeAgentOptions(

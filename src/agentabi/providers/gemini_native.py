@@ -69,6 +69,8 @@ class GeminiNativeProvider:
             "supports_permissions": True,
             "supports_multi_turn": True,
             "transport": "subprocess",
+            "supported_settings": sorted(adapter_for("gemini_native").supported),
+            "settings_mechanism": adapter_for("gemini_native").mechanism,
         }
 
     @classmethod
@@ -190,6 +192,9 @@ class GeminiNativeProvider:
                 cmd.extend(["--session-id", task["session_id"]])
         elif task.get("resume"):
             cmd.extend(["-r", "latest"])
+
+        resolved = adapter_for("gemini_native").resolve(task)
+        cmd.extend(resolved.extra_args)
 
         cmd.extend(["-p", task["prompt"]])
         return cmd

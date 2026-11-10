@@ -101,6 +101,8 @@ class AgyNativeProvider:
             # accepts a file or image attachment; -p takes a text prompt.
             "supports_file_attachments": False,
             "transport": "subprocess",
+            "supported_settings": sorted(adapter_for("agy").supported),
+            "settings_mechanism": adapter_for("agy").mechanism,
         }
 
     async def stream(self, task: TaskConfig) -> AsyncIterator[IREvent]:
@@ -191,13 +193,14 @@ class AgyNativeProvider:
         """Convert TaskConfig to agy CLI arguments."""
         cmd = ["agy", "--output-format", "stream-json"]
 
-        settings = AgyNativeProvider._settings_arg(task)
+        resolved = adapter_for("agy").resolve(task)
+        task = resolved.task_or(task)
 
-        # `--model` is validated against agy's own catalog even when
-        # --settings names a gateway model (measured with agy 1.5.5), and
-        # --model wins over the settings model. A model supplied through
-        # settings must therefore not also go to --model.
-        if "model" in task and not AgyNativeProvider._settings_names_model(settings):
+        # `--model` is validated against agy's own catalog even when the
+        # active settings name a gateway model (measured with agy 1.5.5),
+        # and --model wins over the settings model. The adapter drops
+        # ``model`` from the task when settings already name one.
+        if "model" in task:
             cmd.extend(["--model", task["model"]])
 
         AgyNativeProvider._add_permission_flags(cmd, task)
@@ -209,47 +212,11 @@ class AgyNativeProvider:
 
         AgyNativeProvider._add_extension_flags(cmd, task)
 
-        if settings is not None:
-            cmd.extend(["--settings", settings])
+        cmd.extend(resolved.argv)
+        cmd.extend(resolved.extra_args)
 
         cmd.extend(["-p", task["prompt"]])
         return cmd
-
-    @staticmethod
-    def _settings_arg(task: TaskConfig) -> str | None:
-        """Return the value for ``--settings`` from task extensions.
-
-        ``agent_extensions.agy.settings`` may be a dict (serialized to a
-        JSON object) or a string (passed through unchanged, so agy can
-        read it as a file path). Gateway-only models are named here, e.g.
-        ``{"agy": {"settings": {"model": "qwen3.8-27b"}}}``.
-        """
-        ext = task.get("agent_extensions") or {}
-        agy_ext = ext.get("agy")
-        if not isinstance(agy_ext, dict):
-            return None
-        settings = agy_ext.get("settings")
-        if settings is None:
-            return None
-        if isinstance(settings, str):
-            return settings
-        if isinstance(settings, dict):
-            return json.dumps(settings)
-        raise ValueError(
-            "agent_extensions.agy.settings must be a dict or a JSON string"
-        )
-
-    @staticmethod
-    def _settings_names_model(settings: str | None) -> bool:
-        """Return True when the ``--settings`` JSON object sets a model."""
-        if not settings:
-            return False
-        try:
-            data = json.loads(settings)
-        except json.JSONDecodeError:
-            # A file path; agy reads the file, so the model is unknown here.
-            return False
-        return isinstance(data, dict) and bool(data.get("model"))
 
     @staticmethod
     def _add_permission_flags(cmd: list[str], task: TaskConfig) -> None:

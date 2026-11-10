@@ -10,6 +10,7 @@ from typing import Any, Literal
 from typing_extensions import NotRequired, Required, TypedDict
 
 from .permissions import PermissionConfig
+from .settings import AgentSettings
 
 # ============================================================================
 # Agent type
@@ -91,6 +92,9 @@ class TaskConfig(TypedDict):
 
     # ========== Agent-Specific Extensions ==========
     agent_extensions: NotRequired[dict[str, Any]]
+
+    # ========== Unified Settings ==========
+    settings: NotRequired[AgentSettings]
 
 
 __all__ = [

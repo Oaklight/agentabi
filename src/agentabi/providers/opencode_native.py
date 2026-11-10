@@ -78,6 +78,8 @@ class OpenCodeNativeProvider:
             "supports_additional_dirs": False,
             "supports_file_attachments": True,
             "transport": "subprocess",
+            "supported_settings": sorted(adapter_for("opencode_native").supported),
+            "settings_mechanism": adapter_for("opencode_native").mechanism,
         }
 
     async def stream(self, task: TaskConfig) -> AsyncIterator[IREvent]:
@@ -89,7 +91,11 @@ class OpenCodeNativeProvider:
         self._session_ended = False
 
         cmd = self._build_command(task)
-        merged_env = {**os.environ, **(task.get("env") or {})}
+        merged_env = {
+            **os.environ,
+            **(task.get("env") or {}),
+            **adapter_for("opencode_native").resolve(task).env,
+        }
 
         timeout = task.get("timeout")
         proc = await asyncio.create_subprocess_exec(
@@ -155,11 +161,11 @@ class OpenCodeNativeProvider:
         """Convert TaskConfig to opencode CLI arguments."""
         cmd = ["opencode", "run", "--format", "json"]
 
-        # OpenCode uses provider/model format.  When env overrides the
-        # base URL (via OPENAI_BASE_URL), the adapter prefixes a bare
-        # model with "openai/" so OpenCode routes through the overridden
-        # OpenAI-compatible provider instead of a config-file provider.
-        task = adapter_for("opencode_native").resolve(task).task_or(task)
+        # OpenCode uses provider/model format.  The adapter supplies the
+        # model label: either the built-in "openai/" prefix for a bare
+        # model plus OPENAI_BASE_URL, or an injected provider id.
+        resolved = adapter_for("opencode_native").resolve(task)
+        task = resolved.task_or(task)
         model = task.get("model", "")
         if model:
             cmd.extend(["--model", model])
@@ -188,6 +194,7 @@ class OpenCodeNativeProvider:
         for f in task.get("files") or []:
             cmd.extend(["--file", f])
 
+        cmd.extend(resolved.extra_args)
         cmd.append("--")
         cmd.append(task["prompt"])
         return cmd

@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from ..settings.registry import adapter_for
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
     ErrorEvent,
@@ -647,6 +648,8 @@ class OpenCodeV2Provider:
             "supports_additional_dirs": False,
             "supports_file_attachments": True,
             "transport": "http",
+            "supported_settings": sorted(adapter_for("opencode_v2").supported),
+            "settings_mechanism": adapter_for("opencode_v2").mechanism,
         }
 
     # -- lifecycle --------------------------------------------------------

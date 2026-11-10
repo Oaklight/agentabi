@@ -10,6 +10,7 @@ import warnings
 from collections.abc import AsyncIterator
 from typing import Any
 
+from ..settings.registry import adapter_for
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
     ErrorEvent,
@@ -60,6 +61,8 @@ class GeminiSDKProvider:
             "supports_tool_filtering": False,
             "supports_permissions": True,
             "supports_multi_turn": True,
+            "supported_settings": sorted(adapter_for("gemini_sdk").supported),
+            "settings_mechanism": adapter_for("gemini_sdk").mechanism,
         }
 
     @classmethod
@@ -74,6 +77,7 @@ class GeminiSDKProvider:
 
     async def stream(self, task: TaskConfig) -> AsyncIterator[IREvent]:
         """Run task via gemini-cli-sdk and yield IR events."""
+        adapter_for("gemini_sdk").resolve(task)
         self._warn_deprecated()
         from gemini_cli_sdk import GeminiOptions, query
 

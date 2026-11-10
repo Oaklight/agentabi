@@ -30,10 +30,20 @@ class GeminiNativeSettings(Adapter):
     name = "gemini_native"
 
     def resolve(self, task: TaskConfig, *, resume: bool = False) -> ResolvedSettings:
+        applied = self.apply(
+            task,
+            base_url_var="OPENAI_BASE_URL",
+            api_key_var="OPENAI_API_KEY",
+        )
+        env = dict(endpoint_env(applied.task))
+        env.update(applied.env)
         return ResolvedSettings(
             agent=self.agent,
             provider=self.name,
-            env=endpoint_env(task),
+            env=env,
+            task=applied.task if applied.task is not task else None,
+            extra_args=applied.extra_args,
+            ignored=applied.ignored,
         )
 
 

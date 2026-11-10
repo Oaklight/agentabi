@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from .._vendor.ptyx import PtyProcess, PtyStartupError, PtyWriteError
+from ..settings.registry import adapter_for
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
     ErrorEvent,
@@ -1589,6 +1590,8 @@ class ClaudeTuiProvider:
             "supports_file_attachments": False,
             "supports_multi_turn": True,
             "transport": "conpty" if os.name == "nt" else "pty",
+            "supported_settings": sorted(adapter_for("claude_tui").supported),
+            "settings_mechanism": adapter_for("claude_tui").mechanism,
         }
 
     async def stream(self, task: TaskConfig) -> AsyncIterator[IREvent]:
@@ -1605,7 +1608,9 @@ class ClaudeTuiProvider:
 
         resume = bool(task.get("resume"))
         cwd = task.get("working_dir") or os.getcwd()
+        resolved = adapter_for("claude_tui").resolve(task)
         env = _build_env(task)
+        env.update(resolved.env)
         target = self._session_target(task, cwd, resume, env)
         if isinstance(target, str):
             yield ErrorEvent(type="error", error=target, is_fatal=True)
@@ -1613,6 +1618,8 @@ class ClaudeTuiProvider:
         session_id, path = target
 
         command = _build_command(binary, task, session_id, resume)
+        command.extend(resolved.argv)
+        command.extend(resolved.extra_args)
 
         proc: PtyProcess | None = None
         started = False
