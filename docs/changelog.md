@@ -4,6 +4,27 @@
 
 ### Added
 
+- **ACP gateway** — `agentabi acp --agent <name>` exposes one agent as an ACP endpoint on stdio. `opencode` uses its own ACP server; `agy`, `claude`, `codex`, and `pi` run through the IR stream. ACP and JSON-RPC are vendored from zerodep, so no external ACP SDK or Node runtime is needed. (#44, #47)
+- **ACP v2 and external ACP servers** — `initialize` negotiates ACP v2 and `session/prompt` returns the backend's real `stopReason`. `--agent acp --acp-command "<cmd>"` forwards to any external ACP server and passes its updates through unchanged. (#48, #50)
+- **Router mode** — `--router` with repeated `--agent` serves several agents from one gateway process. The client chooses an agent per session with `_meta.agent`; an unknown name fails with `-32602` and lists the enabled agents. `initialize` advertises the intersection of the reachable backends' capabilities. Permissions are deny-by-default, and every routed call is recorded on the `agentabi.acp.audit` logger. (#64, PR #68)
+- **Claude Code TUI transport** — opt in with `--prefer pty`. It runs the interactive Claude CLI on a PTY and tails the session transcript. Anthropic classifies `-p` as `sdk-cli` and counts it at roughly twice the interactive `cli` allowance, so this is the transport to use with a subscription account. Phase 1 emits whole messages, not token deltas. (#49)
+- **OpenCode V2 provider** — `OpenCodeV2Provider` speaks the V2 HTTP/SSE API: server spawn and reuse, session create and resume, model switch, and a streaming turn state machine. Choose the transport with `agent_extensions.opencode.transport` or `AGENTABI_OPENCODE_TRANSPORT` (`auto`, `v1`, `v2`); the native provider stays in the chain as fallback. V2 servers emit no `session.idle`, so a turn ends at `session.next.step.ended` unless the step ended with `tool-calls`. (#62, PR #67)
+- **TestPyPI publishing** — `.github/workflows/test-release.yml` publishes a manual build to TestPyPI with trusted publishing. Badges added to both READMEs and the docs indexes.
+- **Weekly zerodep check** — CI reports when the vendored `acp`/`jsonrpc`/`ptyx` copies fall behind upstream.
+- **`tools/peerctl.py`** — prototype for Claude Code background peers: spawn, list by workspace and name, stop, and export/import a handover snapshot keyed by `sessionId`.
+
+### Fixed
+
+- **Provider CLI drift** — codex probes `codex exec --help` and uses the approval flag the installed CLI accepts; opencode uses `--auto`; agy emits one message per `agent_response` step and keeps text across the `ACTIVE` and `DONE` updates. `turn.failed` and `error` events become fatal `ErrorEvent`s instead of being dropped. Codex also passes `--skip-git-repo-check`, so a working directory outside a git tree works.
+- **Provider stdin** — child processes get `/dev/null` on stdin. Under the gateway the host stdin is the JSON-RPC pipe, and pi consumed ACP messages from it.
+- **Codex temp schema leak** — generated `--output-schema` files are deleted after streaming; a path-like schema value is accepted as a file path. (#51, PR #52)
+- **Claude TUI error paths** — API errors and internal failures surface as `ErrorEvent` instead of a silent end. Prompt text with control characters is rejected before any byte is written, and paste and submit are confirmed before a turn starts. (#55, #58)
+- **ptyx** — Windows ConPTY chunks are kept instead of dropped, pipe failures raise `PtyReadError`/`PtyWriteError`, and only cursor-position queries are answered. (#56)
+
+## v0.4.0 (2026-09-08)
+
+### Added
+
 - **Antigravity CLI (agy) provider** — Google's new agentic coding CLI, replacing the discontinued Gemini CLI. Full stream-json event parser, env bridging (OPENAI_BASE_URL → GOOGLE_GEMINI_BASE_URL), permission mapping. 43 unit tests. (#20, PR #35)
 - **`ThinkingLevel`** type and `thinking_level` field — Unified reasoning effort control across Claude (`--effort`), Pi (`--thinking`), and OpenCode (`--variant`). Values: `"off"`, `"low"`, `"medium"`, `"high"`, `"max"`. (#22, PR #33)
 - **`output_schema`** field — Structured output via JSON Schema. Maps to Claude `--json-schema`, Codex `--output-schema`, agy `--json-schema`. (#23, PR #37)
