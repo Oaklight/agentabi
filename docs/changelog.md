@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Codex thinking level** — `thinking_level` now reaches codex as `-c model_reasoning_effort="<level>"` for both `codex exec` and `codex exec resume`; `max` maps to `high`, and `off` sends nothing. `supports_thinking` is declared `True`. codex streams no reasoning text, so this is the control, not a `reasoning_delta` stream. Verified on codex 0.162.1. (#86)
 - **ACP gateway** — `agentabi acp --agent <name>` exposes one agent as an ACP endpoint on stdio. `opencode` uses its own ACP server; `agy`, `claude`, `codex`, and `pi` run through the IR stream. ACP and JSON-RPC are vendored from zerodep, so no external ACP SDK or Node runtime is needed. (#44, #47)
 - **ACP v2 and external ACP servers** — `initialize` negotiates ACP v2 and `session/prompt` returns the backend's real `stopReason`. `--agent acp --acp-command "<cmd>"` forwards to any external ACP server and passes its updates through unchanged. (#48, #50)
 - **Router mode** — `--router` with repeated `--agent` serves several agents from one gateway process. The client chooses an agent per session with `_meta.agent`; an unknown name fails with `-32602` and lists the enabled agents. `initialize` advertises the intersection of the reachable backends' capabilities. Permissions are deny-by-default, and every routed call is recorded on the `agentabi.acp.audit` logger. (#64, PR #68)
