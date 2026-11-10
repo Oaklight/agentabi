@@ -33,7 +33,7 @@ Native provider 将 agent CLI 作为子进程运行，解析其结构化输出�
 | Provider | Agent | CLI 命令 |
 |----------|-------|---------| 
 | `ClaudeNativeProvider` | `claude_code` | `claude -p <prompt> --output-format stream-json` |
-| `CodexNativeProvider` | `codex` | `codex exec --json --full-auto <prompt>` |
+| `CodexNativeProvider` | `codex` | `codex exec --json --approve-for-me <prompt>`（带 `resume` 的任务改用 `codex exec resume`） |
 | `AgyNativeProvider` | `agy` | `agy --output-format stream-json ... -p <prompt>` |
 | `OpenCodeNativeProvider` | `opencode` | `opencode run --format json -- <prompt>` |
 | `PiNativeProvider` | `pi` | `pi --print --mode json <prompt>` |
