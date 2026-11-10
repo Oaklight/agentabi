@@ -92,15 +92,18 @@ class TestBuildCommand:
 
 
 @pytest.mark.parametrize(
-    "outcome", ["completed", "spawn_failed", "closed", "provided_path"]
+    "outcome",
+    ["completed", "spawn_failed", "closed", "provided_path", "provided_pathlike"],
 )
 async def test_stream_cleans_up_generated_schema(monkeypatch, tmp_path, outcome):
     schema = {"type": "object"}
-    schema_input: str | dict[str, str] = schema
-    if outcome == "provided_path":
+    schema_input: str | dict[str, str] | Path = schema
+    if outcome in ("provided_path", "provided_pathlike"):
         provided_path = tmp_path / "provided.json"
         provided_path.write_text(json.dumps(schema), encoding="utf-8")
-        schema_input = str(provided_path)
+        schema_input = (
+            str(provided_path) if outcome == "provided_path" else provided_path
+        )
     task: TaskConfig = {"prompt": "hi", "output_schema": schema_input}
     monkeypatch.setattr(codex_native, "_AUTO_APPROVAL_FLAGS", ["--approve-for-me"])
     monkeypatch.setattr("tempfile.tempdir", str(tmp_path))
@@ -142,7 +145,9 @@ async def test_stream_cleans_up_generated_schema(monkeypatch, tmp_path, outcome)
         assert [event["type"] async for event in stream] == ["session_start"]
 
     assert len(schema_paths) == 1
-    assert schema_paths[0].exists() == (outcome == "provided_path")
+    assert schema_paths[0].exists() == (
+        outcome in ("provided_path", "provided_pathlike")
+    )
     assert task["output_schema"] == schema_input
 
 
