@@ -965,4 +965,7 @@ class TestCapabilities:
         assert caps["supports_thinking"] is True
         assert caps["supports_ephemeral"] is True
         assert caps["supports_multi_turn"] is True
+        assert caps["supports_structured_output"] is False
+        assert caps["supports_additional_dirs"] is False
+        assert caps["supports_file_attachments"] is False
         assert caps["transport"] == "subprocess"
