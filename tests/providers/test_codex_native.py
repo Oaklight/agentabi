@@ -122,6 +122,81 @@ class TestBuildCommand:
         assert "img.png" in cmd
 
 
+class TestBuildResumeCommand:
+    """`codex exec resume` takes a smaller flag set than `codex exec`."""
+
+    @staticmethod
+    def _task(d: dict[str, Any]) -> TaskConfig:
+        return cast(TaskConfig, d)
+
+    def test_resume_uses_the_resume_subcommand(self):
+        task = self._task(
+            {"prompt": "again", "agent": "codex", "session_id": "abc", "resume": True}
+        )
+        cmd = CodexNativeProvider._build_command(task)
+        assert cmd[:4] == ["codex", "exec", "resume", "--json"]
+        assert cmd[-2:] == ["abc", "again"]
+
+    def test_resume_without_id_uses_last(self):
+        task = self._task({"prompt": "again", "agent": "codex", "resume": True})
+        cmd = CodexNativeProvider._build_command(task)
+        assert "--last" in cmd
+        assert cmd[-1] == "again"
+
+    def test_resume_avoids_flags_the_subcommand_rejects(self):
+        task = self._task(
+            {
+                "prompt": "again",
+                "agent": "codex",
+                "session_id": "abc",
+                "resume": True,
+                "working_dir": "/tmp/w",
+                "additional_dirs": ["/extra"],
+                "permissions": {"level": "full_auto"},
+            }
+        )
+        cmd = CodexNativeProvider._build_command(task)
+        for rejected in ("-s", "-C", "--add-dir", "--approve-for-me", "--full-auto"):
+            assert rejected not in cmd
+        assert "--dangerously-bypass-approvals-and-sandbox" in cmd
+
+    def test_resume_static_policy_goes_through_config_overrides(self):
+        task = self._task(
+            {
+                "prompt": "again",
+                "agent": "codex",
+                "session_id": "abc",
+                "resume": True,
+                "agent_extensions": {
+                    "codex": {"sandbox": "read-only", "approval": "never"}
+                },
+            }
+        )
+        cmd = CodexNativeProvider._build_command(task)
+        assert 'sandbox_mode="read-only"' in cmd
+        assert 'approval_policy="never"' in cmd
+
+    def test_resume_defaults_to_workspace_write(self):
+        task = self._task(
+            {"prompt": "again", "agent": "codex", "session_id": "abc", "resume": True}
+        )
+        cmd = CodexNativeProvider._build_command(task)
+        assert 'sandbox_mode="workspace-write"' in cmd
+
+    def test_resume_extra_dirs_become_writable_roots(self):
+        task = self._task(
+            {
+                "prompt": "again",
+                "agent": "codex",
+                "session_id": "abc",
+                "resume": True,
+                "additional_dirs": ["/a", "/b"],
+            }
+        )
+        cmd = CodexNativeProvider._build_command(task)
+        assert 'sandbox_workspace_write.writable_roots=["/a","/b"]' in cmd
+
+
 @pytest.mark.parametrize(
     "outcome",
     ["completed", "spawn_failed", "closed", "provided_path", "provided_pathlike"],

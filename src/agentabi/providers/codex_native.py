@@ -224,7 +224,17 @@ class CodexNativeProvider:
 
     @staticmethod
     def _build_command(task: TaskConfig) -> list[str]:
-        """Convert TaskConfig to codex CLI arguments."""
+        """Convert TaskConfig to codex CLI arguments.
+
+        A task with ``resume`` set goes through ``codex exec resume``, which
+        accepts a smaller flag set than ``codex exec``.  Resume needs either
+        a ``session_id`` or ``--last`` to pick the session.
+        """
+        if task.get("resume"):
+            return CodexNativeProvider._build_resume_command(
+                task, str(task.get("session_id") or "")
+            )
+
         cmd = ["codex", "exec", "--json", "--skip-git-repo-check"]
 
         permissions = task.get("permissions")
@@ -281,6 +291,78 @@ class CodexNativeProvider:
         for f in task.get("files") or []:
             cmd.extend(["--image", f])
 
+        cmd.append(task["prompt"])
+        return cmd
+
+    @staticmethod
+    def _build_resume_command(task: TaskConfig, session_id: str) -> list[str]:
+        """Build a ``codex exec resume`` command.
+
+        ``codex exec resume`` accepts fewer flags than ``codex exec``: no
+        ``-s``, ``-C``, ``--add-dir``, ``--approve-for-me``, or
+        ``--full-auto``.  The equivalent settings go through ``-c``
+        overrides, and the working directory is the subprocess ``cwd`` that
+        ``_stream`` already sets.
+
+        Returns:
+            Argument list, ending with the prompt.
+        """
+        cmd = ["codex", "exec", "resume", "--json", "--skip-git-repo-check"]
+
+        permissions = task.get("permissions")
+        level = permissions.get("level") if permissions else None
+        if level == "full_auto":
+            cmd.append("--dangerously-bypass-approvals-and-sandbox")
+        else:
+            extensions = task.get("agent_extensions") or {}
+            config = extensions.get("codex")
+            static = config if isinstance(config, dict) else {}
+            sandbox = static.get("sandbox") or "workspace-write"
+            cmd.extend(["-c", f'sandbox_mode="{sandbox}"'])
+            approval = static.get("approval")
+            if approval:
+                cmd.extend(["-c", f'approval_policy="{approval}"'])
+
+        if "model" in task:
+            cmd.extend(["-m", task["model"]])
+
+        # The resumed process inherits its working directory from `cwd`, so
+        # only the extra writable roots need an override.
+        extra_dirs = [os.fspath(d) for d in task.get("additional_dirs") or []]
+        if extra_dirs:
+            roots = ",".join(json.dumps(d) for d in extra_dirs)
+            cmd.extend(["-c", f"sandbox_workspace_write.writable_roots=[{roots}]"])
+
+        task_env = task.get("env") or {}
+        base_url = task_env.get("OPENAI_BASE_URL")
+        api_key = task_env.get("OPENAI_API_KEY")
+        provider = task_env.get("CODEX_PROVIDER", "openai")
+        if base_url:
+            cmd.extend(
+                [
+                    "-c",
+                    f"model_provider={provider}",
+                    "-c",
+                    f"model_providers.{provider}.base_url={base_url}",
+                ]
+            )
+            if api_key:
+                cmd.extend(["-c", f"model_providers.{provider}.api_key={api_key}"])
+
+        schema = task.get("output_schema")
+        if isinstance(schema, (str, os.PathLike)):
+            cmd.extend(["--output-schema", os.fspath(schema)])
+
+        if task.get("ephemeral"):
+            cmd.append("--ephemeral")
+
+        for f in task.get("files") or []:
+            cmd.extend(["-i", f])
+
+        if session_id:
+            cmd.append(session_id)
+        else:
+            cmd.append("--last")
         cmd.append(task["prompt"])
         return cmd
 
