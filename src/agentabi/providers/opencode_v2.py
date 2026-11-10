@@ -67,6 +67,9 @@ _LISTEN_RE = re.compile(r"listening on (https?://\S+)")
 _SERVER_START_TIMEOUT = 30.0
 _SUBSCRIBE_TIMEOUT = 10.0
 _HTTP_TIMEOUT = 30.0
+# How long to wait for the V2 model catalog to say whether it has a model.
+_CATALOG_WAIT = 4.0
+_CATALOG_POLL = 0.25
 
 _TERMINAL_FINISHES = frozenset({"stop", "length", "content-filter", "error"})
 _NON_TERMINAL_FINISHES = frozenset({"tool-calls"})
@@ -78,6 +81,10 @@ class OpenCodeV2Error(RuntimeError):
 
 class _V2Unavailable(OpenCodeV2Error):
     """The server does not expose the V2 API; V1 fallback is allowed."""
+
+
+class _ModelNotInCatalog(OpenCodeV2Error):
+    """The V2 catalog lacks the task's model; V1 fallback is allowed."""
 
 
 # ============================================================================
@@ -276,6 +283,15 @@ class _TurnState:
             ):
                 self.armed = True
             return False
+        if etype in ("session.next.step.failed", "session.error"):
+            # A turn can fail before its first step event, for example when
+            # the session model is not in the server's catalog. The event
+            # names this session and only one prompt is in flight, so it
+            # starts the turn; otherwise the failure is dropped and the
+            # caller waits for the timeout.
+            if self.prompt_message_id:
+                self.armed = True
+            return self.armed
         if etype == "session.next.step.started" and self.prompt_message_id:
             self.armed = True
         return self.armed
@@ -619,6 +635,13 @@ class OpenCodeV2Provider:
             "supports_permissions": True,
             "supports_multi_turn": True,
             "supports_thinking": True,
+            # Measured against opencode 1.19.0's V2 schema: PromptInput
+            # carries text, files, and agents only (no response schema),
+            # and session create has no persistence-off flag. A session
+            # takes one directory, so there is no way to add another.
+            "supports_structured_output": False,
+            "supports_ephemeral": False,
+            "supports_additional_dirs": False,
             "supports_file_attachments": True,
             "transport": "http",
         }
@@ -660,6 +683,13 @@ class OpenCodeV2Provider:
         except _V2Unavailable:
             if mode != "auto" or yielded:
                 raise
+            await self.aclose()
+        except _ModelNotInCatalog as exc:
+            # The V2 server cannot serve this model, but the CLI can: V1
+            # takes the model id from --model. Fall back rather than fail.
+            if mode != "auto" or yielded:
+                yield ErrorEvent(type="error", error=str(exc), is_fatal=True)
+                return
             await self.aclose()
         except (OpenCodeV2Error, HTTPError) as exc:
             yield ErrorEvent(type="error", error=str(exc), is_fatal=True)
@@ -918,6 +948,7 @@ class OpenCodeV2Provider:
             model = await self._default_model(base)
         if model is None:
             return ""
+        await self._require_catalog_model(base, model)
         status, payload = await request_json(
             "POST",
             f"{base}/api/session/{session_id}/model",
@@ -929,6 +960,62 @@ class OpenCodeV2Provider:
                 f"cannot set the OpenCode model (HTTP {status}): {payload!r}"
             )
         return f"{model['providerID']}/{model['id']}"
+
+    @staticmethod
+    async def _require_catalog_model(base: str, model: dict[str, str]) -> None:
+        """Fail fast when the server does not list the requested model.
+
+        The V2 API resolves a session model against its own catalog
+        (``GET /api/model``). A model missing from it fails inside the
+        server without a ``session.next.step.failed`` event on the event
+        stream, so the caller would wait for the turn timeout. Measured
+        with opencode 1.19.0: a model added to the config through
+        ``OPENCODE_CONFIG`` is usable through ``opencode run`` (V1) but
+        absent from the V2 catalog.
+
+        The check is skipped when the endpoint does not answer, so an
+        older server keeps working.
+
+        Raises:
+            OpenCodeV2Error: If the catalog answers and lacks the model.
+        """
+        wanted = (model["providerID"], model["id"])
+        # The catalog is populated asynchronously right after the server
+        # starts (measured with opencode 1.19.0: empty, then 9030
+        # placeholder entries, then the real 223 about 1.5 s in). Poll
+        # briefly so a fresh server can still answer, and only judge once
+        # the wanted provider is listed.
+        deadline = time.monotonic() + _CATALOG_WAIT
+        while True:
+            try:
+                status, payload = await request_json(
+                    "GET", f"{base}/api/model", timeout=_HTTP_TIMEOUT
+                )
+            except HTTPError:
+                return
+            if status != 200:
+                # No catalog endpoint here; there is nothing to judge.
+                return
+            entries = payload.get("data") if isinstance(payload, dict) else payload
+            if isinstance(entries, list) and entries:
+                available = {
+                    (str(item.get("providerID")), str(item.get("id")))
+                    for item in entries
+                    if isinstance(item, dict)
+                }
+                if wanted in available:
+                    return
+                if any(provider == wanted[0] for provider, _ in available):
+                    listed = ", ".join(
+                        sorted(f"{p}/{m}" for p, m in available if p == wanted[0])
+                    )
+                    raise _ModelNotInCatalog(
+                        f"OpenCode server does not offer {wanted[0]}/{wanted[1]} "
+                        f"(the server lists: {listed})"
+                    )
+            if time.monotonic() >= deadline:
+                return
+            await asyncio.sleep(_CATALOG_POLL)
 
     @staticmethod
     async def _default_model(base: str) -> dict[str, Any] | None:
