@@ -3,25 +3,35 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 import time
+import uuid
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
 from agentabi._vendor.ptyx import PtyProcess, PtyWriteError
+from agentabi.providers import claude_tui as claude_tui_module
 from agentabi.providers import registry
 from agentabi.providers.claude_native import ClaudeNativeProvider
 from agentabi.providers.claude_sdk import ClaudeSDKProvider
 from agentabi.providers.claude_tui import (
     ClaudeTuiProvider,
     _build_command,
+    _prompt_is_ready,
     _prompt_problem,
     _PromptSubmitError,
+    _read_new_rows,
+    _session_uuid,
     _slug_from_resolved,
+    _TranscriptTail,
     _turn_row,
+    _TurnState,
+    _usage_from_raw,
+    task_transcript_path,
     transcript_path,
 )
 from agentabi.types.ir.task import TaskConfig
@@ -278,7 +288,9 @@ async def test_stream_reads_transcript(tmp_path):
 async def test_trust_prompt_fails_with_clear_error(tmp_path):
     binary = _write_script(tmp_path, _TRUST_TUI)
     provider = ClaudeTuiProvider()
-    events = [event async for event in provider.stream(_task(tmp_path, binary))]
+    task = _task(tmp_path, binary)
+    task["agent_extensions"]["tui_fallback"] = False  # type: ignore[index]
+    events = [event async for event in provider.stream(task)]
 
     errors = [event for event in events if event["type"] == "error"]
     assert errors
@@ -389,12 +401,12 @@ def test_assistant_end_turn_is_not_a_turn_boundary():
         "type": "assistant",
         "message": {"id": "msg-1", "stop_reason": "end_turn", "content": []},
     }
-    events, turn_done = _turn_row(row, set())
+    events, turn_done = _turn_row(row, _TurnState())
     assert events
     assert turn_done is False
 
     duration = {"type": "system", "subtype": "turn_duration"}
-    assert _turn_row(duration, set()) == ([], True)
+    assert _turn_row(duration, _TurnState()) == ([], True)
 
 
 def test_prefer_pty_selects_tui(monkeypatch):
@@ -407,7 +419,7 @@ def test_prefer_pty_selects_tui(monkeypatch):
 async def test_resume_skips_existing_transcript(tmp_path):
     binary = _write_script(tmp_path, _FAKE_TUI)
     provider = ClaudeTuiProvider()
-    session_id = "resume-sid"
+    session_id = str(uuid.uuid4())
 
     first = _task(tmp_path, binary, "first")
     first["session_id"] = session_id
@@ -437,7 +449,7 @@ def test_system_api_error_ends_turn_when_retries_are_exhausted():
         "retryAttempt": 10,
         "maxRetries": 10,
     }
-    events, turn_done = _turn_row(row, set())
+    events, turn_done = _turn_row(row, _TurnState())
 
     assert turn_done is True
     assert len(events) == 1
@@ -455,7 +467,7 @@ def test_system_api_error_stays_non_fatal_while_retries_remain():
         "retryAttempt": 1,
         "maxRetries": 10,
     }
-    events, turn_done = _turn_row(row, set())
+    events, turn_done = _turn_row(row, _TurnState())
 
     assert turn_done is False
     assert events[0]["type"] == "error"
@@ -465,7 +477,8 @@ def test_system_api_error_stays_non_fatal_while_retries_remain():
 
 def test_system_api_error_without_retry_budget_ends_turn():
     events, turn_done = _turn_row(
-        {"type": "system", "subtype": "api_error", "error": "socket closed"}, set()
+        {"type": "system", "subtype": "api_error", "error": "socket closed"},
+        _TurnState(),
     )
 
     assert turn_done is True
@@ -485,7 +498,7 @@ def test_assistant_api_error_message_becomes_fatal_error():
             "content": [{"type": "text", "text": "API Error: 502 bad gateway"}],
         },
     }
-    events, turn_done = _turn_row(row, set())
+    events, turn_done = _turn_row(row, _TurnState())
 
     assert turn_done is True
     assert [event["type"] for event in events] == ["error"]
@@ -572,7 +585,7 @@ async def test_pty_read_failure_becomes_error_event(tmp_path):
     events = [
         event
         async for event in ClaudeTuiProvider()._turn_events(  # noqa: SLF001
-            proc, path, "sid", task, 0
+            proc, path, "sid", task, _TranscriptTail()
         )
     ]
 
@@ -589,7 +602,7 @@ async def test_transcript_read_failure_becomes_error_event(tmp_path):
     events = [
         event
         async for event in ClaudeTuiProvider()._turn_events(  # noqa: SLF001
-            proc, tmp_path, "sid", task, 0
+            proc, tmp_path, "sid", task, _TranscriptTail()
         )
     ]
 
@@ -634,11 +647,13 @@ async def test_invalid_ready_timeout_becomes_error_event(tmp_path):
 
 def test_result_row_does_not_emit_session_end():
     row = {"type": "result", "subtype": "success", "session_id": "sid-1"}
-    events, turn_done = _turn_row(row, set())
+    events, turn_done = _turn_row(row, _TurnState())
 
     assert turn_done is True
     assert [event["type"] for event in events].count("session_end") == 0
-    assert any(event["type"] == "usage" for event in events)
+    # A result row with no usage counters reports no usage event; an empty
+    # usage event would make consumers think the turn was measured.
+    assert not [event for event in events if event["type"] == "usage"]
 
 
 async def test_result_row_yields_one_session_end(tmp_path):
@@ -748,7 +763,7 @@ async def test_escape_injection_is_rejected_before_any_write(tmp_path):
             cast(PtyProcess, proc),
             "hi\x1b[201~rm -rf /",
             tmp_path / "t.jsonl",
-            0,
+            _TranscriptTail(),
             task,
         )
 
@@ -777,7 +792,11 @@ async def test_paste_write_failure_is_reported(tmp_path):
 
     with pytest.raises(_PromptSubmitError, match="cannot paste"):
         await ClaudeTuiProvider()._send_prompt(  # noqa: SLF001
-            cast(PtyProcess, proc), "hello", tmp_path / "t.jsonl", 0, task
+            cast(PtyProcess, proc),
+            "hello",
+            tmp_path / "t.jsonl",
+            _TranscriptTail(),
+            task,
         )
 
 
@@ -787,7 +806,11 @@ async def test_submit_write_failure_is_reported(tmp_path):
 
     with pytest.raises(_PromptSubmitError, match="cannot submit"):
         await ClaudeTuiProvider()._send_prompt(  # noqa: SLF001
-            cast(PtyProcess, proc), "hello", tmp_path / "t.jsonl", 0, task
+            cast(PtyProcess, proc),
+            "hello",
+            tmp_path / "t.jsonl",
+            _TranscriptTail(),
+            task,
         )
 
 
@@ -805,7 +828,10 @@ async def test_submit_confirmation_times_out(tmp_path):
 
     with pytest.raises(_PromptSubmitError, match="after Enter"):
         await ClaudeTuiProvider()._confirm_submit(  # noqa: SLF001
-            cast(PtyProcess, proc), tmp_path / "missing.jsonl", 0, 0.1
+            cast(PtyProcess, proc),
+            tmp_path / "missing.jsonl",
+            _TranscriptTail(),
+            0.1,
         )
 
 
@@ -813,7 +839,7 @@ async def test_busy_screen_confirms_submission(tmp_path):
     proc = _BusyProc("✻ Thinking… (esc to interrupt)".encode())
 
     await ClaudeTuiProvider()._confirm_submit(  # noqa: SLF001
-        cast(PtyProcess, proc), tmp_path / "missing.jsonl", 0, 1.0
+        cast(PtyProcess, proc), tmp_path / "missing.jsonl", _TranscriptTail(), 1.0
     )
 
 
@@ -823,7 +849,7 @@ async def test_new_transcript_row_confirms_submission(tmp_path):
     proc = _SilentProc()
 
     await ClaudeTuiProvider()._confirm_submit(  # noqa: SLF001
-        cast(PtyProcess, proc), path, 0, 1.0
+        cast(PtyProcess, proc), path, _TranscriptTail(), 1.0
     )
 
 
@@ -835,7 +861,7 @@ async def test_rows_before_the_resume_offset_do_not_confirm(tmp_path):
 
     with pytest.raises(_PromptSubmitError, match="after Enter"):
         await ClaudeTuiProvider()._confirm_submit(  # noqa: SLF001
-            cast(PtyProcess, proc), path, len(row), 0.2
+            cast(PtyProcess, proc), path, _TranscriptTail(offset=len(row)), 0.2
         )
 
 
@@ -907,3 +933,780 @@ async def test_dropped_enter_errors_without_the_turn_timeout(tmp_path):
     assert "after Enter" in errors[0]["error"]
     assert elapsed < 5.0
     assert [event["type"] for event in events].count("session_end") == 1
+
+
+# ========== Transcript tail: truncation, rewrite, partial line ==========
+
+
+def _row_bytes(**fields: object) -> bytes:
+    return (json.dumps(fields) + "\n").encode()
+
+
+def test_transcript_tail_reads_appended_rows_once(tmp_path):
+    path = tmp_path / "t.jsonl"
+    path.write_bytes(_row_bytes(type="a"))
+    rows, tail = _read_new_rows(path, _TranscriptTail())
+    assert [row["type"] for row in rows] == ["a"]
+    assert _read_new_rows(path, tail)[0] == []
+
+    path.write_bytes(_row_bytes(type="a") + _row_bytes(type="b"))
+    rows, tail = _read_new_rows(path, tail)
+    assert [row["type"] for row in rows] == ["b"]
+
+
+def test_transcript_tail_resets_after_truncation(tmp_path):
+    path = tmp_path / "t.jsonl"
+    path.write_bytes(_row_bytes(type="a") + _row_bytes(type="b"))
+    _, tail = _read_new_rows(path, _TranscriptTail())
+
+    # The CLI rewrote the file shorter than the offset the reader holds.
+    path.write_bytes(_row_bytes(type="c"))
+    rows, tail = _read_new_rows(path, tail)
+    assert [row["type"] for row in rows] == ["c"]
+
+    path.write_bytes(_row_bytes(type="c") + _row_bytes(type="d"))
+    rows, _ = _read_new_rows(path, tail)
+    assert [row["type"] for row in rows] == ["d"]
+
+
+def test_transcript_tail_resets_after_inode_change(tmp_path):
+    path = tmp_path / "t.jsonl"
+    path.write_bytes(_row_bytes(type="a") + _row_bytes(type="b"))
+    _, tail = _read_new_rows(path, _TranscriptTail())
+
+    # A replacement file that is longer than the old offset: only the
+    # inode check can notice, a size check would not.
+    replacement = tmp_path / "replacement.jsonl"
+    replacement.write_bytes(_row_bytes(type="x", pad="z" * 200))
+    os.replace(replacement, path)
+
+    rows, _ = _read_new_rows(path, tail)
+    assert [row["type"] for row in rows] == ["x"]
+
+
+def test_transcript_tail_joins_a_half_written_line(tmp_path):
+    path = tmp_path / "t.jsonl"
+    path.write_bytes(b'{"type": "a", "value": 1}\n{"type": "b", "va')
+    rows, tail = _read_new_rows(path, _TranscriptTail())
+    assert [row["type"] for row in rows] == ["a"]
+
+    # The rest of the row arrives later.  It must parse whole, not be
+    # spliced into the next row's bytes.
+    with path.open("ab") as handle:
+        handle.write(b'lue": 2}\n')
+    rows, tail = _read_new_rows(path, tail)
+    assert rows == [{"type": "b", "value": 2}]
+
+    with path.open("ab") as handle:
+        handle.write(_row_bytes(type="c"))
+    rows, _ = _read_new_rows(path, tail)
+    assert rows == [{"type": "c"}]
+
+
+def test_transcript_tail_recovers_a_row_glued_to_a_killed_write(tmp_path):
+    path = tmp_path / "t.jsonl"
+    path.write_bytes(_row_bytes(type="a") + b'{"type": "half", "x')
+    _, tail = _read_new_rows(path, _TranscriptTail())
+
+    # The killed process never finished its row; the next process appended
+    # a complete row on the same physical line.  That row must survive.
+    with path.open("ab") as handle:
+        handle.write(_row_bytes(type="b", value=2))
+    rows, tail = _read_new_rows(path, tail)
+
+    assert rows == [{"type": "b", "value": 2}]
+    with path.open("ab") as handle:
+        handle.write(_row_bytes(type="c"))
+    assert [row["type"] for row in _read_new_rows(path, tail)[0]] == ["c"]
+
+
+def test_transcript_tail_skips_a_corrupt_line(tmp_path):
+    path = tmp_path / "t.jsonl"
+    path.write_bytes(b"not json\n" + _row_bytes(type="ok") + b"{broken\n")
+    rows, tail = _read_new_rows(path, _TranscriptTail())
+    assert rows == [{"type": "ok"}]
+
+    with path.open("ab") as handle:
+        handle.write(_row_bytes(type="after"))
+    rows, _ = _read_new_rows(path, tail)
+    assert rows == [{"type": "after"}]
+
+
+def test_transcript_tail_missing_file_keeps_state(tmp_path):
+    tail = _TranscriptTail(offset=7)
+    rows, after = _read_new_rows(tmp_path / "missing.jsonl", tail)
+    assert rows == []
+    assert after == tail
+
+
+# ========== Transcript path follows the task environment ==========
+
+
+def _expected_path(base: Path, cwd: str, session_id: str) -> Path:
+    return (
+        base
+        / "projects"
+        / _slug_from_resolved(str(Path(cwd).resolve()))
+        / (session_id + ".jsonl")
+    )
+
+
+def test_task_transcript_path_uses_task_home(tmp_path):
+    work = str(tmp_path / "work")
+    home = tmp_path / "home"
+    task = cast(TaskConfig, {"env": {"HOME": str(home)}})
+
+    assert task_transcript_path(task, work, "sid") == _expected_path(
+        home / ".claude", work, "sid"
+    )
+
+
+def test_task_transcript_path_uses_userprofile_without_home(tmp_path):
+    work = str(tmp_path / "work")
+    profile = tmp_path / "profile"
+    task = cast(TaskConfig, {"env": {"USERPROFILE": str(profile)}})
+
+    assert task_transcript_path(task, work, "sid") == _expected_path(
+        profile / ".claude", work, "sid"
+    )
+
+
+def test_task_transcript_path_prefers_home_over_userprofile(tmp_path):
+    work = str(tmp_path / "work")
+    task = cast(
+        TaskConfig,
+        {"env": {"HOME": str(tmp_path / "home"), "USERPROFILE": str(tmp_path / "p")}},
+    )
+
+    assert task_transcript_path(task, work, "sid") == _expected_path(
+        tmp_path / "home" / ".claude", work, "sid"
+    )
+
+
+def test_task_transcript_path_resolves_relative_config_dir_against_cwd(tmp_path):
+    work = tmp_path / "work"
+    task = cast(
+        TaskConfig,
+        {"env": {"CLAUDE_CONFIG_DIR": "rel/config", "HOME": str(tmp_path / "home")}},
+    )
+
+    assert task_transcript_path(task, str(work), "sid") == _expected_path(
+        work / "rel" / "config", str(work), "sid"
+    )
+
+
+def test_task_transcript_path_keeps_absolute_config_dir(tmp_path):
+    work = tmp_path / "work"
+    config = tmp_path / "config"
+    task = cast(TaskConfig, {"env": {"CLAUDE_CONFIG_DIR": str(config)}})
+
+    assert task_transcript_path(task, str(work), "sid") == _expected_path(
+        config, str(work), "sid"
+    )
+
+
+def test_task_transcript_path_honours_an_inherited_config_dir(tmp_path):
+    work = str(tmp_path / "work")
+    inherited = tmp_path / "inherited"
+    task = cast(TaskConfig, {"env": {}})
+
+    # The child inherits CLAUDE_CONFIG_DIR from the environment it is
+    # started with, so the reader must resolve the same path.
+    path = task_transcript_path(
+        task, work, "sid", {"CLAUDE_CONFIG_DIR": str(inherited)}
+    )
+    assert path == _expected_path(inherited, work, "sid")
+
+
+def test_task_env_config_dir_wins_over_an_inherited_one(tmp_path):
+    work = str(tmp_path / "work")
+    task = cast(TaskConfig, {"env": {"CLAUDE_CONFIG_DIR": str(tmp_path / "task")}})
+
+    path = task_transcript_path(
+        task, work, "sid", {"CLAUDE_CONFIG_DIR": str(tmp_path / "inherited")}
+    )
+    assert path == _expected_path(tmp_path / "task", work, "sid")
+
+
+def test_task_transcript_path_ignores_host_home_when_task_sets_one(tmp_path):
+    work = str(tmp_path / "work")
+    task_home_dir = tmp_path / "task-home"
+    task = cast(TaskConfig, {"env": {"HOME": str(task_home_dir)}})
+
+    path = task_transcript_path(task, work, "sid")
+    assert task_home_dir in path.parents
+    assert Path.home() / ".claude" not in path.parents
+
+
+# ========== Usage accumulates per turn ==========
+
+
+def _assistant(message_id: str, text: str, **usage: object) -> dict:
+    return {
+        "type": "assistant",
+        "message": {
+            "id": message_id,
+            "role": "assistant",
+            "content": [{"type": "text", "text": text}],
+            "usage": usage,
+        },
+    }
+
+
+def test_turn_usage_accumulates_across_messages():
+    state = _TurnState()
+    events: list[Any] = []
+    rows = [
+        _assistant(
+            "m1",
+            "first",
+            input_tokens=10,
+            output_tokens=2,
+            output_tokens_details={"thinking_tokens": 1},
+        ),
+        # The same message again: one row per content block repeats usage.
+        _assistant(
+            "m1",
+            "second block",
+            input_tokens=10,
+            output_tokens=2,
+            output_tokens_details={"thinking_tokens": 1},
+        ),
+        _assistant("m2", "third", input_tokens=5, output_tokens=3),
+        {"type": "system", "subtype": "turn_duration"},
+    ]
+    for row in rows:
+        got, done = _turn_row(row, state)
+        events.extend(got)
+        if done:
+            break
+
+    usage = [event for event in events if event["type"] == "usage"]
+    assert len(usage) == 1
+    assert usage[0]["usage"] == {
+        "input_tokens": 15,
+        "output_tokens": 5,
+        "reasoning_tokens": 1,
+        "total_tokens": 20,
+    }
+
+
+def test_result_row_reports_cost_usd():
+    state = _TurnState()
+    events = _turn_row(
+        _assistant("m", "answer", input_tokens=3, output_tokens=2), state
+    )[0]
+    events.extend(
+        _turn_row(
+            {
+                "type": "result",
+                "subtype": "success",
+                "usage": {"input_tokens": 3, "output_tokens": 2},
+                "total_cost_usd": 0.0123,
+            },
+            state,
+        )[0]
+    )
+
+    usage = [event for event in events if event["type"] == "usage"]
+    assert len(usage) == 1
+    assert usage[0]["usage"]["total_tokens"] == 5
+    assert usage[0]["cost_usd"] == pytest.approx(0.0123)
+
+
+def test_result_row_usage_without_assistant_rows():
+    events, done = _turn_row(
+        {
+            "type": "result",
+            "usage": {"input_tokens": 4, "output_tokens": 1},
+            "total_cost_usd": 0.5,
+        },
+        _TurnState(),
+    )
+
+    assert done is True
+    usage = [event for event in events if event["type"] == "usage"]
+    assert usage[0]["usage"]["total_tokens"] == 5
+    assert usage[0]["cost_usd"] == 0.5
+
+
+def test_usage_maps_reasoning_tokens_from_both_spellings():
+    assert _usage_from_raw({"output_tokens_details": {"thinking_tokens": 7}}) == {
+        "reasoning_tokens": 7
+    }
+    assert _usage_from_raw({"output_tokens_details": {"reasoning_tokens": 9}}) == {
+        "reasoning_tokens": 9
+    }
+    assert _usage_from_raw({}) is None
+
+
+def test_a_result_row_does_not_double_count_after_turn_duration():
+    state = _TurnState()
+    row = _assistant("m", "answer", input_tokens=3, output_tokens=2)
+    events = _turn_row(row, state)[0]
+    events.extend(_turn_row({"type": "system", "subtype": "turn_duration"}, state)[0])
+    events.extend(
+        _turn_row(
+            {
+                "type": "result",
+                "usage": {"input_tokens": 3, "output_tokens": 2},
+                "total_cost_usd": 0.01,
+            },
+            state,
+        )[0]
+    )
+
+    usage = [event for event in events if event["type"] == "usage"]
+    assert len(usage) == 1
+
+
+# ========== Startup detection is anchored at the screen bottom ==========
+
+
+def test_prompt_ready_accepts_an_empty_input_box():
+    assert _prompt_is_ready("output\n ❯ \n ─────\n  auto mode on\n") is True
+    assert _prompt_is_ready("❯ ") is True
+
+
+def test_prompt_ready_accepts_the_placeholder_hint_in_the_input_box():
+    # Captured from Claude Code 2.1.299: the empty input box renders the
+    # marker followed by a non-breaking space and the placeholder hint.
+    screen = (
+        "  Claude Code v2.1.299\n"
+        "  ────────────────────────────────────────\n"
+        '  ❯\xa0 Try "write a test for __init__.py"\n'
+        "  ────────────────────────────────────────\n"
+        "   ⏵⏵ auto mode on  (shift+tab to cycle) · ← for agents\n"
+        "   1 agent\n"
+        "   PR     #72    · ← 1 agent\n"
+    )
+    assert _prompt_is_ready(screen) is True
+
+
+def test_prompt_ready_rejects_menu_items():
+    assert _prompt_is_ready("Select a theme\n❯   1.   Red\n  2.   Blue\n") is False
+    assert _prompt_is_ready("Do you want to proceed?\n❯  1.  Yes\n  2.  No\n") is False
+
+
+def test_prompt_ready_rejects_a_prompt_buried_in_scrollback():
+    screen = "❯\n" + "\n".join(f"assistant line {index}" for index in range(20))
+    assert _prompt_is_ready(screen) is False
+
+
+def test_prompt_ready_uses_the_newest_frame():
+    stale = "❯\n" + "\n".join(f"old {index}" for index in range(20))
+    assert _prompt_is_ready(stale + "\n❯ \n ─────\n auto mode on\n") is True
+
+
+_THEME_THEN_PROMPT_TUI = r"""#!__PYTHON__
+import sys, time
+
+sys.stdout.write("Select a theme\n❯   1.   Red\n  2.   Blue\n")
+sys.stdout.flush()
+time.sleep(0.3)
+sys.stdout.write("\x1b[2J\x1b[H❯ ")
+sys.stdout.flush()
+time.sleep(30)
+"""
+
+
+async def test_theme_picker_is_not_mistaken_for_the_prompt(tmp_path):
+    binary = _write_script(tmp_path, _THEME_THEN_PROMPT_TUI)
+    task = _task(tmp_path, binary, timeout=5.0)
+    task["agent_extensions"] = {  # type: ignore[typeddict-item]
+        "claude_binary": str(binary),
+        "ready_timeout": 0.15,
+        "tui_fallback": False,
+    }
+
+    started = time.monotonic()
+    events = [event async for event in ClaudeTuiProvider().stream(task)]
+    elapsed = time.monotonic() - started
+
+    # 0.15 s is too short for the real prompt, so startup must time out
+    # rather than accept the picker's ❯ as ready.
+    errors = [event for event in events if event["type"] == "error"]
+    assert errors and errors[0]["is_fatal"] is True
+    assert "did not reach its prompt" in errors[0]["error"]
+    assert elapsed < 5.0
+
+
+_THEME_HEADER = _SCRIPT_HEADER.replace(
+    'sys.stdout.write("❯ ")',
+    'sys.stdout.write("Select a theme\\n❯   1.   Red\\n  2.   Blue\\n")\n'
+    'sys.stdout.write("\\x1b[2J\\x1b[H❯ ")\n',
+)
+
+_THEME_TURN_TUI = (
+    _THEME_HEADER
+    + r"""
+append({"type": "assistant", "message": {"id": "msg_t", "role": "assistant",
+        "content": [{"type": "text", "text": "THEMED: " + text}],
+        "usage": {"input_tokens": 2, "output_tokens": 1}}})
+append({"type": "system", "subtype": "turn_duration"})
+wait()
+"""
+)
+
+
+async def test_prompt_after_a_theme_picker_is_ready(tmp_path):
+    binary = _write_script(tmp_path, _THEME_TURN_TUI)
+    task = _task(tmp_path, binary, timeout=5.0)
+    task["agent_extensions"] = {  # type: ignore[typeddict-item]
+        "claude_binary": str(binary),
+        "ready_timeout": 5.0,
+        "tui_fallback": False,
+    }
+
+    events = [event async for event in ClaudeTuiProvider().stream(task)]
+
+    assert [event["type"] for event in events].count("session_start") == 1
+    assert [event["text"] for event in events if event["type"] == "message_end"] == [
+        "THEMED: hello"
+    ]
+    assert not [
+        event for event in events if event["type"] == "error" and event.get("is_fatal")
+    ]
+
+
+# ========== A TUI that cannot start falls back ==========
+
+
+class _FakeFallbackProvider:
+    """A fallback provider stand-in that answers immediately."""
+
+    @staticmethod
+    def is_available() -> bool:
+        return True
+
+    async def stream(self, task):
+        yield {"type": "message_end", "text": "fallback answer"}
+
+
+_LOGIN_TUI = r"""#!__PYTHON__
+import sys, time
+sys.stdout.write("Select login method\n")
+sys.stdout.flush()
+time.sleep(5)
+"""
+
+
+async def test_trust_failure_falls_back_to_another_transport(tmp_path, monkeypatch):
+    binary = _write_script(tmp_path, _TRUST_TUI)
+    monkeypatch.setattr(
+        claude_tui_module, "_fallback_providers", lambda: [_FakeFallbackProvider]
+    )
+
+    provider = ClaudeTuiProvider()
+    events = [event async for event in provider.stream(_task(tmp_path, binary))]
+
+    errors = [event for event in events if event["type"] == "error"]
+    assert errors
+    assert errors[0]["is_fatal"] is False
+    assert "trust" in errors[0]["error"].lower()
+    assert "Falling back to _FakeFallbackProvider" in errors[0]["error"]
+    assert [event["text"] for event in events if event["type"] == "message_end"] == [
+        "fallback answer"
+    ]
+
+
+async def test_login_failure_falls_back_to_another_transport(tmp_path, monkeypatch):
+    binary = _write_script(tmp_path, _LOGIN_TUI)
+    monkeypatch.setattr(
+        claude_tui_module, "_fallback_providers", lambda: [_FakeFallbackProvider]
+    )
+
+    provider = ClaudeTuiProvider()
+    events = [event async for event in provider.stream(_task(tmp_path, binary))]
+
+    errors = [event for event in events if event["type"] == "error"]
+    assert errors[0]["is_fatal"] is False
+    assert "signed in" in errors[0]["error"]
+    assert [event["text"] for event in events if event["type"] == "message_end"] == [
+        "fallback answer"
+    ]
+
+
+async def test_fallback_can_be_disabled(tmp_path):
+    binary = _write_script(tmp_path, _TRUST_TUI)
+    task = _task(tmp_path, binary)
+    task["agent_extensions"]["tui_fallback"] = False  # type: ignore[index]
+
+    events = [event async for event in ClaudeTuiProvider().stream(task)]
+
+    errors = [event for event in events if event["type"] == "error"]
+    assert errors and errors[0]["is_fatal"] is True
+    assert not [event for event in events if event["type"] == "message_end"]
+
+
+async def test_no_fallback_transport_is_a_fatal_error(tmp_path, monkeypatch):
+    binary = _write_script(tmp_path, _TRUST_TUI)
+    monkeypatch.setattr(claude_tui_module, "_fallback_providers", lambda: [])
+
+    provider = ClaudeTuiProvider()
+    events = [event async for event in provider.stream(_task(tmp_path, binary))]
+
+    errors = [event for event in events if event["type"] == "error"]
+    assert errors and errors[0]["is_fatal"] is True
+    assert "No fallback transport is available" in errors[0]["error"]
+
+
+async def test_unavailable_fallback_is_skipped(tmp_path, monkeypatch):
+    binary = _write_script(tmp_path, _TRUST_TUI)
+
+    class _Unavailable(_FakeFallbackProvider):
+        @staticmethod
+        def is_available() -> bool:
+            return False
+
+    monkeypatch.setattr(
+        claude_tui_module,
+        "_fallback_providers",
+        lambda: [_Unavailable, _FakeFallbackProvider],
+    )
+
+    provider = ClaudeTuiProvider()
+    events = [event async for event in provider.stream(_task(tmp_path, binary))]
+
+    assert [event["text"] for event in events if event["type"] == "message_end"] == [
+        "fallback answer"
+    ]
+
+
+# ========== One logical message, one start and end ==========
+
+
+def _message_row(message_id: str, *blocks: dict, stop: str = "end_turn") -> dict:
+    return {
+        "type": "assistant",
+        "message": {
+            "id": message_id,
+            "role": "assistant",
+            "content": list(blocks),
+            "stop_reason": stop,
+        },
+    }
+
+
+def test_rows_of_one_message_share_one_start_and_end():
+    state = _TurnState()
+    events: list[Any] = []
+    rows = [
+        _message_row("m1", {"type": "thinking", "thinking": "plan"}),
+        _message_row("m1", {"type": "text", "text": "answer"}),
+        _message_row(
+            "m1", {"type": "tool_use", "id": "t1", "name": "Read", "input": {}}
+        ),
+        {"type": "system", "subtype": "turn_duration"},
+    ]
+    for row in rows:
+        got, _ = _turn_row(row, state)
+        events.extend(got)
+
+    kinds = [event["type"] for event in events]
+    assert kinds.count("message_start") == 1
+    assert kinds.count("message_end") == 1
+    assert kinds.count("message_delta") == 1
+    assert kinds.count("reasoning_delta") == 1
+    assert kinds.count("tool_use") == 1
+    ends = [event for event in events if event["type"] == "message_end"]
+    assert ends[0]["text"] == "answer"
+    assert ends[0]["message_id"] == "m1"
+    assert ends[0]["stop_reason"] == "end_turn"
+
+
+def test_a_new_message_ends_the_previous_one_first():
+    state = _TurnState()
+    first, _ = _turn_row(_message_row("m1", {"type": "text", "text": "one"}), state)
+    second, _ = _turn_row(_message_row("m2", {"type": "text", "text": "two"}), state)
+
+    kinds = [event["type"] for event in first + second]
+    assert kinds == [
+        "message_start",
+        "message_delta",
+        "message_end",
+        "message_start",
+        "message_delta",
+    ]
+    assert (first + second)[2]["message_id"] == "m1"
+
+
+def test_a_replayed_block_is_not_emitted_twice():
+    state = _TurnState()
+    row = _message_row("m1", {"type": "text", "text": "once"})
+    first, _ = _turn_row(row, state)
+    replay, _ = _turn_row(row, state)
+
+    assert [event["type"] for event in replay] == []
+    assert [event["text"] for event in first if event["type"] == "message_delta"] == [
+        "once"
+    ]
+
+
+def test_tool_results_on_user_rows_are_kept():
+    events, done = _turn_row(
+        {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "t1", "content": "ok"}
+                ],
+            },
+        },
+        _TurnState(),
+    )
+
+    assert done is False
+    assert [event["type"] for event in events] == ["tool_result"]
+    assert events[0]["tool_use_id"] == "t1"
+
+
+# ========== session_id must be a UUID ==========
+
+
+def test_session_uuid_accepts_and_normalizes_uuids():
+    value = str(uuid.uuid4())
+    assert _session_uuid(value) == value
+    assert _session_uuid(value.upper()) == value
+    assert _session_uuid(f"{{{value}}}") == value
+
+
+def test_session_uuid_rejects_labels_and_non_strings():
+    for value in ("resume-sid", "", None, 123, "not-a-uuid"):
+        assert _session_uuid(value) is None
+
+
+async def test_non_uuid_resume_is_rejected_before_start(tmp_path):
+    binary = _write_script(tmp_path, _FAKE_TUI)
+    task = _task(tmp_path, binary)
+    task["session_id"] = "resume-sid"
+    task["resume"] = True
+
+    events = [event async for event in ClaudeTuiProvider().stream(task)]
+
+    errors = [event for event in events if event["type"] == "error"]
+    assert errors and errors[0]["is_fatal"] is True
+    assert "UUID" in errors[0]["error"]
+    assert not [event for event in events if event["type"] == "session_start"]
+
+
+async def test_non_uuid_session_id_is_replaced_with_a_uuid(tmp_path):
+    binary = _write_script(tmp_path, _FAKE_TUI)
+    task = _task(tmp_path, binary)
+    task["session_id"] = "my-label"
+
+    events = [event async for event in ClaudeTuiProvider().stream(task)]
+
+    starts = [event for event in events if event["type"] == "session_start"]
+    assert starts
+    assert uuid.UUID(starts[0]["session_id"])  # parses, so the CLI will accept it
+    assert starts[0]["session_id"] != "my-label"
+
+
+async def test_uuid_session_id_is_preserved(tmp_path):
+    binary = _write_script(tmp_path, _FAKE_TUI)
+    session_id = str(uuid.uuid4())
+    task = _task(tmp_path, binary)
+    task["session_id"] = session_id
+
+    events = [event async for event in ClaudeTuiProvider().stream(task)]
+
+    starts = [event for event in events if event["type"] == "session_start"]
+    assert starts[0]["session_id"] == session_id
+
+
+# ========== The transcript settles before the CLI is killed ==========
+
+_SETTLE_TUI = _script(
+    r"""
+append({"type": "assistant", "message": {"id": "msg_s", "role": "assistant",
+        "content": [{"type": "text", "text": "SETTLED: " + text}],
+        "usage": {"input_tokens": 2, "output_tokens": 1}}})
+time.sleep(0.2)
+append({"type": "system", "subtype": "turn_duration"})
+time.sleep(0.15)
+append({"type": "last-prompt", "lastPrompt": text})
+append({"type": "cost-state", "totalCostUSD": 0.5})
+time.sleep(0.3)
+wait()
+"""
+)
+
+_HALF_ROW_TUI = _script(
+    r"""
+append({"type": "assistant", "message": {"id": "msg_h", "role": "assistant",
+        "content": [{"type": "text", "text": "HALF: " + text}],
+        "usage": {"input_tokens": 2, "output_tokens": 1}}})
+append({"type": "system", "subtype": "turn_duration"})
+with open(path, "ab") as fh:
+    fh.write(b'{"type": "last-prompt", "lastProm')
+time.sleep(0.5)
+wait()
+"""
+)
+
+
+async def test_turn_waits_for_bookkeeping_rows_before_closing(tmp_path):
+    binary = _write_script(tmp_path, _SETTLE_TUI)
+    started = time.monotonic()
+    events = [
+        event async for event in ClaudeTuiProvider().stream(_task(tmp_path, binary))
+    ]
+    elapsed = time.monotonic() - started
+
+    # turn_duration lands 0.2 s after the answer, last-prompt 0.15 s after
+    # that; the provider must still be reading at 0.35 s.
+    assert elapsed >= 0.35
+    assert [event["text"] for event in events if event["type"] == "message_end"] == [
+        "SETTLED: hello"
+    ]
+    assert not [
+        event for event in events if event["type"] == "error" and event.get("is_fatal")
+    ]
+
+
+async def test_a_half_written_trailing_row_is_not_an_error(tmp_path):
+    binary = _write_script(tmp_path, _HALF_ROW_TUI)
+    events = [
+        event async for event in ClaudeTuiProvider().stream(_task(tmp_path, binary))
+    ]
+
+    assert [event["text"] for event in events if event["type"] == "message_end"] == [
+        "HALF: hello"
+    ]
+    assert not [event for event in events if event["type"] == "error"]
+
+
+async def test_settle_returns_after_the_quiet_window(tmp_path):
+    proc = _SilentProc()
+    started = time.monotonic()
+    events = [
+        event
+        async for event in ClaudeTuiProvider()._settle(  # noqa: SLF001
+            cast(PtyProcess, proc),
+            tmp_path / "missing.jsonl",
+            _TranscriptTail(),
+            _TurnState(),
+            0.4,
+        )
+    ]
+    elapsed = time.monotonic() - started
+
+    assert events == []
+    assert elapsed < 2.0
+
+
+async def test_settle_is_skipped_when_disabled(tmp_path):
+    proc = _SilentProc()
+    events = [
+        event
+        async for event in ClaudeTuiProvider()._settle(  # noqa: SLF001
+            cast(PtyProcess, proc),
+            tmp_path / "missing.jsonl",
+            _TranscriptTail(),
+            _TurnState(),
+            0,
+        )
+    ]
+    assert events == []

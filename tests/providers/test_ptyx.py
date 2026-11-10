@@ -224,3 +224,74 @@ async def test_conpty_write_after_close_raises():
 
     with pytest.raises(PtyWriteError, match="closed"):
         await proc.write(b"hello")
+
+
+# ========== Close order: interrupt, then grace, then terminate ==========
+
+
+def _close_stub(monkeypatch, written: list[bytes], waits: list[int]) -> _ConPtyProcess:
+    """Build a ConPTY backend whose Win32 calls are recorded, not executed."""
+    proc = _conpty_stub()
+    proc._reader = threading.Thread(target=lambda: None)
+    proc._reader.start()
+    proc._process = object()
+
+    def fake_write(handle, buffer, size, written_ref, overlapped):
+        written.append(ctypes.string_at(buffer, size))
+        written_ref._obj.value = size
+        return 1
+
+    def fake_wait(handle, timeout):
+        waits.append(timeout)
+        return ptyx_module._WAIT_OBJECT_0
+
+    def fake_exit_code(handle, code):
+        code._obj.value = 7
+        return 1
+
+    monkeypatch.setattr(ptyx_module, "_WriteFile", fake_write, raising=False)
+    monkeypatch.setattr(ptyx_module, "_WaitForSingleObject", fake_wait, raising=False)
+    monkeypatch.setattr(
+        ptyx_module, "_GetExitCodeProcess", fake_exit_code, raising=False
+    )
+    monkeypatch.setattr(
+        ptyx_module, "_ClosePseudoConsole", lambda h: None, raising=False
+    )
+    monkeypatch.setattr(ptyx_module, "_CloseHandle", lambda h: None, raising=False)
+    return proc
+
+
+async def test_conpty_close_sends_ctrl_c_before_the_grace_wait(monkeypatch):
+    written: list[bytes] = []
+    waits: list[int] = []
+    proc = _close_stub(monkeypatch, written, waits)
+
+    assert await proc.close(grace=0.5) == 7
+
+    # Ctrl+C is written first so a busy child can stop on its own, then
+    # the grace period is waited out before any forced kill.
+    assert written == [b"\x03"]
+    assert waits[0] == 500
+
+
+async def test_conpty_close_interrupts_only_once(monkeypatch):
+    written: list[bytes] = []
+    waits: list[int] = []
+    proc = _close_stub(monkeypatch, written, waits)
+
+    await proc.close(grace=0.5)
+    await proc.close(grace=0.5)
+
+    assert written == [b"\x03"]
+
+
+async def test_conpty_close_survives_a_failed_interrupt(monkeypatch):
+    written: list[bytes] = []
+    waits: list[int] = []
+    proc = _close_stub(monkeypatch, written, waits)
+    monkeypatch.setattr(ptyx_module, "_WriteFile", lambda *args: 0, raising=False)
+    monkeypatch.setattr(ptyx_module, "_last_error", lambda: 5, raising=False)
+
+    # A failed Ctrl+C must not stop the teardown.
+    assert await proc.close(grace=0.5) == 7
+    assert waits[0] == 500
