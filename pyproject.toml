@@ -81,6 +81,9 @@ where = ["src"]
 "agentabi" = ["py.typed"]
 "agentabi._vendor" = ["VENDORED.md", "zerodep.lock.json"]
 
+[tool.zerodep]
+vendor-dir = "src/agentabi/_vendor"
+
 [tool.ruff]
 line-length = 88
 target-version = "py310"
