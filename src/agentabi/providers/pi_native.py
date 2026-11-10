@@ -66,6 +66,7 @@ class PiNativeProvider:
 
     def __init__(self) -> None:
         self._session_id = ""
+        self._session_ended = False
         self._pending_text: list[str] = []
         self._block_index: int = 0
 
@@ -98,6 +99,8 @@ class PiNativeProvider:
 
     async def stream(self, task: TaskConfig) -> AsyncIterator[IREvent]:
         """Run task via pi CLI and yield IR events."""
+        self._session_id = ""
+        self._session_ended = False
         cmd = self._build_command(task)
         merged_env = {**os.environ, **(task.get("env") or {})}
 
@@ -142,6 +145,8 @@ class PiNativeProvider:
                 proc, timed_out=timed_out, timeout_seconds=timeout
             ):
                 yield err_event
+            for event in self._end_session():
+                yield event
         finally:
             if kill_task is not None:
                 kill_task.cancel()
@@ -454,10 +459,27 @@ class PiNativeProvider:
 
     def _handle_agent_end(self, raw: dict[str, Any]) -> list[IREvent]:
         """Handle agent_end — emits SessionEndEvent."""
+        self._session_ended = True
         end: SessionEndEvent = {"type": "session_end"}
         if self._session_id:
             end["session_id"] = self._session_id
         return [end]
+
+    def _end_session(self) -> list[IREvent]:
+        """Emit the closing ``session_end`` when the CLI did not.
+
+        pi sends ``agent_end`` on a normal finish. A run that dies first —
+        an authentication failure, a killed process — would otherwise leave
+        a consumer waiting for an event that never comes.
+
+        Returns:
+            One ``session_end`` when a session started and none was
+            emitted, else nothing.
+        """
+        if not self._session_id or self._session_ended:
+            return []
+        self._session_ended = True
+        return [SessionEndEvent(type="session_end", session_id=self._session_id)]
 
 
 __all__ = ["PiNativeProvider"]

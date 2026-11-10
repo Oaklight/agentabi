@@ -755,6 +755,23 @@ class TestParseEvent:
         assert len(events) == 1
         assert events[0]["type"] == "session_end"
 
+    def test_end_session_closes_a_run_that_died(self):
+        """A run killed before agent_end must still end the session."""
+        self.provider._parse_event({"type": "session", "id": "01a1-pi", "cwd": "/tmp"})
+        events = self.provider._end_session()
+        assert len(events) == 1
+        assert events[0]["type"] == "session_end"
+        assert events[0]["session_id"] == "01a1-pi"
+        assert self.provider._end_session() == []
+
+    def test_end_session_after_agent_end_is_empty(self):
+        self.provider._parse_event({"type": "session", "id": "01a1-pi", "cwd": "/tmp"})
+        self.provider._parse_event({"type": "agent_end", "messages": []})
+        assert self.provider._end_session() == []
+
+    def test_end_session_without_a_session_is_empty(self):
+        assert self.provider._end_session() == []
+
     def test_unknown_event_type(self):
         raw = {"type": "unknown_event", "data": "whatever"}
         events = self.provider._parse_event(raw)
