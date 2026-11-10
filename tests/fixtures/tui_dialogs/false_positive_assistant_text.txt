@@ -1,0 +1,10 @@
+  ●  Do you want to proceed?
+     Enter to select · ↑/↓ to navigate · Esc to cancel
+     ❯  1.  Yes
+     ☐ Color
+  ✶ Swooping…  (4s · ↓ 23 tokens)
+
+ ──────────────────────────────────────────────────────────────────────────
+ ❯
+ ──────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on  (shift+tab to cycle) · esc to interrupt · ← for agents

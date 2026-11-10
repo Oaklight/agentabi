@@ -20,17 +20,24 @@ from agentabi.providers.claude_native import ClaudeNativeProvider
 from agentabi.providers.claude_sdk import ClaudeSDKProvider
 from agentabi.providers.claude_tui import (
     ClaudeTuiProvider,
+    Dialog,
     _build_command,
+    _DialogSession,
+    _DialogUnanswered,
+    _PendingTool,
     _prompt_is_ready,
     _prompt_problem,
     _PromptSubmitError,
     _read_new_rows,
+    _resolve_dialog,
     _session_uuid,
     _slug_from_resolved,
     _TranscriptTail,
     _turn_row,
     _TurnState,
+    _TurnTools,
     _usage_from_raw,
+    detect_dialog,
     task_transcript_path,
     transcript_path,
 )
@@ -1710,3 +1717,636 @@ async def test_settle_is_skipped_when_disabled(tmp_path):
         )
     ]
     assert events == []
+
+
+# ========== Dialog detection over captured screens ==========
+
+_DIALOG_FIXTURES = Path(__file__).parent.parent / "fixtures" / "tui_dialogs"
+
+#: The frame drawn before a modal: input box, status bar, and the agent
+#: counters the live TUI appends below it.  The §2 captures start below the
+#: bar, so tests put this in front of them.
+_CHROME = (
+    "─" * 76
+    + '\n ❯\xa0 Try "write a test"\n'
+    + "─" * 76
+    + "\n  ⏵⏵ auto mode on  (shift+tab to cycle) · ← for agents\n"
+    + "  1 agent\n"
+    + "  PR #72 · ← 1 agent\n"
+)
+
+
+def _dialog_screen(name: str, *, chrome: bool = True) -> str:
+    """Return a §2 fixture, optionally behind the chrome that preceded it."""
+    text = (_DIALOG_FIXTURES / f"{name}.txt").read_text(encoding="utf-8")
+    return _CHROME + text if chrome else text
+
+
+def test_detect_ask_user_question():
+    dialog = detect_dialog(_dialog_screen("ask_user_question_single"))
+    assert dialog is not None
+    assert dialog.type == "ask_user_question"
+    assert dialog.question == "Which color do you prefer?"
+    assert dialog.options == ("Red", "Blue")
+
+
+def test_detect_ask_user_question_multi():
+    dialog = detect_dialog(_dialog_screen("ask_user_question_multi"))
+    assert dialog is not None
+    assert dialog.type == "ask_user_question"
+    assert dialog.question == "Which color do you prefer?"
+    assert dialog.options == ("Red", "Blue")
+
+
+def test_detect_ask_user_question_review():
+    dialog = detect_dialog(_dialog_screen("ask_user_question_review"))
+    assert dialog is not None
+    assert dialog.type == "review"
+
+
+def test_detect_permission_bash():
+    dialog = detect_dialog(_dialog_screen("permission_bash"))
+    assert dialog is not None
+    assert dialog.type == "permission"
+    assert dialog.tool_name == "Bash"
+    assert dialog.options[0] == "Yes"
+    assert dialog.options[-1] == "No"
+
+
+def test_detect_permission_edit():
+    dialog = detect_dialog(_dialog_screen("permission_edit"))
+    assert dialog is not None
+    assert dialog.type == "permission"
+    assert dialog.tool_name == "Edit"
+    assert dialog.options[-1] == "No"
+
+
+def test_detect_plan():
+    dialog = detect_dialog(_dialog_screen("plan"))
+    assert dialog is not None
+    assert dialog.type == "plan"
+    assert dialog.options == (
+        "Yes, and use auto mode",
+        "Yes, manually approve edits",
+        "Tell Claude what to change",
+    )
+
+
+def test_detect_notice():
+    dialog = detect_dialog(_dialog_screen("notice"))
+    assert dialog is not None
+    assert dialog.type == "notice"
+
+
+def test_detect_security_notice():
+    # The bypass-permissions warning is drawn before any status bar.
+    dialog = detect_dialog(_dialog_screen("security_notice", chrome=False))
+    assert dialog is not None
+    assert dialog.type == "security_notice"
+
+
+def test_no_false_positive_on_assistant_text():
+    """Assistant text quoting every marker is scrollback, not a dialog."""
+    assert detect_dialog(_dialog_screen("false_positive_assistant_text")) is None
+
+
+def test_no_false_positive_after_answer():
+    """A later status bar below the footer closes the dialog."""
+    screen = _dialog_screen("ask_user_question_single") + "\n" + _CHROME
+    assert detect_dialog(screen) is None
+
+
+def test_no_detection_without_status_bar():
+    """A frame captured before the first status bar proves nothing."""
+    assert detect_dialog(_dialog_screen("permission_bash", chrome=False)) is None
+
+
+def test_detection_tolerates_agent_lines_after_the_status_bar():
+    """The live bar is followed by agent counters and a PR hint."""
+    assert "1 agent" in _CHROME
+    dialog = detect_dialog(_dialog_screen("permission_bash"))
+    assert dialog is not None
+    assert dialog.type == "permission"
+    assert detect_dialog(_dialog_screen("false_positive_assistant_text")) is None
+
+
+# ========== Dialog answers ==========
+
+_AUQ_QUESTIONS = [
+    {
+        "question": "Which color do you prefer?",
+        "header": "Color",
+        "options": [{"label": "Red"}, {"label": "Blue"}],
+        "multiSelect": False,
+    }
+]
+
+
+def _pending(
+    name: str = "AskUserQuestion",
+    tool_input: dict | None = None,
+    tool_id: str = "toolu_1",
+) -> _PendingTool:
+    return _PendingTool(
+        tool_use_id=tool_id,
+        tool_name=name,
+        tool_input=tool_input or {},
+        seen_at=0.0,
+    )
+
+
+def test_resolve_ask_user_question_by_label():
+    dialog = detect_dialog(_dialog_screen("ask_user_question_single"))
+    assert dialog is not None
+    pending = _pending(tool_input={"questions": _AUQ_QUESTIONS})
+    answers = {"ask_user_question": {"which color do you prefer?": "Red"}}
+    assert _resolve_dialog(dialog, pending, answers) == (b"1",)
+
+
+def test_resolve_ask_user_question_by_index():
+    dialog = detect_dialog(_dialog_screen("ask_user_question_single"))
+    assert dialog is not None
+    pending = _pending(tool_input={"questions": _AUQ_QUESTIONS})
+    answers = {"ask_user_question": {"color": {"option": 2}}}
+    assert _resolve_dialog(dialog, pending, answers) == (b"2",)
+
+
+def test_resolve_ask_user_question_multi_submits_review():
+    dialog = detect_dialog(_dialog_screen("ask_user_question_multi"))
+    assert dialog is not None
+    questions = [
+        _AUQ_QUESTIONS[0],
+        {
+            "question": "Which size do you prefer?",
+            "header": "Size",
+            "options": [{"label": "Small"}, {"label": "Large"}],
+            "multiSelect": False,
+        },
+    ]
+    pending = _pending(tool_input={"questions": questions})
+    answers = {
+        "ask_user_question": {
+            "which color do you prefer?": "Red",
+            "which size do you prefer?": "Small",
+        }
+    }
+    # "Small" is the first option of the second question; Enter submits the
+    # review page.
+    assert _resolve_dialog(dialog, pending, answers) == (b"1", b"1", b"\r")
+
+
+def test_resolve_ask_user_question_free_text():
+    dialog = detect_dialog(_dialog_screen("ask_user_question_single"))
+    assert dialog is not None
+    pending = _pending(tool_input={"questions": _AUQ_QUESTIONS})
+    answers = {"ask_user_question": {"which color": {"text": "Green"}}}
+    # "Type something." is rendered right after the two options.
+    assert _resolve_dialog(dialog, pending, answers) == (b"3", b"Green", b"\r")
+
+
+def test_unconfigured_ask_user_question_fails_with_hint():
+    dialog = detect_dialog(_dialog_screen("ask_user_question_single"))
+    assert dialog is not None
+    pending = _pending(tool_input={"questions": _AUQ_QUESTIONS})
+    with pytest.raises(_DialogUnanswered) as info:
+        _resolve_dialog(dialog, pending, {})
+    message = str(info.value)
+    assert "Which color do you prefer?" in message
+    assert "tui_answers.ask_user_question" in message
+
+
+def test_multiselect_question_fails_fast():
+    dialog = detect_dialog(_dialog_screen("ask_user_question_single"))
+    assert dialog is not None
+    questions = [dict(_AUQ_QUESTIONS[0], multiSelect=True)]
+    pending = _pending(tool_input={"questions": questions})
+    answers = {"ask_user_question": {"which color": "Red"}}
+    with pytest.raises(_DialogUnanswered, match="multiSelect"):
+        _resolve_dialog(dialog, pending, answers)
+
+
+def test_configured_permission_allow_uses_rendered_option():
+    dialog = detect_dialog(_dialog_screen("permission_bash"))
+    assert dialog is not None
+    pending = _pending("Bash", {"command": "rm -rf ./victim.txt"})
+    cases = {
+        "allow_once": b"1",
+        "allow_always": b"2",
+        "allow_session": b"3",
+        "deny": b"4",
+    }
+    for choice, key in cases.items():
+        answers = {"permission": {"default": choice}}
+        assert _resolve_dialog(dialog, pending, answers) == (key,)
+
+
+def test_permission_by_tool_overrides_default():
+    dialog = detect_dialog(_dialog_screen("permission_bash"))
+    assert dialog is not None
+    pending = _pending("Bash", {"command": "rm -rf ./victim.txt"})
+    answers = {"permission": {"default": "deny", "by_tool": {"Bash": "allow_once"}}}
+    assert _resolve_dialog(dialog, pending, answers) == (b"1",)
+
+
+def test_permission_session_choice_follows_the_edit_layout():
+    dialog = detect_dialog(_dialog_screen("permission_edit"))
+    assert dialog is not None
+    pending = _pending("Edit", {"file_path": "notes.txt"})
+    answers = {"permission": {"default": "allow_session"}}
+    # The Edit layout offers "switch to accept edits" as option 2.
+    assert _resolve_dialog(dialog, pending, answers) == (b"2",)
+
+
+def test_permission_deny_falls_back_to_escape():
+    dialog = Dialog(type="permission", options=("Yes", "Yes, always allow"))
+    pending = _pending("Bash", {"command": "rm -rf /"})
+    answers = {"permission": {"default": "deny"}}
+    assert _resolve_dialog(dialog, pending, answers) == (b"\x1b",)
+
+
+def test_unconfigured_permission_names_the_command():
+    dialog = detect_dialog(_dialog_screen("permission_bash"))
+    assert dialog is not None
+    pending = _pending("Bash", {"command": "rm -rf ./victim.txt"})
+    with pytest.raises(_DialogUnanswered) as info:
+        _resolve_dialog(dialog, pending, {})
+    message = str(info.value)
+    assert "Bash" in message
+    assert "rm -rf ./victim.txt" in message
+    assert "tui_answers.permission" in message
+
+
+def test_configured_plan_reject_sends_feedback():
+    dialog = detect_dialog(_dialog_screen("plan"))
+    assert dialog is not None
+    pending = _pending("ExitPlanMode", {"plan": "Append a line to notes.txt"})
+    answers = {"plan": {"default": "reject", "feedback": "Do not proceed; stop here."}}
+    assert _resolve_dialog(dialog, pending, answers) == (
+        b"3",
+        b"Do not proceed; stop here.\r",
+    )
+
+
+def test_configured_plan_approve():
+    dialog = detect_dialog(_dialog_screen("plan"))
+    assert dialog is not None
+    pending = _pending("ExitPlanMode", {"plan": "Append a line to notes.txt"})
+    assert _resolve_dialog(dialog, pending, {"plan": {"default": "approve_auto"}}) == (
+        b"1",
+    )
+    assert _resolve_dialog(
+        dialog, pending, {"plan": {"default": "approve_manual"}}
+    ) == (b"2",)
+
+
+def test_notice_is_dismissed_with_enter():
+    dialog = detect_dialog(_dialog_screen("notice"))
+    assert dialog is not None
+    assert _resolve_dialog(dialog, None, {"notice": {"default": "dismiss"}}) == (b"\r",)
+
+
+def test_security_notice_is_never_accepted():
+    dialog = detect_dialog(_dialog_screen("security_notice", chrome=False))
+    assert dialog is not None
+    answers = {
+        "notice": {"default": "dismiss"},
+        "permission": {"default": "allow_once"},
+    }
+    with pytest.raises(_DialogUnanswered, match="security"):
+        _resolve_dialog(dialog, None, answers)
+
+
+# ========== Dialog behavior against a fake TUI ==========
+
+_DIALOG_TUI = _script(
+    r"""
+import json as _json
+import threading
+
+screen = open(os.environ["FAKE_SCREEN"], encoding="utf-8").read()
+tool = _json.loads(os.environ["FAKE_TOOL"]) if os.environ.get("FAKE_TOOL") else None
+answer_log = os.environ.get("FAKE_ANSWER_LOG")
+result = None
+if os.environ.get("FAKE_RESULT"):
+    result = _json.loads(os.environ["FAKE_RESULT"])
+
+if tool:
+    append({"type": "assistant", "message": {"id": "msg_tool", "role": "assistant",
+            "content": [{"type": "tool_use", **tool}],
+            "usage": {"input_tokens": 10, "output_tokens": 2}}})
+else:
+    # Confirm the submitted prompt without claiming a tool call.
+    append({"type": "system", "subtype": "init"})
+
+# The real TUI redraws the modal until it is answered; a single frame can be
+# consumed while the prompt submission is being confirmed.
+stop = threading.Event()
+
+
+def redraw():
+    while not stop.is_set():
+        sys.stdout.write(screen)
+        sys.stdout.flush()
+        time.sleep(0.1)
+
+
+threading.Thread(target=redraw, daemon=True).start()
+
+answer = b""
+while not answer:
+    ch = os.read(0, 1)
+    if not ch:
+        sys.exit(0)
+    if ch.isdigit() or ch in (b"\r", b"\n", b"\x1b"):
+        answer = ch
+stop.set()
+time.sleep(0.15)
+if answer_log:
+    with open(answer_log, "ab") as fh:
+        fh.write(answer)
+if result:
+    append(result)
+append({"type": "assistant", "message": {"id": "msg_after", "role": "assistant",
+        "content": [{"type": "text", "text": "AFTER: " + text}],
+        "usage": {"input_tokens": 12, "output_tokens": 2}}})
+sys.stdout.write("\n" + "─" * 40 + "\n ❯\n" + "─" * 40 + "\n")
+sys.stdout.write("  ⏵⏵ auto mode on  (shift+tab to cycle) · esc to interrupt\n")
+sys.stdout.flush()
+time.sleep(0.2)
+append({"type": "system", "subtype": "turn_duration"})
+wait()
+"""
+)
+
+_PLAIN_TUI = _script(
+    r"""
+import select
+
+append({"type": "assistant", "message": {"id": "msg_plain", "role": "assistant",
+        "content": [{"type": "text", "text": "PLAIN: " + text}],
+        "usage": {"input_tokens": 4, "output_tokens": 1}}})
+sys.stdout.write(open(os.environ["FAKE_SCREEN"], encoding="utf-8").read())
+sys.stdout.flush()
+
+# Nothing but the prompt may reach the PTY: drain briefly and record it.
+data = b""
+if select.select([0], [], [], 0.3)[0]:
+    data = os.read(0, 4096)
+answer_log = os.environ.get("FAKE_ANSWER_LOG")
+if answer_log:
+    with open(answer_log, "wb") as fh:
+        fh.write(data)
+append({"type": "system", "subtype": "turn_duration"})
+wait()
+"""
+)
+
+_AUQ_TOOL = {
+    "id": "toolu_auq",
+    "name": "AskUserQuestion",
+    "input": {"questions": _AUQ_QUESTIONS},
+}
+_AUQ_RESULT = {
+    "type": "user",
+    "message": {
+        "role": "user",
+        "content": [
+            {"type": "tool_result", "tool_use_id": "toolu_auq", "content": "Red"}
+        ],
+    },
+}
+
+
+def _dialog_task(
+    tmp_path: Path,
+    binary: Path,
+    *,
+    screen: str,
+    tool: dict | None = None,
+    result: dict | None = None,
+    answers: dict | None = None,
+    timeout: float = 600.0,
+) -> TaskConfig:
+    """Build a task for a fake TUI that renders *screen* and blocks."""
+    screen_path = tmp_path / "screen.txt"
+    screen_path.write_text(screen, encoding="utf-8")
+    task = _task(tmp_path, binary, timeout=timeout)
+    task["agent_extensions"]["dialog_grace"] = 0.2
+    task["agent_extensions"]["answer_settle"] = 1.0
+    task["env"]["FAKE_SCREEN"] = str(screen_path)
+    task["env"]["FAKE_ANSWER_LOG"] = str(tmp_path / "answers.bin")
+    if tool is not None:
+        task["env"]["FAKE_TOOL"] = json.dumps(tool)
+    if result is not None:
+        task["env"]["FAKE_RESULT"] = json.dumps(result)
+    if answers is not None:
+        task["agent_extensions"]["tui_answers"] = answers
+    return task
+
+
+async def test_unanswered_dialog_fails_fast(tmp_path):
+    binary = _write_script(tmp_path, _DIALOG_TUI)
+    task = _dialog_task(
+        tmp_path,
+        binary,
+        screen=_dialog_screen("ask_user_question_single"),
+        tool=_AUQ_TOOL,
+    )
+
+    started = time.monotonic()
+    events = [event async for event in ClaudeTuiProvider().stream(task)]
+    elapsed = time.monotonic() - started
+
+    errors = [event for event in events if event["type"] == "error"]
+    assert len(errors) == 1
+    assert errors[0]["is_fatal"] is True
+    assert errors[0]["error"].startswith("tui_dialog_unanswered: ask_user_question: ")
+    assert "Which color do you prefer?" in errors[0]["error"]
+    assert "tui_answers.ask_user_question" in errors[0]["error"]
+    # dialog_grace + answer_settle + 2 s, and far below the 600 s turn timeout.
+    assert elapsed < 3.2
+    assert not (tmp_path / "answers.bin").exists()
+    assert [event["type"] for event in events].count("session_end") == 1
+
+
+async def test_configured_ask_user_question_sends_answer(tmp_path):
+    binary = _write_script(tmp_path, _DIALOG_TUI)
+    task = _dialog_task(
+        tmp_path,
+        binary,
+        screen=_dialog_screen("ask_user_question_single"),
+        tool=_AUQ_TOOL,
+        result=_AUQ_RESULT,
+        answers={"ask_user_question": {"which color do you prefer?": "Red"}},
+    )
+
+    events = [event async for event in ClaudeTuiProvider().stream(task)]
+
+    assert (tmp_path / "answers.bin").read_bytes() == b"1"
+    texts = [event.get("text") for event in events if event["type"] == "message_end"]
+    assert "AFTER: hello" in texts
+    assert not [
+        event for event in events if event["type"] == "error" and event.get("is_fatal")
+    ]
+
+
+async def test_security_notice_is_not_auto_accepted(tmp_path):
+    binary = _write_script(tmp_path, _DIALOG_TUI)
+    task = _dialog_task(
+        tmp_path,
+        binary,
+        screen=_dialog_screen("security_notice", chrome=False),
+        answers={
+            "notice": {"default": "dismiss"},
+            "permission": {"default": "allow_once"},
+            "plan": {"default": "approve_auto"},
+        },
+    )
+
+    events = [event async for event in ClaudeTuiProvider().stream(task)]
+
+    errors = [event for event in events if event["type"] == "error"]
+    assert len(errors) == 1
+    assert errors[0]["is_fatal"] is True
+    assert errors[0]["error"].startswith("tui_dialog_unanswered: security_notice: ")
+    assert not (tmp_path / "answers.bin").exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="select on a PTY is POSIX-only")
+async def test_no_dialog_no_keys(tmp_path):
+    binary = _write_script(tmp_path, _PLAIN_TUI)
+    task = _dialog_task(
+        tmp_path,
+        binary,
+        screen=_dialog_screen("false_positive_assistant_text", chrome=False),
+        answers={"notice": {"default": "dismiss"}},
+    )
+
+    events = [event async for event in ClaudeTuiProvider().stream(task)]
+
+    assert [event["text"] for event in events if event["type"] == "message_end"] == [
+        "PLAIN: hello"
+    ]
+    assert (tmp_path / "answers.bin").read_bytes() == b""
+
+
+async def test_poll_dialog_writes_nothing_without_a_dialog(tmp_path):
+    recorder = _RecordingProc()
+    session = _DialogSession(
+        tools=_TurnTools(),
+        answers={},
+        grace=0.0,
+        answer_settle=0.0,
+        raw=_dialog_screen("false_positive_assistant_text"),
+    )
+    step = await ClaudeTuiProvider()._poll_dialog(  # noqa: SLF001
+        cast(PtyProcess, recorder),
+        tmp_path / "missing.jsonl",
+        _TranscriptTail(),
+        session,
+    )
+
+    assert recorder.written == []
+    assert step.events == []
+    assert session.previous is None
+    assert session.latched is None
+
+
+def _write_rows(path: Path, rows: list[dict]) -> None:
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+
+async def test_latched_dialog_is_not_answered_twice(tmp_path):
+    """The latch is the transcript id, which the screen frame does not carry."""
+    path = tmp_path / "s.jsonl"
+    _write_rows(
+        path,
+        [
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_auq",
+                            "name": "AskUserQuestion",
+                            "input": {"questions": _AUQ_QUESTIONS},
+                        }
+                    ]
+                },
+            }
+        ],
+    )
+    recorder = _RecordingProc()
+    session = _DialogSession(
+        tools=_TurnTools(),
+        answers={"ask_user_question": {"which color": "Red"}},
+        grace=0.0,
+        answer_settle=0.0,
+        raw=_dialog_screen("ask_user_question_single"),
+        previous="ask_user_question",
+        latched="toolu_auq",
+    )
+    step = await ClaudeTuiProvider()._poll_dialog(  # noqa: SLF001
+        cast(PtyProcess, recorder),
+        path,
+        _TranscriptTail(),
+        session,
+    )
+
+    assert recorder.written == []
+    assert step.answered is False
+
+
+async def test_answered_dialog_is_ignored_when_its_result_landed(tmp_path):
+    """Stale screen text must not resend a key after the tool returned."""
+    path = tmp_path / "s.jsonl"
+    _write_rows(
+        path,
+        [
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_auq",
+                            "name": "AskUserQuestion",
+                            "input": {"questions": _AUQ_QUESTIONS},
+                        }
+                    ]
+                },
+            },
+            {
+                "type": "user",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "toolu_auq",
+                            "content": "Red",
+                        }
+                    ]
+                },
+            },
+        ],
+    )
+    recorder = _RecordingProc()
+    session = _DialogSession(
+        tools=_TurnTools(),
+        answers={"ask_user_question": {"which color": "Red"}},
+        grace=0.0,
+        answer_settle=0.0,
+        raw=_dialog_screen("ask_user_question_single"),
+        previous="ask_user_question",
+    )
+    step = await ClaudeTuiProvider()._poll_dialog(  # noqa: SLF001
+        cast(PtyProcess, recorder),
+        path,
+        _TranscriptTail(),
+        session,
+    )
+
+    assert recorder.written == []
+    assert step.answered is False
+    assert step.fatal is False

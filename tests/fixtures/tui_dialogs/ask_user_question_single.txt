@@ -1,0 +1,16 @@
+────────────────────────────────────────────────────────────────────────────
+  ☐ Color
+   Which color do you prefer?
+
+  ❯   1.   Red
+      Prefer red.
+
+  2.  Blue
+      Prefer blue.
+
+  3. Type something.
+
+────────────────────────────────────────────────────────────────────────────
+ 4. Chat about this
+
+ Enter to select · ↑/↓ to navigate · Esc to cancel

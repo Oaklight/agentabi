@@ -729,6 +729,179 @@ def _session_uuid(value: Any) -> str | None:
         return None
 
 
+# ========== Dialog detection ==========
+
+#: Stripped screen text kept for dialog detection, in characters.
+_SCREEN_LIMIT = 32 * 1024
+#: Raw PTY text kept before stripping; older frames are dropped.
+_SCREEN_RAW_LIMIT = 64 * 1024
+
+#: The TUI status bar is the frame boundary.  Match the mode phrase, not the
+#: whole line: the hints after it change with the release.
+_STATUS_RE = re.compile(
+    r"(?:auto|manual|plan) mode on"
+    r"|accept edits on"
+    r"|don['’]t ask on"
+    r"|bypass permissions on"
+)
+
+#: Footer phrases that identify a live modal.  A footer is only a dialog when
+#: it is drawn below the most recent status bar.
+_FOOTERS: dict[str, tuple[str, ...]] = {
+    "ask_user_question": ("Enter to select",),
+    "review": ("Ready to submit your answers?",),
+    "permission": ("Esc to cancel · Tab to amend",),
+    "plan": ("ctrl+g to edit in nano", "shift+tab to approve with this feedback"),
+    "notice": ("Enter to continue · Esc to cancel",),
+    "security_notice": ("Enter to confirm · Esc to cancel",),
+}
+
+_PERMISSION_HEADERS = (
+    "Bash command",
+    "Edit file",
+    "Write file",
+    "Do you want to proceed?",
+    "Do you want to make this edit",
+)
+#: Permission headers that name the tool directly.
+_PERMISSION_TOOLS = (
+    ("bash command", "Bash"),
+    ("edit file", "Edit"),
+    ("write file", "Write"),
+)
+_PLAN_HEADERS = (
+    "Ready to code?",
+    "Here is Claude's plan:",
+    "Would you like to proceed?",
+)
+
+#: A numbered option row, with or without the selection cursor.
+_OPTION_RE = re.compile(r"^(?:❯\s*)?(\d+)\.\s*(.+)$")
+#: Options that are dialog affordances, not answers.
+_PSEUDO_OPTIONS = frozenset({"type something.", "chat about this"})
+
+
+@dataclass(frozen=True)
+class Dialog:
+    """A modal dialog detected on the TUI screen.
+
+    Attributes:
+        type: ``ask_user_question``, ``review``, ``permission``, ``plan``,
+            ``notice``, or ``security_notice``.
+        question: Question or prompt text read from the screen.
+        options: Option labels rendered under the question, in order.
+        tool_name: Tool named by the transcript, when known.
+        tool_use_id: Transcript id of the blocked ``tool_use``, when known.
+    """
+
+    type: str
+    question: str | None = None
+    options: tuple[str, ...] = ()
+    tool_name: str | None = None
+    tool_use_id: str | None = None
+
+
+def _latest_footer(screen: str) -> tuple[str, int] | None:
+    """Return the dialog type and offset of the last footer in *screen*."""
+    best: tuple[str, int] | None = None
+    for kind, phrases in _FOOTERS.items():
+        for phrase in phrases:
+            index = screen.rfind(phrase)
+            if index >= 0 and (best is None or index > best[1]):
+                best = (kind, index)
+    return best
+
+
+def _option_labels(text: str, *, skip_pseudo: bool = False) -> tuple[str, ...]:
+    """Return the numbered option labels rendered in *text*."""
+    labels: list[str] = []
+    for line in text.splitlines():
+        match = _OPTION_RE.match(line.strip())
+        if match is None:
+            continue
+        label = " ".join(match.group(2).split())
+        if skip_pseudo and label.lower() in _PSEUDO_OPTIONS:
+            continue
+        labels.append(label)
+    return tuple(labels)
+
+
+def _question_after_header(lines: list[str]) -> str | None:
+    """Return the question line that follows the last ``☐`` header line."""
+    for index in range(len(lines) - 1, -1, -1):
+        if "☐" not in lines[index]:
+            continue
+        for line in lines[index + 1 :]:
+            text = line.strip()
+            if not text or text.startswith("❯") or _OPTION_RE.match(text):
+                continue
+            return text
+        return None
+    return None
+
+
+def _ask_user_question_dialog(window: str) -> Dialog:
+    """Build the AskUserQuestion dialog rendered in *window*."""
+    return Dialog(
+        type="ask_user_question",
+        question=_question_after_header(window.splitlines()),
+        options=_option_labels(window, skip_pseudo=True),
+    )
+
+
+def _permission_tool(window: str) -> str | None:
+    """Return the tool named by a permission dialog header, if any."""
+    lowered = window.lower()
+    for marker, tool in _PERMISSION_TOOLS:
+        if marker in lowered:
+            return tool
+    return None
+
+
+def detect_dialog(screen: str) -> Dialog | None:
+    """Return the live modal at the bottom of *screen*, or ``None``.
+
+    The TUI draws over the normal buffer, so the accumulated screen keeps
+    stale frames.  The most recent status bar is the frame boundary: a
+    footer above it is scrollback, including assistant text that quotes a
+    dialog verbatim.  The function is pure so it can be tested on captured
+    screen text.
+    """
+    footer = _latest_footer(screen)
+    last_status = max(
+        (match.start() for match in _STATUS_RE.finditer(screen)), default=-1
+    )
+    if last_status < 0:
+        # The bypass-permissions warning replaces the status bar at startup.
+        if footer is not None and footer[0] == "security_notice":
+            return Dialog(type="security_notice")
+        return None
+    if footer is None or footer[1] < last_status:
+        return None
+    kind, index = footer
+    window = screen[last_status:index]
+    lowered = window.lower()
+    if kind == "ask_user_question":
+        return _ask_user_question_dialog(window)
+    if kind == "review":
+        if "review your answers" in lowered:
+            return Dialog(type="review")
+        return _ask_user_question_dialog(window)
+    if kind == "permission":
+        if not any(header.lower() in lowered for header in _PERMISSION_HEADERS):
+            return None
+        return Dialog(
+            type="permission",
+            tool_name=_permission_tool(window),
+            options=_option_labels(window),
+        )
+    if kind == "plan":
+        if not any(header.lower() in lowered for header in _PLAN_HEADERS):
+            return None
+        return Dialog(type="plan", options=_option_labels(window))
+    return Dialog(type=kind)
+
+
 def _api_error_event(message: str, status: Any, suffix: str, fatal: bool) -> ErrorEvent:
     """Build an ``ErrorEvent`` for an API failure reported by Claude Code."""
     detail = _collapse_whitespace(message) or "Claude Code reported an API error"
@@ -835,6 +1008,532 @@ def _turn_row(
     if row_type != "assistant":
         return [], False
     return _assistant_row_events(row, state), False
+
+
+# ========== Dialog answers ==========
+
+#: Pause between two writes of one answer, in seconds.  One digit per write
+#: is the only verified plan-approval sequence.
+_ANSWER_KEY_GAP = 0.3
+#: Tools that always open a modal and never return without one.
+_ALWAYS_MODAL_TOOLS = frozenset({"AskUserQuestion", "ExitPlanMode"})
+#: Dialog types that block the turn without a pending ``tool_use``.
+_TOOLLESS_DIALOGS = frozenset({"notice", "security_notice"})
+#: Dialog types that are the same modal across a redraw.
+_DIALOG_FAMILY = {"review": "ask_user_question"}
+
+
+class _DialogUnanswered(Exception):
+    """A live dialog has no configured, safe answer."""
+
+
+@dataclass(frozen=True)
+class _PendingTool:
+    """A ``tool_use`` block whose ``tool_result`` has not been read yet."""
+
+    tool_use_id: str
+    tool_name: str
+    tool_input: dict[str, Any]
+    seen_at: float
+
+
+class _TurnTools:
+    """Track ``tool_use`` blocks and their results across transcript rows."""
+
+    def __init__(self) -> None:
+        self._pending: dict[str, _PendingTool] = {}
+        self._order: list[str] = []
+        self._resolved: set[str] = set()
+
+    def feed(self, row: dict[str, Any]) -> None:
+        """Record the tool blocks in one transcript row."""
+        row_type = row.get("type")
+        if row_type not in ("assistant", "user"):
+            return
+        message = row.get("message")
+        if not isinstance(message, dict):
+            return
+        content = message.get("content")
+        if not isinstance(content, list):
+            return
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            block_type = block.get("type")
+            if row_type == "assistant" and block_type == "tool_use":
+                self._add(block)
+            elif row_type == "user" and block_type == "tool_result":
+                tool_id = str(block.get("tool_use_id") or "")
+                if tool_id:
+                    self._pending.pop(tool_id, None)
+                    self._resolved.add(tool_id)
+
+    def _add(self, block: dict[str, Any]) -> None:
+        tool_id = str(block.get("id") or "")
+        if not tool_id or tool_id in self._pending or tool_id in self._resolved:
+            return
+        tool_input = block.get("input")
+        self._pending[tool_id] = _PendingTool(
+            tool_use_id=tool_id,
+            tool_name=str(block.get("name") or ""),
+            tool_input=dict(tool_input) if isinstance(tool_input, dict) else {},
+            seen_at=time.monotonic(),
+        )
+        self._order.append(tool_id)
+
+    def pending(self) -> _PendingTool | None:
+        """Return the most recent unresolved ``tool_use``, if any."""
+        for tool_id in reversed(self._order):
+            tool = self._pending.get(tool_id)
+            if tool is not None:
+                return tool
+        return None
+
+    @property
+    def saw_tool_use(self) -> bool:
+        """Return whether the turn has produced any ``tool_use`` yet."""
+        return bool(self._order)
+
+
+def _peek_tools(path: Path, tail: _TranscriptTail, tools: _TurnTools) -> None:
+    """Feed new transcript rows into *tools* without consuming the tail."""
+    try:
+        rows, _ = _read_new_rows(path, tail)
+    except OSError:
+        return
+    for row in rows:
+        tools.feed(row)
+
+
+def _tool_result_present(path: Path, tail: _TranscriptTail, tool_use_id: str) -> bool:
+    """Return whether the transcript already holds *tool_use_id*'s result."""
+    try:
+        rows, _ = _read_new_rows(path, tail)
+    except OSError:
+        return False
+    for row in rows:
+        if row.get("type") != "user":
+            continue
+        message = row.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if (
+                block.get("type") == "tool_result"
+                and block.get("tool_use_id") == tool_use_id
+            ):
+                return True
+    return False
+
+
+def _ask_questions(pending: _PendingTool | None) -> list[dict[str, Any]]:
+    """Return the ``AskUserQuestion`` question list from *pending*."""
+    if pending is None or pending.tool_name != "AskUserQuestion":
+        return []
+    raw = pending.tool_input.get("questions")
+    if not isinstance(raw, list):
+        return []
+    return [item for item in raw if isinstance(item, dict)]
+
+
+def _question_text(question: dict[str, Any]) -> str:
+    """Return the question text of one ``AskUserQuestion`` entry."""
+    return str(question.get("question") or "")
+
+
+def _question_options(question: dict[str, Any]) -> tuple[str, ...]:
+    """Return the option labels of one ``AskUserQuestion`` entry."""
+    raw = question.get("options")
+    if not isinstance(raw, list):
+        return ()
+    labels = []
+    for item in raw:
+        if isinstance(item, dict) and item.get("label"):
+            labels.append(" ".join(str(item["label"]).split()))
+    return tuple(labels)
+
+
+def _quote(text: str, limit: int = 200) -> str:
+    """Return *text* flattened and quoted for an error message."""
+    flat = _collapse_whitespace(text, limit)
+    return f'"{flat}"' if flat else "an unnamed dialog"
+
+
+def _options_hint(labels: tuple[str, ...]) -> str:
+    """Return a compact option list for an error message."""
+    return f" (options: {', '.join(labels)})" if labels else ""
+
+
+def _inline_text(text: str) -> str | None:
+    """Return why *text* cannot be typed into a one-line input, or ``None``."""
+    problem = _prompt_problem(text)
+    if problem is None and ("\n" in text or "\t" in text):
+        problem = "the answer must be one line; Enter submits it"
+    return problem
+
+
+def _question_detail(dialog: Dialog, questions: list[dict[str, Any]]) -> str:
+    """Describe an AskUserQuestion dialog for an error message."""
+    if questions:
+        first = questions[0]
+        return _quote(_question_text(first)) + _options_hint(_question_options(first))
+    if dialog.question:
+        return _quote(dialog.question) + _options_hint(dialog.options)
+    return "a question dialog"
+
+
+def _permission_detail(dialog: Dialog, pending: _PendingTool | None) -> str:
+    """Describe a permission dialog for an error message."""
+    tool = (pending.tool_name if pending else "") or dialog.tool_name or "a tool"
+    target = ""
+    if pending is not None:
+        raw = pending.tool_input.get("command") or pending.tool_input.get("file_path")
+        if raw:
+            target = _quote(str(raw), 160)
+    return f"{tool} {target}".strip()
+
+
+def _plan_detail(pending: _PendingTool | None) -> str:
+    """Describe a plan approval for an error message."""
+    if pending is not None:
+        plan = str(pending.tool_input.get("plan") or "").strip()
+        first = plan.splitlines()[0].strip() if plan else ""
+        if first:
+            return _quote(first, 160)
+    return "a plan approval"
+
+
+def _match_question(question: dict[str, Any], config: dict[str, Any]) -> Any:
+    """Return the configured answer for *question*, or ``None``.
+
+    Keys are matched case-insensitively as substrings of the question text;
+    the longest matching key wins, and ``*`` is the catch-all.
+    """
+    text = _question_text(question).strip().lower()
+    best_key: str | None = None
+    for key in config:
+        if not isinstance(key, str) or key == "*":
+            continue
+        needle = key.strip().lower()
+        if not needle or needle not in text:
+            continue
+        if best_key is None or len(needle) > len(best_key.strip()):
+            best_key = key
+    if best_key is not None:
+        return config[best_key]
+    return config.get("*")
+
+
+def _ask_key(question: dict[str, Any], spec: Any) -> tuple[bytes, ...]:
+    """Map one configured AskUserQuestion answer to selection keys."""
+    labels = _question_options(question)
+    text = _quote(_question_text(question))
+    if isinstance(spec, dict):
+        if "text" in spec:
+            answer = str(spec["text"])
+            problem = _inline_text(answer)
+            if problem is not None:
+                raise _DialogUnanswered(
+                    f"{text}: the free-text answer cannot be typed safely: {problem}"
+                )
+            # The rendered list puts "Type something." right after the options.
+            return (str(len(labels) + 1).encode(), answer.encode(), b"\r")
+        if "option" in spec:
+            index = spec["option"]
+            if (
+                isinstance(index, bool)
+                or not isinstance(index, int)
+                or not 1 <= index <= len(labels)
+            ):
+                raise _DialogUnanswered(
+                    f"{text}: option {index!r} is out of range{_options_hint(labels)}"
+                )
+            return (str(index).encode(),)
+        raise _DialogUnanswered(f"{text}: the answer has no 'option' or 'text' key")
+    if isinstance(spec, str):
+        wanted = " ".join(spec.split()).lower()
+        for index, label in enumerate(labels, start=1):
+            if label.lower() == wanted or label.lower().startswith(wanted):
+                return (str(index).encode(),)
+        raise _DialogUnanswered(
+            f"{text}: no option matches {spec!r}{_options_hint(labels)}"
+        )
+    raise _DialogUnanswered(f"{text}: the answer must be a string or a dict")
+
+
+def _resolve_ask_user_question(
+    dialog: Dialog, pending: _PendingTool | None, answers: dict[str, Any]
+) -> tuple[bytes, ...]:
+    """Map every question in an AskUserQuestion dialog to its answer keys."""
+    config = answers.get("ask_user_question")
+    questions = _ask_questions(pending)
+    if not isinstance(config, dict) or not config:
+        raise _DialogUnanswered(
+            _question_detail(dialog, questions)
+            + "; set agent_extensions.tui_answers.ask_user_question"
+        )
+    if not questions:
+        raise _DialogUnanswered(
+            _question_detail(dialog, questions)
+            + "; the transcript does not carry the question list"
+        )
+    keys: list[bytes] = []
+    for question in questions:
+        if question.get("multiSelect"):
+            raise _DialogUnanswered(
+                f"{_quote(_question_text(question))}: multiSelect is not supported"
+            )
+        spec = _match_question(question, config)
+        if spec is None:
+            raise _DialogUnanswered(
+                f"{_quote(_question_text(question))}: no configured answer"
+                f"{_options_hint(_question_options(question))}"
+            )
+        keys.extend(_ask_key(question, spec))
+    if len(questions) > 1:
+        # The last answer opens the review page; Enter submits it.
+        keys.append(b"\r")
+    return tuple(keys)
+
+
+_PERMISSION_CHOICES = ("allow_once", "allow_always", "allow_session", "deny")
+
+
+def _permission_index(labels: tuple[str, ...], choice: str) -> int | None:
+    """Return the 1-based rendered index for a semantic permission choice."""
+    for index, raw in enumerate(labels, start=1):
+        label = " ".join(raw.split()).lower()
+        if choice == "allow_once":
+            blocked = ("always", "don't ask again", "don’t ask again", "switch to")
+            if label.startswith("yes") and not any(mark in label for mark in blocked):
+                return index
+        elif choice == "allow_always":
+            if (
+                "always allow" in label
+                or "don't ask again" in label
+                or "don’t ask again" in label
+            ):
+                return index
+        elif choice == "allow_session":
+            if "switch to accept edits" in label or "switch to auto mode" in label:
+                return index
+        elif choice == "deny" and label == "no":
+            return index
+    return None
+
+
+def _resolve_permission(
+    dialog: Dialog, pending: _PendingTool | None, answers: dict[str, Any]
+) -> tuple[bytes, ...]:
+    """Map a permission dialog to the digit of the rendered option."""
+    config = answers.get("permission")
+    detail = _permission_detail(dialog, pending)
+    if not isinstance(config, dict) or not config:
+        raise _DialogUnanswered(
+            detail + "; set agent_extensions.tui_answers.permission"
+        )
+    tool_name = (pending.tool_name if pending else "") or dialog.tool_name or ""
+    by_tool = config.get("by_tool")
+    choice = by_tool.get(tool_name) if isinstance(by_tool, dict) else None
+    if choice is None:
+        choice = config.get("default")
+    if choice not in _PERMISSION_CHOICES:
+        raise _DialogUnanswered(
+            f"{detail}: {choice!r} is not one of {', '.join(_PERMISSION_CHOICES)}"
+        )
+    index = _permission_index(dialog.options, str(choice))
+    if index is not None:
+        return (str(index).encode(),)
+    if choice == "deny":
+        # "No" is absent from some layouts; Esc cancels the dialog instead.
+        return (b"\x1b",)
+    raise _DialogUnanswered(
+        f"{detail}: no rendered option matches {choice}{_options_hint(dialog.options)}"
+    )
+
+
+def _resolve_plan(
+    dialog: Dialog, pending: _PendingTool | None, answers: dict[str, Any]
+) -> tuple[bytes, ...]:
+    """Map a plan approval to the digit and optional feedback keys."""
+    config = answers.get("plan")
+    detail = _plan_detail(pending)
+    if not isinstance(config, dict) or not config:
+        raise _DialogUnanswered(detail + "; set agent_extensions.tui_answers.plan")
+    choice = config.get("default")
+    if choice == "approve_auto":
+        return (b"1",)
+    if choice == "approve_manual":
+        return (b"2",)
+    if choice == "reject":
+        feedback = str(config.get("feedback") or "").strip()
+        if not feedback:
+            raise _DialogUnanswered(
+                f"{detail}: plan.default is 'reject' but plan.feedback is empty"
+            )
+        problem = _inline_text(feedback)
+        if problem is not None:
+            raise _DialogUnanswered(f"{detail}: the plan feedback is unsafe: {problem}")
+        return (b"3", feedback.encode() + b"\r")
+    raise _DialogUnanswered(
+        f"{detail}: {choice!r} is not one of approve_auto, approve_manual, reject"
+    )
+
+
+def _resolve_dialog(
+    dialog: Dialog, pending: _PendingTool | None, answers: dict[str, Any]
+) -> tuple[bytes, ...]:
+    """Map *dialog* to the keystrokes that answer it.
+
+    Raises:
+        _DialogUnanswered: When the dialog has no configured answer or the
+            rendered options cannot be mapped without guessing.
+    """
+    if dialog.type == "security_notice":
+        raise _DialogUnanswered(
+            "a security confirmation is never accepted automatically; "
+            "run the CLI once and accept it by hand"
+        )
+    if dialog.type == "notice":
+        return (b"\r",)
+    if dialog.type == "ask_user_question":
+        return _resolve_ask_user_question(dialog, pending, answers)
+    if dialog.type == "review":
+        raise _DialogUnanswered(
+            "the answer review page is open without a recorded answer"
+        )
+    if dialog.type == "permission":
+        return _resolve_permission(dialog, pending, answers)
+    if dialog.type == "plan":
+        return _resolve_plan(dialog, pending, answers)
+    raise _DialogUnanswered("unknown dialog type")
+
+
+def _corroborated(dialog: Dialog, pending: _PendingTool | None) -> bool:
+    """Return whether the transcript backs the dialog seen on screen."""
+    if dialog.type in _TOOLLESS_DIALOGS:
+        return True
+    if dialog.type in ("ask_user_question", "review"):
+        return pending is not None and pending.tool_name == "AskUserQuestion"
+    if dialog.type == "permission":
+        return pending is not None and pending.tool_name not in _ALWAYS_MODAL_TOOLS
+    if dialog.type == "plan":
+        return pending is not None and pending.tool_name == "ExitPlanMode"
+    return False
+
+
+def _transcript_dialog(tools: _TurnTools, grace: float) -> Dialog | None:
+    """Return a modal the screen missed, from a pending modal tool.
+
+    ``AskUserQuestion`` and ``ExitPlanMode`` always block, so a pending
+    ``tool_use`` older than *grace* is a dialog even when the render is
+    clipped or the frame was lost.
+    """
+    pending = tools.pending()
+    if pending is None or pending.tool_name not in _ALWAYS_MODAL_TOOLS:
+        return None
+    if time.monotonic() - pending.seen_at < grace:
+        return None
+    if pending.tool_name == "AskUserQuestion":
+        questions = _ask_questions(pending)
+        first = questions[0] if questions else {}
+        return Dialog(
+            type="ask_user_question",
+            question=_question_text(first) or None,
+            options=_question_options(first),
+            tool_name=pending.tool_name,
+            tool_use_id=pending.tool_use_id,
+        )
+    plan = str(pending.tool_input.get("plan") or "").strip()
+    first_line = plan.splitlines()[0].strip() if plan else ""
+    return Dialog(
+        type="plan",
+        question=first_line or None,
+        tool_name=pending.tool_name,
+        tool_use_id=pending.tool_use_id,
+    )
+
+
+def _live_dialog(screen: str, tools: _TurnTools, grace: float) -> Dialog | None:
+    """Return the modal that is live on screen or proven by the transcript."""
+    dialog = detect_dialog(screen)
+    if dialog is not None:
+        return dialog
+    return _transcript_dialog(tools, grace)
+
+
+@dataclass
+class _DialogStep:
+    """Outcome of one dialog poll."""
+
+    answered: bool
+    events: list[IREvent]
+    raw: str
+    exited: bool
+    key: str | None = None
+
+    @property
+    def fatal(self) -> bool:
+        """Return whether the step ended the turn with a fatal error."""
+        return any(
+            event.get("type") == "error" and event.get("is_fatal")
+            for event in self.events
+        )
+
+
+@dataclass
+class _DialogSession:
+    """Dialog state shared by the turn loop and the settle window."""
+
+    tools: _TurnTools
+    answers: dict[str, Any]
+    grace: float
+    answer_settle: float
+    raw: str = ""
+    previous: str | None = None
+    latched: str | None = None
+
+
+def _append_screen(dialogs: _DialogSession | None, chunk: bytes | None) -> None:
+    """Append a PTY chunk to the dialog screen buffer, when tracking."""
+    if dialogs is None or not chunk:
+        return
+    text = strip_ansi(chunk.decode("utf-8", "replace"))
+    dialogs.raw = (dialogs.raw + text)[-_SCREEN_RAW_LIMIT:]
+
+
+def _tui_answers(extensions: dict[str, Any]) -> dict[str, Any]:
+    """Return the ``agent_extensions.tui_answers`` mapping, if any."""
+    answers = extensions.get("tui_answers")
+    return answers if isinstance(answers, dict) else {}
+
+
+def _read_turn_rows(
+    path: Path,
+    tail: _TranscriptTail,
+    tools: _TurnTools,
+    state: _TurnState,
+) -> tuple[list[IREvent], _TranscriptTail, bool]:
+    """Read new transcript rows and convert them to IR events.
+
+    Returns:
+        ``(events, new_tail, turn_done)``.
+
+    Raises:
+        OSError: If the transcript cannot be read.
+    """
+    rows, tail = _read_new_rows(path, tail)
+    events: list[IREvent] = []
+    done = False
+    for row in rows:
+        tools.feed(row)
+        row_events, turn_done = _turn_row(row, state)
+        events.extend(row_events)
+        done = done or turn_done
+    return events, tail, done
 
 
 def _remove_stale(path: Path) -> str | None:
@@ -1247,7 +1946,7 @@ class ClaudeTuiProvider:
         task: TaskConfig,
         tail: _TranscriptTail | None = None,
     ) -> AsyncIterator[IREvent]:
-        """Read transcript rows until the turn ends.
+        """Read transcript rows until the turn ends, answering TUI dialogs.
 
         Only ``system/turn_duration`` and ``result`` rows end a turn.  Do
         not infer the boundary from an assistant ``stop_reason``: Claude
@@ -1260,16 +1959,39 @@ class ClaudeTuiProvider:
         ``turn_duration``, and closing the PTY mid-write would leave a
         partial row.  The settle window is bounded so a quiet CLI does not
         delay the return.
+
+        A modal blocks the CLI until it is answered.  Each detected dialog is
+        answered from ``agent_extensions.tui_answers`` or turned into a fatal
+        ``ErrorEvent`` prefixed with ``tui_dialog_unanswered:``, so a turn
+        never waits for the full timeout on a prompt.  Detection keeps running
+        through the settle window.
         """
         timeout = _float_option(task.get("timeout") or None, 600.0, "timeout")
+        extensions = task.get("agent_extensions") or {}
         settle_timeout = _float_option(
-            (task.get("agent_extensions") or {}).get("settle_timeout"),
+            extensions.get("settle_timeout"),
             _SETTLE_TIMEOUT,
             "agent_extensions.settle_timeout",
         )
+        poll = _float_option(
+            extensions.get("dialog_poll"), 0.1, "agent_extensions.dialog_poll"
+        )
+        grace = _float_option(
+            extensions.get("dialog_grace"), 1.0, "agent_extensions.dialog_grace"
+        )
+        answer_settle = _float_option(
+            extensions.get("answer_settle"), 2.0, "agent_extensions.answer_settle"
+        )
+        answers = _tui_answers(extensions)
         deadline = time.monotonic() + timeout
         state = _TurnState()
         tail = tail if tail is not None else _TranscriptTail()
+        dialogs = _DialogSession(
+            tools=_TurnTools(),
+            answers=answers,
+            grace=grace,
+            answer_settle=answer_settle,
+        )
         done = False
         exited = False
 
@@ -1285,15 +2007,17 @@ class ClaudeTuiProvider:
 
             if not exited:
                 try:
-                    chunk = await self._read_chunk(proc, min(0.1, remaining))
+                    chunk = await self._read_chunk(proc, min(poll, remaining))
                 except _PtyReadError as exc:
                     yield ErrorEvent(type="error", error=str(exc), is_fatal=True)
                     break
                 if chunk == b"":
                     exited = True
+                else:
+                    _append_screen(dialogs, chunk)
 
             try:
-                rows, tail = _read_new_rows(path, tail)
+                events, tail, done = _read_turn_rows(path, tail, dialogs.tools, state)
             except OSError as exc:
                 yield ErrorEvent(
                     type="error",
@@ -1301,17 +2025,11 @@ class ClaudeTuiProvider:
                     is_fatal=True,
                 )
                 break
-            for row in rows:
-                events, turn_done = _turn_row(row, state)
-                for event in events:
-                    yield event
-                if turn_done:
-                    done = True
-
+            for event in events:
+                yield event
             if done:
                 break
-
-            if exited and not done:
+            if exited:
                 yield ErrorEvent(
                     type="error",
                     error=(
@@ -1322,8 +2040,18 @@ class ClaudeTuiProvider:
                 )
                 break
 
+            step = await self._poll_dialog(proc, path, tail, dialogs)
+            dialogs.raw = step.raw
+            exited = step.exited
+            for event in step.events:
+                yield event
+            if step.fatal:
+                break
+
         if done:
-            async for event in self._settle(proc, path, tail, state, settle_timeout):
+            async for event in self._settle(
+                proc, path, tail, state, settle_timeout, dialogs
+            ):
                 yield event
 
         yield SessionEndEvent(type="session_end", session_id=session_id)
@@ -1335,6 +2063,7 @@ class ClaudeTuiProvider:
         tail: _TranscriptTail,
         state: _TurnState,
         settle_timeout: float,
+        dialogs: _DialogSession | None = None,
     ) -> AsyncIterator[IREvent]:
         """Read the bookkeeping rows Claude Code writes after a turn.
 
@@ -1344,6 +2073,9 @@ class ClaudeTuiProvider:
         ``cost_usd``.  The wait ends when no row arrives for
         ``_SETTLE_QUIET`` seconds, at ``settle_timeout``, or at end of
         stream.
+
+        A dialog can appear after the turn ends (a billing notice, for
+        example), so detection keeps running while the transcript settles.
         """
         if settle_timeout <= 0:
             return
@@ -1359,6 +2091,7 @@ class ClaudeTuiProvider:
                 return
             if chunk == b"":
                 return
+            _append_screen(dialogs, chunk)
             try:
                 rows, tail = _read_new_rows(path, tail)
             except OSError:
@@ -1368,9 +2101,230 @@ class ClaudeTuiProvider:
             elif time.monotonic() - quiet_since >= _SETTLE_QUIET:
                 return
             for row in rows:
+                if dialogs is not None:
+                    dialogs.tools.feed(row)
                 events, _ = _turn_row(row, state)
                 for event in events:
                     yield event
+            events, fatal, visible = await self._settle_dialog_step(
+                proc, path, tail, dialogs
+            )
+            for event in events:
+                yield event
+            if fatal:
+                return
+            if visible:
+                # A visible dialog is activity; keep the window open.
+                quiet_since = time.monotonic()
+
+    async def _settle_dialog_step(
+        self,
+        proc: PtyProcess,
+        path: Path,
+        tail: _TranscriptTail,
+        dialogs: _DialogSession | None,
+    ) -> tuple[list[IREvent], bool, bool]:
+        """Poll a dialog while the transcript settles.
+
+        Returns:
+            ``(events, fatal, visible)``; *visible* keeps the window open.
+        """
+        if dialogs is None:
+            return [], False, False
+        step = await self._poll_dialog(proc, path, tail, dialogs)
+        return step.events, step.fatal, dialogs.previous is not None
+
+    async def _poll_dialog(
+        self,
+        proc: PtyProcess,
+        path: Path,
+        tail: _TranscriptTail,
+        session: _DialogSession,
+    ) -> _DialogStep:
+        """Answer one poll's dialog, updating *session* state.
+
+        A dialog is only acted on after two consecutive polls agree on its
+        type, so a half-drawn frame cannot trigger a key press.
+        """
+        dialog = _live_dialog(
+            session.raw[-_SCREEN_LIMIT:], session.tools, session.grace
+        )
+        idle = _DialogStep(answered=False, events=[], raw=session.raw, exited=False)
+        if dialog is None:
+            # A notice may legitimately appear twice; a tool-backed dialog
+            # cannot, so its latch outlives the footer.
+            if session.latched in _TOOLLESS_DIALOGS:
+                session.latched = None
+            session.previous = None
+            return idle
+        if session.previous != dialog.type:
+            session.previous = dialog.type
+            return idle
+        step = await self._answer_dialog(
+            proc,
+            path,
+            tail,
+            session.tools,
+            dialog,
+            session.answers,
+            session.grace,
+            session.answer_settle,
+            session.raw,
+            session.latched,
+        )
+        session.raw = step.raw
+        if step.fatal:
+            return step
+        if not step.answered:
+            session.previous = None
+            return step
+        session.latched = step.key
+        return step
+
+    async def _answer_dialog(
+        self,
+        proc: PtyProcess,
+        path: Path,
+        tail: _TranscriptTail,
+        tools: _TurnTools,
+        dialog: Dialog,
+        answers: dict[str, Any],
+        grace: float,
+        settle: float,
+        raw: str,
+        latched: str | None,
+    ) -> _DialogStep:
+        """Answer *dialog* from config, or fail fast when it has no answer."""
+        pending = await self._dialog_pending(path, tail, tools, dialog, grace)
+        if not _corroborated(dialog, pending):
+            if tools.saw_tool_use:
+                # Either the frame is stale or the transcript row is still in
+                # flight; a later poll decides.
+                return _DialogStep(answered=False, events=[], raw=raw, exited=False)
+            return self._dialog_failure(
+                dialog,
+                "the transcript does not show the tool call behind this dialog",
+                raw,
+            )
+        key = dialog.type
+        if dialog.type not in _TOOLLESS_DIALOGS and pending is not None:
+            key = pending.tool_use_id
+        if key == latched:
+            return _DialogStep(answered=False, events=[], raw=raw, exited=False)
+        try:
+            keys = _resolve_dialog(dialog, pending, answers)
+        except _DialogUnanswered as exc:
+            return self._dialog_failure(dialog, str(exc), raw)
+        try:
+            await self._send_answer(proc, keys)
+        except PtyWriteError as exc:
+            return self._dialog_failure(dialog, f"cannot write the answer: {exc}", raw)
+        closed, raw, exited = await self._await_dialog_close(
+            proc, path, tail, settle, raw, dialog
+        )
+        if not closed and not exited:
+            # One Enter is the documented fallback for a stuck dialog.
+            try:
+                await proc.write(b"\r")
+            except PtyWriteError as exc:
+                return self._dialog_failure(
+                    dialog, f"cannot write the fallback Enter: {exc}", raw
+                )
+            closed, raw, exited = await self._await_dialog_close(
+                proc, path, tail, min(settle, 1.0), raw, dialog
+            )
+        if not closed and not exited:
+            return self._dialog_failure(
+                dialog,
+                "the dialog did not close after the answer; the configured "
+                "keys did not apply",
+                raw,
+            )
+        return _DialogStep(answered=True, events=[], raw=raw, exited=exited, key=key)
+
+    async def _dialog_pending(
+        self,
+        path: Path,
+        tail: _TranscriptTail,
+        tools: _TurnTools,
+        dialog: Dialog,
+        grace: float,
+    ) -> _PendingTool | None:
+        """Return the transcript ``tool_use`` behind *dialog*.
+
+        The transcript row can land a poll after the screen frame, so wait up
+        to *grace* for it before resolving the answer.
+        """
+        _peek_tools(path, tail, tools)
+        pending = tools.pending()
+        if _corroborated(dialog, pending):
+            return pending
+        deadline = time.monotonic() + max(grace, 0.0)
+        while time.monotonic() < deadline:
+            await asyncio.sleep(0.05)
+            _peek_tools(path, tail, tools)
+            pending = tools.pending()
+            if _corroborated(dialog, pending):
+                return pending
+        return tools.pending()
+
+    @staticmethod
+    async def _send_answer(proc: PtyProcess, keys: tuple[bytes, ...]) -> None:
+        """Write one answer key per write, with a pause between writes.
+
+        A bundled digit and Enter was unreliable on the plan dialog; the
+        verified sequence sends each key on its own.
+        """
+        for index, key in enumerate(keys):
+            if index:
+                await asyncio.sleep(_ANSWER_KEY_GAP)
+            await proc.write(key)
+
+    async def _await_dialog_close(
+        self,
+        proc: PtyProcess,
+        path: Path,
+        tail: _TranscriptTail,
+        settle: float,
+        raw: str,
+        dialog: Dialog,
+    ) -> tuple[bool, str, bool]:
+        """Wait for *dialog* to close after an answer.
+
+        Returns:
+            ``(closed, raw_screen, exited)``.
+        """
+        family = _DIALOG_FAMILY.get(dialog.type, dialog.type)
+        deadline = time.monotonic() + max(settle, 0.0)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False, raw, False
+            chunk = await self._read_chunk(proc, min(0.1, remaining))
+            if chunk == b"":
+                return False, raw, True
+            if chunk:
+                text = strip_ansi(chunk.decode("utf-8", "replace"))
+                raw = (raw + text)[-_SCREEN_RAW_LIMIT:]
+            current = detect_dialog(raw[-_SCREEN_LIMIT:])
+            if current is None:
+                return True, raw, False
+            if _DIALOG_FAMILY.get(current.type, current.type) != family:
+                return True, raw, False
+            if dialog.tool_use_id and _tool_result_present(
+                path, tail, dialog.tool_use_id
+            ):
+                return True, raw, False
+
+    @staticmethod
+    def _dialog_failure(dialog: Dialog, reason: str, raw: str) -> _DialogStep:
+        """Build a fatal step for a dialog that cannot be answered."""
+        event = ErrorEvent(
+            type="error",
+            error=f"tui_dialog_unanswered: {dialog.type}: {reason}",
+            is_fatal=True,
+        )
+        return _DialogStep(answered=False, events=[event], raw=raw, exited=False)
 
     @staticmethod
     async def _read_chunk(proc: PtyProcess, timeout: float) -> bytes | None:
@@ -1387,4 +2341,10 @@ class ClaudeTuiProvider:
             raise _PtyReadError(f"Claude Code terminal read failed: {exc}") from exc
 
 
-__all__ = ["ClaudeTuiProvider", "strip_ansi", "transcript_path"]
+__all__ = [
+    "ClaudeTuiProvider",
+    "Dialog",
+    "detect_dialog",
+    "strip_ansi",
+    "transcript_path",
+]
