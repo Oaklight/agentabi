@@ -21,6 +21,7 @@
 - **Claude TUI 错误路径** — API 错误与内部失败以 `ErrorEvent` 呈现，不再静默结束。含控制字符的提示词在任何字节写入前被拒绝；粘贴与提交在回合开始前都会确认。(#55, #58)
 - **Claude TUI transcript 与启动检测** — 截断或 inode 重写后重置读取位置，不越过未完成行，并能恢复被中断写入粘在前缀上的行。usage 跨消息累加，`cost_usd` 取自 result 行。提示符按输入框上下边框识别，因此占位提示（`❯ Try "..."`）会被接受，菜单项不会。trust 或登录失败时回退到 native 或 SDK 传输，并发出非致命 `ErrorEvent`。已在 Claude Code 2.1.299 上验证。(#59, PR #72)
 - **Claude TUI 对话框处理** — 传输层按 `agent_extensions.tui_answers` 检测并回答 `AskUserQuestion`、权限、计划、通知和安全确认对话框。以状态栏作为帧边界，以 transcript 中的工具调用作为闩锁，过期帧不会重发按键。未配置或无法解析的对话框以 `tui_dialog_unanswered` 结束回合，而不是等待；安全确认永不自动接受。已在 Claude Code 2.1.299 上验证 AskUserQuestion。(#57, PR #73)
+- **ACP 权限转发** — 后端可以向 ACP 客户端请求权限并取得答复。Claude 走 stdin 上的 SDK 控制协议（`--permission-prompt-tool stdio`），其他提供者保持自身策略。网关新增 `permission_mode` 配置项（可询问的后端提供 `ask`/`deny`/`allow_all`，否则只有 `deny`/`allow_all`），在 `session/cancel` 时解决挂起请求，并把 `allow_always` 实现为会话内缓存，因为实测 Claude 的 `updatedPermissions` 不会抑制下一次提示。`agentabi acp` 新增 `--permission-timeout` 与 `--permission-policy`。已在 Claude Code 2.1.299 上端到端验证：allow 执行工具，reject 与超时拒绝，cancel 返回 `cancelled`。(#63, PR #74)
 - **ptyx** — Windows ConPTY 数据块不再丢失；管道失败抛出 `PtyReadError`/`PtyWriteError`；只回应光标位置查询。(#56)
 
 ## v0.4.0 (2026-09-08)
