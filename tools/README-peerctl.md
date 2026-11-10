@@ -18,7 +18,7 @@ python3 tools/peerctl.py import PATH [--adopt]
 ```
 
 Defaults: `--permission-mode bypassPermissions`; `--disallow
-AskUserQuestion`; pool cap 8 managed sessions.
+AskUserQuestion`; per-workspace pool cap 8 managed sessions.
 
 ## State model
 

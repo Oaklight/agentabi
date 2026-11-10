@@ -28,7 +28,7 @@ Defaults:
 
 - `--permission-mode bypassPermissions`
 - `--disallow AskUserQuestion`
-- pool cap 8 managed live sessions (`--max` overrides)
+- per-workspace pool cap 8 managed live sessions (`--max` overrides)
 - state at `$PEERCTL_STATE`, default `~/.local/state/peerctl/pool.json`
 
 `ls` shows only sessions created by peerctl. `ls --all` shows every live

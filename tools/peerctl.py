@@ -154,12 +154,18 @@ def cmd_spawn(args: argparse.Namespace) -> int:
         if args.name in (item.get("name"), item.get("id")):
             die(f"name or id already in use: {args.name} ({item.get('id')})")
 
+    workspace = args.workspace or Path(cwd).name or cwd
     cap = args.max or DEFAULT_MAX
-    in_pool = [entry for entry in manifest["entries"].values() if entry.get("live")]
+    in_pool = [
+        entry
+        for entry in manifest["entries"].values()
+        if entry.get("live") and entry.get("workspace") == workspace
+    ]
     if len(in_pool) >= cap:
         die(
-            "pool is full: "
-            f"{len(in_pool)}/{cap} managed sessions; stop one or raise --max"
+            "workspace pool is full: "
+            f"{len(in_pool)}/{cap} managed sessions in {workspace}; "
+            "stop one or raise --max"
         )
 
     cmd = ["claude", "--bg", "-n", args.name]
@@ -211,7 +217,7 @@ def cmd_spawn(args: argparse.Namespace) -> int:
             "kind": match.get("kind"),
             "live": True,
             "created_by": "peerctl",
-            "workspace": args.workspace or Path(cwd).name or cwd,
+            "workspace": workspace,
         }
     )
     save_manifest(manifest)
