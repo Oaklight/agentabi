@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 from collections.abc import AsyncIterator
+from contextlib import ExitStack
 from typing import Any
 
 from ..settings.registry import adapter_for
@@ -104,62 +105,71 @@ class PiNativeProvider:
         """Run task via pi CLI and yield IR events."""
         self._session_id = ""
         self._session_ended = False
-        cmd = self._build_command(task)
-        merged_env = {**os.environ, **(task.get("env") or {})}
+        with ExitStack() as stack:
+            adapter = adapter_for("pi_native")
+            resolved = adapter.resolve(task)
+            task = resolved.task_or(task)
+            cmd = self._build_command(task)
+            merged_env = {
+                **os.environ,
+                **(task.get("env") or {}),
+                **resolved.env,
+                **adapter.materialize(resolved, stack),
+            }
 
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=merged_env,
-            cwd=task.get("working_dir"),
-        )
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=merged_env,
+                cwd=task.get("working_dir"),
+            )
 
-        timed_out = False
-        timeout = task.get("timeout")
-        kill_task: asyncio.Task[None] | None = None
+            timed_out = False
+            timeout = task.get("timeout")
+            kill_task: asyncio.Task[None] | None = None
 
-        if timeout is not None and timeout > 0:
+            if timeout is not None and timeout > 0:
 
-            async def _kill_after(secs: float) -> None:
-                await asyncio.sleep(secs)
-                nonlocal timed_out
-                timed_out = True
-                proc.kill()
-
-            kill_task = asyncio.create_task(_kill_after(timeout))
-
-        try:
-            assert proc.stdout is not None
-            async for line_bytes in proc.stdout:
-                line = line_bytes.decode().rstrip("\n").rstrip("\r")
-                if not line:
-                    continue
-                try:
-                    raw = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                for event in self._parse_event(raw):
-                    yield event
-
-            await proc.wait()
-            for err_event in await collect_subprocess_errors(
-                proc, timed_out=timed_out, timeout_seconds=timeout
-            ):
-                yield err_event
-            for event in self._end_session():
-                yield event
-        finally:
-            if kill_task is not None:
-                kill_task.cancel()
-            if proc.returncode is None:
-                proc.terminate()
-                try:
-                    await asyncio.wait_for(proc.wait(), timeout=5)
-                except asyncio.TimeoutError:
+                async def _kill_after(secs: float) -> None:
+                    await asyncio.sleep(secs)
+                    nonlocal timed_out
+                    timed_out = True
                     proc.kill()
-                    await proc.wait()
+
+                kill_task = asyncio.create_task(_kill_after(timeout))
+
+            try:
+                assert proc.stdout is not None
+                async for line_bytes in proc.stdout:
+                    line = line_bytes.decode().rstrip("\n").rstrip("\r")
+                    if not line:
+                        continue
+                    try:
+                        raw = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    for event in self._parse_event(raw):
+                        yield event
+
+                await proc.wait()
+                for err_event in await collect_subprocess_errors(
+                    proc, timed_out=timed_out, timeout_seconds=timeout
+                ):
+                    yield err_event
+                for event in self._end_session():
+                    yield event
+            finally:
+                if kill_task is not None:
+                    kill_task.cancel()
+                if proc.returncode is None:
+                    proc.terminate()
+                    try:
+                        await asyncio.wait_for(proc.wait(), timeout=5)
+                    except asyncio.TimeoutError:
+                        proc.kill()
+                        await proc.wait()
 
     async def run(self, task: TaskConfig) -> SessionResult:
         """Run task and return aggregated result."""

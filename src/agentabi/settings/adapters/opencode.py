@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 from typing import Any, cast
 
+from ...types.ir.settings import AgentSettings
 from ...types.ir.task import TaskConfig
 from ..base import Adapter, ResolvedSettings
 from ..errors import InvalidSettingsError
-from ..resolve import deep_merge
+from ..resolve import deep_merge, validate_settings
 
 #: Config variable the V1 CLI reads before it starts.
 CONFIG_ENV = "OPENCODE_CONFIG_CONTENT"
@@ -16,6 +17,11 @@ CONFIG_ENV = "OPENCODE_CONFIG_CONTENT"
 DEFAULT_PROVIDER = "agentabi"
 #: npm package that speaks the OpenAI-compatible protocol.
 COMPATIBLE_NPM = "@ai-sdk/openai-compatible"
+#: Settings that change which model the run talks to.  The V2 catalog
+#: cannot see any of them, so such a task has to run through V1.
+ENDPOINT_FIELDS = frozenset(
+    {"base_url", "api_key", "api_key_env", "model_provider", "headers", "native"}
+)
 
 
 def qualified_model(task: TaskConfig) -> str:
@@ -121,18 +127,34 @@ class OpenCodeV2Settings(Adapter):
     """V2 settings policy.
 
     The V2 server builds its model catalog from the user's own OpenCode
-    config; a provider injected through the environment is not in it.  The
+    config; a provider injected through settings is not in it.  The
     provider therefore routes endpoint-bearing tasks to V1.
     """
 
     name = "opencode_v2"
 
+    def resolve(self, task: TaskConfig, *, resume: bool = False) -> ResolvedSettings:
+        raw: Any = task.get("settings")
+        if raw is None:
+            return ResolvedSettings(agent=self.agent, provider=self.name)
+        validate_settings(raw)
+        _honoured, ignored = self._honoured(dict(raw))
+        return ResolvedSettings(agent=self.agent, provider=self.name, ignored=ignored)
+
+
+def has_endpoint_settings(task: TaskConfig) -> bool:
+    """True when the task asks V2 for a model it cannot serve."""
+    settings: AgentSettings = task.get("settings") or {}
+    return bool(set(settings) & ENDPOINT_FIELDS)
+
 
 __all__ = [
     "CONFIG_ENV",
     "DEFAULT_PROVIDER",
+    "ENDPOINT_FIELDS",
     "OpenCodeV1Settings",
     "OpenCodeV2Settings",
     "existing_config",
+    "has_endpoint_settings",
     "qualified_model",
 ]
