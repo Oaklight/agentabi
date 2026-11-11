@@ -11,8 +11,14 @@
 - `peerctl` 是命令行入口。它通过后台 daemon 持有 peer，因此 peer 的生命周期
   长于启动它的命令。
 
-本页针对 Claude Code。`PeerAdapter` 协议为其他后端留了位置，但目前只实现了
-Claude。
+目前实现了两个后端：
+
+| 后端 | 进程 | steer | 中断 |
+| --- | --- | --- | --- |
+| `claude`（默认） | `claude --print --input-format stream-json` | stdin 上的第二条 user 消息 | control request |
+| `codex` | `codex app-server --listen stdio://` | `turn/steer` | `turn/interrupt` |
+
+两种后端的 peer API 与 `peerctl` 用法一致，差异见下文“后端”一节。
 
 ## 库
 
@@ -63,11 +69,14 @@ await peer.close()
 | `stop_reason` | CLI 的停止原因，例如 `success`、`error_during_execution` |
 | `errors` | CLI result 行里的诊断信息 |
 
-`PeerBroker` 选项：
+`PeerBroker` 选项（默认后端为 `claude`；Codex 传
+`backend="codex"`）：
 
-- `spawn(name, cwd, prompt=None, **options)`——`options` 接受 `model`、
-  `permission_mode`、`agents`、`system_prompt`、`settings`、`env`、
-  `add_dirs`、`command`、`session_id`、`resume`、`extra_args`。
+
+- `spawn(name, cwd, prompt=None, backend="claude", **options)`——
+  `options` 接受 `model`、`permission_mode`、`agents`、`system_prompt`、
+  `settings`、`env`、`add_dirs`、`command`、`session_id`、`resume`、
+  `extra_args`；Codex 后端另外接受 `sandbox` 与 `approval_policy`。
   `settings` 与 `Session(settings=...)` 是同一个映射。
 - `max_peers`（默认 8）限制 broker 内的 peer 数量。
 - 其余接口：`get(name)`、`list_peers()`、`notes()`、`close(name)`、
@@ -81,6 +90,7 @@ await peer.close()
 
 ```bash
 peerctl spawn reviewer --cwd /repo --prompt "Review the current branch"
+peerctl spawn cx --backend codex --cwd /repo --prompt "Review the tests"
 peerctl wait reviewer --timeout 300
 peerctl send reviewer "Check the tests too"
 peerctl steer reviewer "Do not edit files" --interrupt
@@ -98,6 +108,8 @@ peerctl daemon start|status|stop
 | --- | --- | --- |
 | `process`（默认） | peer daemon | `send`、`steer`、`interrupt`、`wait`、`inbox` |
 | `bg` | Claude 自己的 daemon（`claude --bg`） | 仅 `attach` |
+
+`BACKEND` 列标明 process peer 背后的 CLI（`claude` 或 `codex`）。
 
 输出为结构化内容的命令都接受 `--json`，便于其他 agent 调用。
 
@@ -128,11 +140,12 @@ agents、command）。settings 与 env 永不写入，因为它们可能含密�
 
 ```bash
 peerctl recover reviewer
-peerctl recover reviewer --permission-mode acceptEdits
+peerctl recover cx --settings "$SETTINGS_JSON"
 ```
 
-新进程以 `--resume <session_id>` 启动，因此之前的对话仍可用。正在进行的
-回合不会被重放。
+Claude 后端以 `--resume <session_id>` 启动新进程；Codex 后端调用
+`thread/resume`。两者都能继续之前的对话。正在进行的回合不会被重放，端点
+settings 也不会保存：新进程需要时请再次传入 `--settings`。
 
 ## subagent 事件
 
@@ -150,6 +163,36 @@ Claude 会话通过 `Task` 或 `Agent` 工具派发自己的 subagent 时，nati
 `tool_result` 事件对应。`status` 取 `completed`、`failed` 或 `cancelled`。
 这些事件只用于观测：agentabi 只报告 CLI 自己派发了什么，不自行调度 subagent。
 等待这些事件前先检查 `AgentCapabilities.supports_subagent_events`。
+
+## 后端
+
+### Claude
+
+CLI 从 stdin 读取 stream-json user 消息。回合运行中发送的消息会在当前工具
+调用结束后被模型读到。被拒绝的权限请求记入 inbox。
+
+### Codex
+
+一个 peer 是一个 `codex app-server` 进程加一个 thread。`send` 使用
+`turn/start`；回合中发送使用 `turn/steer` 并带上活动回合 id，服务端会确认。
+`interrupt` 发送 `turn/interrupt`，thread 仍可继续使用。token 用量通过
+`thread/tokenUsage/updated` 上报。
+
+`permission_mode` 映射为 app-server 的 sandbox 与审批策略：
+`bypassPermissions` 为 `danger-full-access` + `never`，`full_auto` 与
+`acceptEdits` 为 `workspace-write` + `never`，`default` 或 `plan` 保持
+`on-request`。peer 没有审批通道，`on-request` 的审批会被拒绝并记录。
+该后端不支持 `agents`。
+
+```python
+peer = await broker.spawn(
+    "cx",
+    cwd="/repo",
+    backend="codex",
+    prompt="Review the tests",
+    settings={"base_url": "...", "api_key_env": "OPENAI_API_KEY"},
+)
+```
 
 ## 限制
 
