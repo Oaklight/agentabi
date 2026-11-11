@@ -10,7 +10,13 @@ import pytest
 
 from agentabi.peers import PeerClient, PeerNotFound
 from agentabi.peers.errors import PeerError
-from agentabi.peers.recover import find_entry, load_entries, recover_peer
+from agentabi.peers.recover import (
+    find_entry,
+    find_pool_entry,
+    load_entries,
+    recover_from_pool,
+    recover_peer,
+)
 
 FAKE = Path(__file__).with_name("fake_claude_peer.py")
 COMMAND = [sys.executable, str(FAKE)]
@@ -70,6 +76,69 @@ class TestRecover:
         turn = client.request("wait", {"name": "cx", "timeout": 10}, timeout=20)
         assert turn["status"] == "success"
         assert turn["text"] == "after resume"
+
+    def test_explicit_session_resumes_without_state(
+        self, client: PeerClient, tmp_path: Path
+    ) -> None:
+        info = recover_peer(
+            client,
+            "pooled",
+            session_id="session-from-pool",
+            cwd=str(tmp_path),
+            command=COMMAND,
+        )
+        assert info["session_id"] == "session-from-pool"
+        client.request("send", {"name": "pooled", "text": "after pool"})
+        turn = client.request("wait", {"name": "pooled", "timeout": 10}, timeout=20)
+        assert turn["text"] == "after pool"
+        client.request("stop", {"name": "pooled"})
+
+    def test_pool_entry_prefers_live_then_recency(self, tmp_path: Path) -> None:
+        pool = tmp_path / "pool.json"
+        pool.write_text(
+            json.dumps(
+                {
+                    "entries": {
+                        "old": {"name": "s", "cwd": "/x", "startedAt": 1},
+                        "new": {"name": "s", "cwd": "/y", "startedAt": 9},
+                        "live": {
+                            "name": "s",
+                            "cwd": "/z",
+                            "startedAt": 2,
+                            "live": True,
+                        },
+                    }
+                }
+            )
+        )
+        entry = find_pool_entry("s", path=pool)
+        assert entry is not None
+        assert entry["cwd"] == "/z"
+        assert entry["session_id"] == "live"
+
+    def test_pool_fallback_spawns_a_process_peer(
+        self, client: PeerClient, tmp_path: Path
+    ) -> None:
+        pool = tmp_path / "pool.json"
+        pool.write_text(
+            json.dumps(
+                {
+                    "entries": {
+                        "bg-session-id": {
+                            "name": "id-worker",
+                            "cwd": str(tmp_path),
+                            "startedAt": 5,
+                        }
+                    }
+                }
+            )
+        )
+        info = recover_from_pool(client, "id-worker", path=pool, command=COMMAND)
+        assert info["session_id"] == "bg-session-id"
+        client.request("send", {"name": "id-worker", "text": "from pool"})
+        turn = client.request("wait", {"name": "id-worker", "timeout": 10}, timeout=20)
+        assert turn["text"] == "from pool"
+        client.request("stop", {"name": "id-worker"})
 
     def test_unknown_name(self, client: PeerClient) -> None:
         with pytest.raises(PeerNotFound, match="no saved peer"):

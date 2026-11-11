@@ -15,6 +15,7 @@ from collections.abc import AsyncIterator
 from contextlib import ExitStack
 from typing import Any
 
+from .._streams import STREAM_LIMIT
 from ..settings.registry import adapter_for
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
@@ -124,6 +125,7 @@ class PiNativeProvider:
                 stderr=asyncio.subprocess.PIPE,
                 env=merged_env,
                 cwd=task.get("working_dir"),
+                limit=STREAM_LIMIT,
             )
 
             timed_out = False

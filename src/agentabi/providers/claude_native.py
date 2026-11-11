@@ -16,6 +16,7 @@ from collections.abc import AsyncIterator
 from contextlib import suppress
 from typing import Any, cast
 
+from .._streams import STREAM_LIMIT
 from ..settings.registry import adapter_for
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
@@ -230,6 +231,7 @@ class ClaudeNativeProvider:
             stderr=asyncio.subprocess.PIPE,
             env={**os.environ, **task_env, **settings_env},
             cwd=task.get("working_dir"),
+            limit=STREAM_LIMIT,
         )
 
     @staticmethod

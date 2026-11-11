@@ -140,6 +140,8 @@ def _serve(session_id: str) -> int:  # noqa: C901 - scripted test double
             continue
 
         answer = steered if steered is not None else text
+        if "BIGLINE" in answer:
+            answer = "X" * 200_000
         if "ARGV" in answer:
             answer = "ARGV " + json.dumps(sys.argv)
 

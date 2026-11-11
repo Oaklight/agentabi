@@ -22,6 +22,7 @@ from contextlib import ExitStack, aclosing
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from .._streams import STREAM_LIMIT
 from ..settings.registry import adapter_for
 from ..types.ir.capabilities import AgentCapabilities
 from ..types.ir.events import (
@@ -206,6 +207,7 @@ class CodexNativeProvider:
             stderr=asyncio.subprocess.PIPE,
             env=merged_env,
             cwd=task.get("working_dir"),
+            limit=STREAM_LIMIT,
         )
 
         timed_out = False

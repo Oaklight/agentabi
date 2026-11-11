@@ -47,7 +47,7 @@ from typing import Any, NoReturn
 try:
     from agentabi.peers import PeerClient
     from agentabi.peers.errors import PeerError, PeerNotFound
-    from agentabi.peers.recover import recover_peer
+    from agentabi.peers.recover import recover_from_pool, recover_peer
     from agentabi.peers.socket_wire import send_cross_session, session_socket
 except ImportError as exc:  # pragma: no cover - environment problem
     print(
@@ -537,13 +537,18 @@ def cmd_attach(args: argparse.Namespace) -> int:
 
 
 def cmd_recover(args: argparse.Namespace) -> int:
-    info = recover_peer(
-        PeerClient(),
-        args.name,
-        permission_mode=args.permission_mode,
-        settings=_load_json_arg(args.settings, "--settings"),
-        env=_parse_env(args.env) or None,
-    )
+    client = PeerClient()
+    options = {
+        "permission_mode": args.permission_mode,
+        "settings": _load_json_arg(args.settings, "--settings"),
+        "env": _parse_env(args.env) or None,
+    }
+    try:
+        info = recover_peer(client, args.name, **options)
+    except PeerNotFound:
+        # A background session lives in the peerctl pool, not in the daemon
+        # state; resume it as a process peer.
+        info = recover_from_pool(client, args.name, path=MANIFEST, **options)
     if args.json:
         print(json.dumps(info, ensure_ascii=False))
     else:
@@ -788,7 +793,10 @@ def build_parser() -> argparse.ArgumentParser:
     attach.add_argument("--json", action="store_true")
     attach.set_defaults(func=cmd_attach)
 
-    recover = sub.add_parser("recover", help="resume a saved process peer")
+    recover = sub.add_parser(
+        "recover",
+        help="resume a saved peer (daemon state, then the peerctl pool)",
+    )
     recover.add_argument("name")
     recover.add_argument("--permission-mode")
     recover.add_argument(
