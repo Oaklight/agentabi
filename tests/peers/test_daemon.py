@@ -15,6 +15,8 @@ FAKE = Path(__file__).with_name("fake_claude_peer.py")
 COMMAND = [sys.executable, str(FAKE)]
 CODEX_FAKE = Path(__file__).with_name("fake_codex_app_server.py")
 CODEX_COMMAND = [sys.executable, str(CODEX_FAKE)]
+AGY_FAKE = Path(__file__).with_name("fake_agy_stream.py")
+AGY_COMMAND = [sys.executable, str(AGY_FAKE)]
 
 
 @pytest.fixture
@@ -35,6 +37,25 @@ def _spawn(client: PeerClient, name: str, cwd: Path, **extra) -> dict:
 
 
 class TestDaemon:
+    def test_a_late_session_id_reaches_the_state_file(
+        self, client: PeerClient, tmp_path: Path
+    ) -> None:
+        client.request(
+            "spawn",
+            {
+                "name": "ag",
+                "cwd": str(tmp_path),
+                "backend": "agy",
+                "command": AGY_COMMAND,
+            },
+        )
+        client.request("send", {"name": "ag", "text": "hello"})
+        client.request("wait", {"name": "ag", "timeout": 10}, timeout=20)
+        payload = json.loads((client.state_dir / "peers.json").read_text())
+        entry = next(item for item in payload["peers"] if item["name"] == "ag")
+        assert entry["session_id"] == "agy-fake"
+        client.request("stop", {"name": "ag"})
+
     def test_codex_backend_round_trip(self, client: PeerClient, tmp_path: Path) -> None:
         info = client.request(
             "spawn",

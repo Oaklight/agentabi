@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from .agy import AgyPeer
 from .base import PeerAdapter, PeerInfo, PeerNote
 from .claude import ClaudePeer
 from .codex import CodexPeer
@@ -26,6 +27,7 @@ BACKENDS: dict[str, type] = {
     "codex": CodexPeer,
     "opencode": OpenCodePeer,
     "pi": PiPeer,
+    "agy": AgyPeer,
 }
 
 
@@ -52,7 +54,7 @@ class PeerBroker:
             name: Unique name within this broker.
             cwd: Working directory.
             prompt: Initial task; omitted leaves the peer idle.
-            backend: ``claude`` (default), ``codex``, ``opencode``, or ``pi``.
+            backend: ``claude`` (default), ``codex``, ``opencode``, ``pi``, or ``agy``.
             **options: Forwarded to the backend's peer class.
 
         Returns:
