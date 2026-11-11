@@ -18,6 +18,7 @@ Two backends are implemented:
 | --- | --- | --- | --- |
 | `claude` (default) | `claude --print --input-format stream-json` | a second user message on stdin | control request |
 | `codex` | `codex app-server --listen stdio://` | `turn/steer` | `turn/interrupt` |
+| `opencode` | `opencode serve` (V2 HTTP/SSE) | a second prompt with `delivery: "steer"` | `/api/session/{id}/interrupt` |
 
 The peer API and `peerctl` are the same for both. Differences are listed
 under [Backends](#backends).
@@ -96,6 +97,8 @@ started them. The first command starts the daemon; it writes
 ```bash
 peerctl spawn reviewer --cwd /repo --prompt "Review the current branch"
 peerctl spawn cx --backend codex --cwd /repo --prompt "Review the tests"
+peerctl spawn oc --backend opencode --cwd /repo \
+    --model rosetta/qwen3.8-27b --env OPENCODE_AUTH_CONTENT="$AUTH"
 peerctl wait reviewer --timeout 300
 peerctl send reviewer "Check the tests too"
 peerctl steer reviewer "Do not edit files" --interrupt
@@ -210,10 +213,41 @@ peer = await broker.spawn(
 )
 ```
 
+### OpenCode
+
+One peer is one `opencode serve` process with one V2 session. `send`
+posts the prompt with `delivery: "steer"`; a second prompt during the
+turn steers it. `interrupt` posts `/interrupt`; the session remains
+usable. Completion and text are read from the session messages, because
+opencode 1.19.0 closes its event stream after a steer. A subscriber is
+kept open anyway: 1.19.0 does not start a turn for a prompt sent while
+no subscriber exists.
+
+Endpoint `settings` are refused, because the V2 model catalog does not
+see providers injected by `OPENCODE_CONFIG` or
+`OPENCODE_CONFIG_CONTENT` (measured). Instead, configure the provider in
+opencode itself, or pass credentials to the peer's server:
+
+```python
+peer = await broker.spawn(
+    "oc",
+    cwd="/repo",
+    backend="opencode",
+    model="rosetta/qwen3.8-27b",
+    env={"OPENCODE_AUTH_CONTENT": '{"rosetta":{"type":"api","key":"..."}}'},
+)
+```
+
+`peerctl spawn ... --env OPENCODE_AUTH_CONTENT=...` does the same. The
+model must be `provider/model`. The peer answers a permission ask with
+`once` in an approving mode and with `reject` otherwise, recording a
+`permission_denied` note.
+
 ## Limits
 
-- A steer is confirmed only by the write to the child process stdin.
-  Claude sends no acknowledgement; the turn result is authoritative.
+- A steer is confirmed only by the write to the child process stdin in
+  the Claude backend. Codex acknowledges `turn/steer` with a turn id, and
+  opencode with an admitted message id.
 - The daemon is the parent of its peers. A daemon crash takes them down;
   use `recover` to resume from the saved session.
 - `wait` holds one request open for the turn duration. A timeout raises
