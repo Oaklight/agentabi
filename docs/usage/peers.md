@@ -11,7 +11,7 @@
 - `peerctl` 是命令行入口。它通过后台 daemon 持有 peer，因此 peer 的生命周期
   长于启动它的命令。
 
-目前实现了两个后端：
+目前实现了以下后端：
 
 | 后端 | 进程 | steer | 中断 |
 | --- | --- | --- | --- |
@@ -21,7 +21,7 @@
 | `pi` | `pi --mode rpc`（NDJSON） | `{"type":"steer"}` | `{"type":"abort"}` |
 | `agy` | `agy --input-format stream-json` | 不可用 | `{"event":"interrupt"}`（尽力而为） |
 
-两种后端的 peer API 与 `peerctl` 用法一致，差异见下文“后端”一节。
+各后端的 peer API 与 `peerctl` 用法一致，差异见下文“后端”一节。
 
 ## 库
 
@@ -276,6 +276,8 @@ peer = await broker.spawn(
 
 - Claude 后端的 steer 只以写入子进程 stdin 作为确认，不做应答，以回合结果
   为准。Codex 的 `turn/steer` 返回回合 id，opencode 返回已接收的消息 id。
+- agy 没有 steer：运行中的 `send` 与 `steer` 会抛出 `PeerBusy`，其
+  interrupt 在步骤之间可能被忽略。
 - daemon 是 peer 的父进程。daemon 崩溃会带走 peer；用 `recover` 从保存的
   会话恢复。
 - `wait` 在整个回合期间保持一个请求连接。超时抛出 `PeerTimeout`，回合继续
