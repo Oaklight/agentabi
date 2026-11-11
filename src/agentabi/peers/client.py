@@ -55,9 +55,15 @@ class PeerClient:
             return result
         if not self.autostart:
             raise DaemonUnavailable(f"peer daemon is not running at {self.sock_path}")
-        self._spawn_daemon()
+        # A daemon that is still shutting down holds the lock, so a fresh
+        # process can lose the lock race.  Retry the spawn rather than wait
+        # for a process that has already exited.
         deadline = time.monotonic() + self.start_timeout
+        next_spawn = 0.0
         while time.monotonic() < deadline:
+            if time.monotonic() >= next_spawn:
+                self._spawn_daemon()
+                next_spawn = time.monotonic() + 1.0
             result = self.ping(timeout=0.5)
             if result is not None:
                 return result

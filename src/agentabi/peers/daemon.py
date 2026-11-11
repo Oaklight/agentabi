@@ -52,6 +52,12 @@ _PEER_OPTIONS = frozenset(
     }
 )
 
+#: Spawn options that survive a daemon restart for ``recover``.  Endpoint
+#: settings and ``env`` may hold keys, so they are never written to disk.
+_REPLAY_OPTIONS = frozenset(
+    {"model", "permission_mode", "agents", "add_dirs", "command"}
+)
+
 
 def default_state_dir() -> Path:
     """Return the peer state directory."""
@@ -98,6 +104,7 @@ class PeerDaemon:
         self._stop = asyncio.Event()
         self._lock_file: Any = None
         self._started_at = time.time()
+        self._replay: dict[str, dict[str, Any]] = {}
 
     async def start(self) -> None:
         """Bind the socket and begin serving."""
@@ -256,6 +263,7 @@ class PeerDaemon:
         if op == "stop":
             name = self._name(params)
             await self.broker.close(name)
+            self._replay.pop(name, None)
             self._save_state()
             return {"stopped": name}
         if op == "shutdown":
@@ -282,6 +290,9 @@ class PeerDaemon:
             prompt=str(prompt) if prompt else None,
             **options,
         )
+        self._replay[name] = {
+            key: options[key] for key in _REPLAY_OPTIONS if key in options
+        }
         self._save_state()
         return peer.info().as_dict()
 
@@ -301,7 +312,13 @@ class PeerDaemon:
     # -- persistence ------------------------------------------------------
 
     def _save_state(self) -> None:
-        entries = [info.as_dict() for info in self.broker.list_peers()]
+        entries = []
+        for info in self.broker.list_peers():
+            entry = info.as_dict()
+            replay = self._replay.get(entry["name"])
+            if replay:
+                entry["recreate"] = replay
+            entries.append(entry)
         payload = {"version": 1, "updated_at": time.time(), "peers": entries}
         tmp = self.state_path.with_suffix(".tmp")
         try:

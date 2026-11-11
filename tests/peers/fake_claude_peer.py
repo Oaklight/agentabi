@@ -140,6 +140,8 @@ def _serve(session_id: str) -> int:  # noqa: C901 - scripted test double
             continue
 
         answer = steered if steered is not None else text
+        if "ARGV" in answer:
+            answer = "ARGV " + json.dumps(sys.argv)
 
         if "SUBAGENT" in text:
             tool_id = "call_subagent_1"
