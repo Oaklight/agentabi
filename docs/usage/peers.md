@@ -12,7 +12,7 @@ Two things are involved:
 - `peerctl` is the CLI front end. It talks to a background daemon that
   owns the peers, so a peer outlives the command that started it.
 
-Two backends are implemented:
+The following backends are implemented:
 
 | backend | process | steer | interrupt |
 | --- | --- | --- | --- |
@@ -22,7 +22,7 @@ Two backends are implemented:
 | `pi` | `pi --mode rpc` (NDJSON) | `{"type":"steer"}` | `{"type":"abort"}` |
 | `agy` | `agy --input-format stream-json` | not available | `{"event":"interrupt"}` (best effort) |
 
-The peer API and `peerctl` are the same for both. Differences are listed
+The peer API and `peerctl` are the same for all of them. Differences are listed
 under [Backends](#backends).
 
 ## Library
@@ -304,7 +304,9 @@ extra environment.
 
 - A steer is confirmed only by the write to the child process stdin in
   the Claude backend. Codex acknowledges `turn/steer` with a turn id, and
-  opencode with an admitted message id.
+  opencode with an admitted message id. agy has no steer: a busy `send`
+  and `steer` raise `PeerBusy`, and its interrupt can be ignored between
+  steps.
 - The daemon is the parent of its peers. A daemon crash takes them down;
   use `recover` to resume from the saved session.
 - `wait` holds one request open for the turn duration. A timeout raises
