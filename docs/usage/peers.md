@@ -19,6 +19,7 @@
 | `codex` | `codex app-server --listen stdio://` | `turn/steer` | `turn/interrupt` |
 | `opencode` | `opencode serve`（V2 HTTP/SSE） | 带 `delivery: "steer"` 的第二条 prompt | `/api/session/{id}/interrupt` |
 | `pi` | `pi --mode rpc`（NDJSON） | `{"type":"steer"}` | `{"type":"abort"}` |
+| `agy` | `agy --input-format stream-json` | 不可用 | `{"event":"interrupt"}`（尽力而为） |
 
 两种后端的 peer API 与 `peerctl` 用法一致，差异见下文“后端”一节。
 
@@ -245,6 +246,31 @@ peer = await broker.spawn(
     prompt="Review the tests",
 )
 ```
+
+### agy
+
+一个 peer 是一个 `agy --output-format stream-json --input-format stream-json`
+进程。`send` 写入一条 `user` 事件，回合在 `result` 事件结束；文本、用量与状态
+都来自它。conversation id 随首个 `init` 事件到达，`recover` 用
+`--conversation` 恢复。
+
+输入侧只接受 `user` 与 `interrupt`。第二条 `user` 是排队的新回合，不是
+steer，因此 peer 运行中发送消息会被拒绝（`PeerBusy`），不会静默排队。
+`steer` 同理直接报错。1.5.5 实测：`interrupt` 在工具步骤中有效，在步骤之间
+会被忽略，回合可能正常完成；以 result 为准。
+
+```python
+peer = await broker.spawn(
+    "agy",
+    cwd="/repo",
+    backend="agy",
+    model="qwen3.8-27b",
+    prompt="Review the tests",
+    # 启动器固定了其他 profile 时用 command=["/path/to/agy.real"]
+)
+```
+
+`peerctl spawn/recover --command` 用于该 argv 前缀；`--env` 提供额外环境变量。
 
 ## 限制
 
