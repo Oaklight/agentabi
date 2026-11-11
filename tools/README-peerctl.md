@@ -4,33 +4,67 @@ Skill entry point: `tools/peerctl/SKILL.md`. The project skill at
 `.claude/skills/peerctl/SKILL.md` is a symlink to that file; keep the
 source of truth in `tools/`.
 
-Minimal peer control for Claude Code background sessions. It opens,
-lists, and stops sessions. It does not send messages; the main session
-handles that itself.
+Peer lifecycle and messaging for Claude Code. Two engines:
+
+- `process` (default): the peer daemon owns a long-lived
+  `claude --print --input-format stream-json` process. Messages go to its
+  stdin, so `send`, `steer`, `interrupt`, `wait`, and `inbox` work.
+- `bg`: a `claude --bg` session. Lifecycle only; `attach` writes one
+  message to its peer socket.
 
 ```bash
-python3 tools/peerctl.py spawn NAME --cwd DIR --prompt TEXT \
-    [--workspace LABEL] [--model M] [--permission-mode MODE] [--max N]
+python3 tools/peerctl.py spawn NAME --cwd DIR [--prompt TEXT] \
+    [--engine process|bg] [--model M] [--permission-mode MODE] \
+    [--agent-json JSON] [--settings JSON] [--system-prompt TEXT] \
+    [--add-dir DIR] [--workspace LABEL] [--max N]
+python3 tools/peerctl.py send NAME TEXT [--json]
+python3 tools/peerctl.py steer NAME TEXT [--interrupt] [--json]
+python3 tools/peerctl.py interrupt NAME
+python3 tools/peerctl.py wait NAME [--timeout S] [--json]
+python3 tools/peerctl.py inbox [NAME] [--clear] [--json]
+python3 tools/peerctl.py status NAME [--json]
+python3 tools/peerctl.py attach NAME TEXT [--from-name N] [--from-mode MODE]
+python3 tools/peerctl.py recover NAME [--permission-mode MODE]
 python3 tools/peerctl.py ls [--workspace LABEL] [--cwd DIR] [--json] [--all]
 python3 tools/peerctl.py stop NAME|ID [--rm]
+python3 tools/peerctl.py daemon start|stop|status
 python3 tools/peerctl.py export PATH
 python3 tools/peerctl.py import PATH [--adopt]
 ```
 
-Defaults: `--permission-mode bypassPermissions`; `--disallow
-AskUserQuestion`; per-workspace pool cap 8 managed sessions.
+Defaults: `--engine process`; `--permission-mode bypassPermissions`;
+`--disallow AskUserQuestion` (bg only); per-workspace pool cap 8 managed
+sessions; peer state at `$AGENTABI_PEER_STATE` (default
+`~/.local/state/agentabi/peers`).
+
+## Messaging
+
+- Idle `send` starts a turn; busy `send` steers the running one.
+- `wait` returns status, text, usage, turn count, and stop reason.
+- `interrupt` ends the turn and leaves the process alive.
+- `attach` targets a bg or interactive session found in
+  `claude agents --json`; the socket frame is unacknowledged, so the
+  command reports the message id, not delivery. Process peers are
+  refused.
+- `recover` resumes a saved process peer with `--resume <session_id>`
+  after the daemon stopped. Settings and env are never written to
+  `peers.json`.
+
+See `docs_en/docs/usage/peers.md` for the full guide.
 
 ## State model
 
-- `claude agents --json` is the authority. The manifest at
-  `$PEERCTL_STATE` (default `~/.local/state/peerctl/pool.json`) is a
+- The peer daemon is the authority for process peers;
+  `claude agents --json` is the authority for bg sessions. The manifest
+  at `$PEERCTL_STATE` (default `~/.local/state/peerctl/pool.json`) is a
   cache for workspace labels and handover.
 - Sessions are keyed by `sessionId`, which is stable across rename and
   resume. The short id (`74b420fb`) and the name are mutable.
-- `ls` shows only sessions created by peerctl; `ls --all` shows every
-  live Claude session on the machine.
-- `stop` uses the short id; names are resolved first against the live
-  registry.
+- `ls` shows process peers plus sessions created by peerctl; `ls --all`
+  shows every live Claude session on the machine. The `ENGINE` column
+  says which commands apply.
+- `stop` routes by engine: the daemon for process peers, `claude stop
+  <short-id>` for bg sessions.
 
 ## Handover between prototype versions
 

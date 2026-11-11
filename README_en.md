@@ -137,6 +137,27 @@ result = await session.run(prompt="Fix the failing test")
 `agentabi acp --agent opencode` is unaffected; it keeps using the native ACP
 pass-through.
 
+## Long-lived peers
+
+`Session.run` runs one task. A peer keeps a Claude Code process alive
+between turns, so a coordinator can send follow-up work, steer a running
+turn, or interrupt it and keep the conversation:
+
+```python
+from agentabi.peers import PeerBroker
+
+async with PeerBroker() as broker:
+    peer = await broker.spawn("reviewer", cwd="/repo", prompt="Review the diff")
+    await peer.send("Also check the tests")   # new turn, or steer if busy
+    turn = await peer.wait(timeout=300)
+    print(turn.status, turn.text)
+```
+
+`peerctl` drives the same runtime across processes: `spawn`, `send`,
+`steer`, `interrupt`, `wait`, `inbox`, plus `attach` for a session
+another process started and `recover` after the daemon stops. See the
+[peers guide](https://agentabi-en.readthedocs.io/en/latest/usage/peers/).
+
 ## ACP gateway
 
 Expose agentabi as a single ACP endpoint. The gateway speaks ACP to the client and delegates to each agent's native interface:
@@ -245,6 +266,7 @@ All agents emit the same streaming events:
 - `content_block_start` / `content_block_end` — content block boundaries
 - `reasoning_delta` — thinking/reasoning text (Claude, Pi)
 - `tool_use` / `tool_result` — tool calls
+- `subagent_start` / `subagent_end` — a Claude session's own subagent dispatch (observation)
 - `usage` — token counts (including `reasoning_tokens`)
 - `error` — error reporting
 
