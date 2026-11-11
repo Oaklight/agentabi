@@ -33,6 +33,7 @@ class AgentCapabilities(TypedDict):
     supports_ephemeral: NotRequired[bool]
     supports_additional_dirs: NotRequired[bool]
     supports_file_attachments: NotRequired[bool]
+    supports_subagent_events: NotRequired[bool]
 
     # ========== Settings ==========
     supported_settings: NotRequired[list[str]]  # fields from AgentSettings

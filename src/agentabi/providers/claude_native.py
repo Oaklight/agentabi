@@ -30,6 +30,8 @@ from ..types.ir.events import (
     ReasoningDeltaEvent,
     SessionEndEvent,
     SessionStartEvent,
+    SubagentEndEvent,
+    SubagentStartEvent,
     ToolResultEvent,
     ToolUseEvent,
     UsageEvent,
@@ -137,6 +139,7 @@ class ClaudeNativeProvider:
     def __init__(self) -> None:
         self._permission_handler: PermissionHandler | None = None
         self._pending_permissions: dict[str, asyncio.Task[None]] = {}
+        self._subagent_ids: set[str] = set()
 
     def set_permission_handler(self, handler: PermissionHandler | None) -> None:
         """Attach or clear the handler called for ``can_use_tool`` requests."""
@@ -165,6 +168,7 @@ class ClaudeNativeProvider:
             "supports_additional_dirs": True,
             "supports_file_attachments": True,
             "supports_multi_turn": True,
+            "supports_subagent_events": True,
             "transport": "subprocess",
             "supported_settings": sorted(adapter_for("claude_native").supported),
             "settings_mechanism": adapter_for("claude_native").mechanism,
@@ -258,7 +262,7 @@ class ClaudeNativeProvider:
                     elif kind == "cancel":
                         self._cancel_pending(control_id)
                     continue
-            for event in self._parse_event(raw):
+            for event in self.parse_event(raw):
                 yield event
             if permission and raw.get("type") == "result":
                 # One prompt per turn: the CLI may keep reading stdin for
@@ -614,17 +618,29 @@ class ClaudeNativeProvider:
 
     # ========== Private: event parsing ==========
 
+    def parse_event(self, event: dict[str, Any]) -> list[IREvent]:
+        """Parse one JSONL row, correlating native subagent events.
+
+        The instance remembers which tool calls launched a subagent, so
+        the matching ``tool_result`` can close it.
+        """
+        return ClaudeNativeProvider._parse_event(event, subagents=self._subagent_ids)
+
     @staticmethod
-    def _parse_event(event: dict[str, Any]) -> list[IREvent]:
+    def _parse_event(
+        event: dict[str, Any],
+        *,
+        subagents: set[str] | None = None,
+    ) -> list[IREvent]:
         """Convert a Claude Code JSONL event to IR event(s)."""
         event_type = event.get("type")
 
         if event_type == "system":
             return ClaudeNativeProvider._handle_system(event)
         elif event_type == "assistant":
-            return ClaudeNativeProvider._handle_assistant(event)
+            return ClaudeNativeProvider._handle_assistant(event, subagents)
         elif event_type == "user":
-            return ClaudeNativeProvider._handle_user(event)
+            return ClaudeNativeProvider._handle_user(event, subagents)
         elif event_type == "stream_event":
             return ClaudeNativeProvider._handle_stream_event(event)
         elif event_type == "result":
@@ -651,7 +667,10 @@ class ClaudeNativeProvider:
         return [ir]
 
     @staticmethod
-    def _handle_assistant(event: dict[str, Any]) -> list[IREvent]:
+    def _handle_assistant(
+        event: dict[str, Any],
+        subagents: set[str] | None = None,
+    ) -> list[IREvent]:
         results: list[IREvent] = []
         message = event.get("message", {})
         content = message.get("content", [])
@@ -685,6 +704,15 @@ class ClaudeNativeProvider:
                     "tool_input": block.get("input", {}),
                 }
                 results.append(tool_event)
+                # Claude exposes its native subagent dispatch as the
+                # Task/Agent tool. Report it; do not schedule it.
+                if block.get("name") in ("Task", "Agent"):
+                    subagent = ClaudeNativeProvider._subagent_start(block)
+                    if subagent is not None:
+                        subagent_id = subagent["subagent_id"]
+                        if subagents is not None and subagent_id:
+                            subagents.add(subagent_id)
+                        results.append(subagent)
 
         end: MessageEndEvent = {
             "type": "message_end",
@@ -699,7 +727,36 @@ class ClaudeNativeProvider:
         return results
 
     @staticmethod
-    def _handle_user(event: dict[str, Any]) -> list[IREvent]:
+    def _subagent_start(block: dict[str, Any]) -> SubagentStartEvent | None:
+        """Build the observation event for one Task/Agent tool call."""
+        tool_input = block.get("input")
+        if not isinstance(tool_input, dict):
+            tool_input = {}
+        subagent_id = str(block.get("id") or "")
+        if not subagent_id:
+            return None
+        event: SubagentStartEvent = {
+            "type": "subagent_start",
+            "subagent_id": subagent_id,
+            "agent": str(
+                tool_input.get("subagent_type")
+                or tool_input.get("name")
+                or block.get("name")
+                or "subagent"
+            ),
+        }
+        prompt = tool_input.get("prompt")
+        if isinstance(prompt, str) and prompt:
+            event["prompt"] = prompt[:2000]
+        if tool_input.get("run_in_background"):
+            event["background"] = True
+        return event
+
+    @staticmethod
+    def _handle_user(
+        event: dict[str, Any],
+        subagents: set[str] | None = None,
+    ) -> list[IREvent]:
         results: list[IREvent] = []
         message = event.get("message", {})
         content = message.get("content", [])
@@ -716,6 +773,18 @@ class ClaudeNativeProvider:
                 if block.get("is_error"):
                     tool_result["is_error"] = True
                 results.append(tool_result)
+                subagent_id = str(block.get("tool_use_id") or "")
+                if subagents is not None and subagent_id in subagents:
+                    end_event: SubagentEndEvent = {
+                        "type": "subagent_end",
+                        "subagent_id": subagent_id,
+                        "status": "failed" if block.get("is_error") else "completed",
+                    }
+                    content = tool_result["content"]
+                    if content:
+                        end_event["result"] = content[:4000]
+                    results.append(end_event)
+                    subagents.discard(subagent_id)
 
         tool_use_result = event.get("tool_use_result")
         if isinstance(tool_use_result, dict) and results:

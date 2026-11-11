@@ -191,6 +191,38 @@ class PermissionResponseEvent(TypedDict):
 
 
 # ============================================================================
+# Subagent observation events
+# ============================================================================
+
+
+class SubagentStartEvent(TypedDict):
+    """Emitted when the agent dispatches a native subagent.
+
+    This is observation only: agentabi reports what the CLI's own
+    subagent tool did and does not schedule it.  ``subagent_id`` is the
+    id of the launching tool call, so the matching end event and any
+    forwarded subagent text can be correlated.
+    """
+
+    type: Required[Literal["subagent_start"]]
+    subagent_id: Required[str]
+    agent: Required[str]
+    prompt: NotRequired[str]
+    background: NotRequired[bool]
+    parent_tool_use_id: NotRequired[str]
+
+
+class SubagentEndEvent(TypedDict):
+    """Emitted when a native subagent returns or fails."""
+
+    type: Required[Literal["subagent_end"]]
+    subagent_id: Required[str]
+    status: Required[Literal["completed", "failed", "cancelled"]]
+    result: NotRequired[str]
+    duration_ms: NotRequired[int]
+
+
+# ============================================================================
 # Usage and error events
 # ============================================================================
 
@@ -258,6 +290,8 @@ IREvent = (
     | ToolResultEvent
     | PermissionRequestEvent
     | PermissionResponseEvent
+    | SubagentStartEvent
+    | SubagentEndEvent
     | UsageEvent
     | ErrorEvent
     | FileDiffEvent
@@ -280,6 +314,8 @@ __all__ = [
     "ToolResultEvent",
     "PermissionRequestEvent",
     "PermissionResponseEvent",
+    "SubagentStartEvent",
+    "SubagentEndEvent",
     "UsageInfo",
     "UsageEvent",
     "ErrorEvent",
