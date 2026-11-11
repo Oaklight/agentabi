@@ -49,13 +49,25 @@ _PEER_OPTIONS = frozenset(
         "session_id",
         "resume",
         "extra_args",
+        "backend",
+        "sandbox",
+        "approval_policy",
     }
 )
 
 #: Spawn options that survive a daemon restart for ``recover``.  Endpoint
 #: settings and ``env`` may hold keys, so they are never written to disk.
 _REPLAY_OPTIONS = frozenset(
-    {"model", "permission_mode", "agents", "add_dirs", "command"}
+    {
+        "model",
+        "permission_mode",
+        "agents",
+        "add_dirs",
+        "command",
+        "backend",
+        "sandbox",
+        "approval_policy",
+    }
 )
 
 

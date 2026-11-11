@@ -32,6 +32,7 @@ from .base import (
 )
 from .broker import DEFAULT_MAX_PEERS, PeerBroker
 from .claude import ClaudePeer
+from .codex import CodexPeer
 from .errors import (
     PeerBusy,
     PeerClosed,
@@ -71,6 +72,7 @@ __all__ = [
     "PeerClient",
     "PeerDaemon",
     "ClaudePeer",
+    "CodexPeer",
     "PeerAdapter",
     "PeerBroker",
     "PeerBusy",

@@ -20,6 +20,7 @@ class PeerInfo:
     cwd: str
     status: PeerStatus
     engine: str = "process"
+    backend: str = "claude"
     session_id: str | None = None
     model: str | None = None
     pid: int | None = None
@@ -34,6 +35,7 @@ class PeerInfo:
             "cwd": self.cwd,
             "status": self.status,
             "engine": self.engine,
+            "backend": self.backend,
             "session_id": self.session_id,
             "model": self.model,
             "pid": self.pid,

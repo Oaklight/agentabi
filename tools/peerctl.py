@@ -15,7 +15,7 @@ Every command reconciles against its authority: the peer daemon for
 local manifest is a cache plus labels, never the authority.
 
 Commands:
-    spawn NAME --cwd DIR [--prompt TEXT] [--engine process|bg]
+    spawn NAME --cwd DIR [--prompt TEXT] [--engine process|bg] [--backend claude|codex]
     ls [--workspace WS] [--cwd DIR] [--json] [--all]
     send NAME TEXT [--json]
     steer NAME TEXT [--interrupt] [--json]
@@ -24,7 +24,7 @@ Commands:
     inbox [NAME] [--clear] [--json]
     status NAME [--json]
     attach NAME TEXT [--from-name N] [--from-mode bypass|default]
-    recover NAME [--permission-mode MODE] [--json]
+    recover NAME [--permission-mode MODE] [--settings JSON] [--json]
     stop NAME|ID [--rm]
     daemon start|stop|status
     export PATH
@@ -173,6 +173,8 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     if not Path(cwd).is_dir():
         die(f"cwd is not a directory: {cwd}")
     if args.engine == "bg":
+        if args.backend != "claude":
+            die("--engine bg only supports the claude backend")
         if not args.prompt:
             die("--engine bg requires --prompt")
         return _spawn_bg(args, cwd)
@@ -196,7 +198,11 @@ def _load_json_arg(value: str | None, label: str) -> Any:
 
 
 def _spawn_process(args: argparse.Namespace, cwd: str) -> int:
-    params: dict[str, Any] = {"name": args.name, "cwd": cwd}
+    params: dict[str, Any] = {
+        "name": args.name,
+        "cwd": cwd,
+        "backend": args.backend,
+    }
     if args.prompt:
         params["prompt"] = args.prompt
     if args.model:
@@ -205,6 +211,8 @@ def _spawn_process(args: argparse.Namespace, cwd: str) -> int:
         params["permission_mode"] = args.permission_mode
     agents = _load_json_arg(args.agent_json, "--agent-json")
     if agents is not None:
+        if args.backend != "claude":
+            die("--agent-json is only supported by the claude backend")
         params["agents"] = agents
     settings = _load_json_arg(args.settings, "--settings")
     if settings is not None:
@@ -348,6 +356,7 @@ def cmd_ls(args: argparse.Namespace) -> int:
                 "state": item.get("turn_id") or "-",
                 "kind": "process",
                 "engine": "process",
+                "backend": item.get("backend") or "claude",
                 "cwd": item.get("cwd"),
                 "sessionId": item.get("session_id"),
             }
@@ -382,8 +391,8 @@ def cmd_ls(args: argparse.Namespace) -> int:
         print("no live peer sessions")
         return 0
     header = (
-        f"{'WORKSPACE':<18} {'NAME':<24} {'ENGINE':<8} {'ID':<10} "
-        f"{'STATUS':<9} {'STATE':<9} CWD"
+        f"{'WORKSPACE':<18} {'NAME':<24} {'ENGINE':<8} {'BACKEND':<8} "
+        f"{'ID':<10} {'STATUS':<9} {'STATE':<9} CWD"
     )
     print(header)
     for row in rows:
@@ -391,6 +400,7 @@ def cmd_ls(args: argparse.Namespace) -> int:
             f"{row['workspace'] or '-':<18} "
             f"{row['name'] or '-':<24} "
             f"{row['engine'] or '-':<8} "
+            f"{row['backend'] or '-':<8} "
             f"{row['id'] or '-':<10} "
             f"{row['status'] or '-':<9} "
             f"{row['state'] or '-':<9} "
@@ -473,7 +483,8 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(json.dumps(status, ensure_ascii=False))
     else:
         print(
-            f"{status.get('name')} [{status.get('engine')}] "
+            f"{status.get('name')} [{status.get('engine')}/"
+            f"{status.get('backend') or 'claude'}] "
             f"{status.get('status')} turn={status.get('turn_id') or '-'} "
             f"session={status.get('session_id') or '-'}"
         )
@@ -511,7 +522,12 @@ def cmd_attach(args: argparse.Namespace) -> int:
 
 
 def cmd_recover(args: argparse.Namespace) -> int:
-    info = recover_peer(PeerClient(), args.name, permission_mode=args.permission_mode)
+    info = recover_peer(
+        PeerClient(),
+        args.name,
+        permission_mode=args.permission_mode,
+        settings=_load_json_arg(args.settings, "--settings"),
+    )
     if args.json:
         print(json.dumps(info, ensure_ascii=False))
     else:
@@ -660,6 +676,12 @@ def build_parser() -> argparse.ArgumentParser:
     spawn.add_argument("--cwd", required=True)
     spawn.add_argument("--prompt", help="initial task (required for --engine bg)")
     spawn.add_argument(
+        "--backend",
+        choices=("claude", "codex"),
+        default="claude",
+        help="peer backend for --engine process (default: claude)",
+    )
+    spawn.add_argument(
         "--engine",
         choices=("process", "bg"),
         default="process",
@@ -747,6 +769,10 @@ def build_parser() -> argparse.ArgumentParser:
     recover = sub.add_parser("recover", help="resume a saved process peer")
     recover.add_argument("name")
     recover.add_argument("--permission-mode")
+    recover.add_argument(
+        "--settings",
+        help="agentabi settings for the new process (not saved in state)",
+    )
     recover.add_argument("--json", action="store_true")
     recover.set_defaults(func=cmd_recover)
 

@@ -139,8 +139,8 @@ pass-through.
 
 ## Long-lived peers
 
-`Session.run` runs one task. A peer keeps a Claude Code process alive
-between turns, so a coordinator can send follow-up work, steer a running
+`Session.run` runs one task. A peer keeps a Claude Code or Codex
+process alive between turns, so a coordinator can send follow-up work, steer a running
 turn, or interrupt it and keep the conversation:
 
 ```python
@@ -148,6 +148,7 @@ from agentabi.peers import PeerBroker
 
 async with PeerBroker() as broker:
     peer = await broker.spawn("reviewer", cwd="/repo", prompt="Review the diff")
+    # backend="codex" for the Codex app-server
     await peer.send("Also check the tests")   # new turn, or steer if busy
     turn = await peer.wait(timeout=300)
     print(turn.status, turn.text)

@@ -7,8 +7,8 @@ description: Spawn, message, steer, interrupt, list, stop, attach to, and recove
 
 Peer lifecycle and messaging for Claude Code. Two engines:
 
-- `process` (default) — a daemon-owned `claude --print --input-format
-  stream-json` process. It accepts messages: `send` starts a turn when
+- `process` (default) — a daemon-owned CLI process, `claude --print
+  --input-format stream-json` or `codex app-server`. It accepts messages: `send` starts a turn when
   idle and steers it when busy; `interrupt` ends the turn and keeps the
   process; `wait` returns the turn result; `inbox` collects turn results,
   exits, and denied permissions.
@@ -23,9 +23,9 @@ or rebuild a peer after its daemon stopped.
 
 ```bash
 python3 tools/peerctl.py spawn NAME --cwd DIR [--prompt TEXT] \
-    [--engine process|bg] [--model M] [--permission-mode MODE] \
-    [--agent-json JSON] [--settings JSON] [--system-prompt TEXT] \
-    [--add-dir DIR] [--workspace LABEL] [--max N]
+    [--engine process|bg] [--backend claude|codex] [--model M] \
+    [--permission-mode MODE] [--agent-json JSON] [--settings JSON] \
+    [--system-prompt TEXT] [--add-dir DIR] [--workspace LABEL] [--max N]
 python3 tools/peerctl.py send NAME TEXT [--json]
 python3 tools/peerctl.py steer NAME TEXT [--interrupt] [--json]
 python3 tools/peerctl.py interrupt NAME
@@ -33,7 +33,7 @@ python3 tools/peerctl.py wait NAME [--timeout S] [--json]
 python3 tools/peerctl.py inbox [NAME] [--clear] [--json]
 python3 tools/peerctl.py status NAME [--json]
 python3 tools/peerctl.py attach NAME TEXT [--from-name N] [--from-mode bypass|default]
-python3 tools/peerctl.py recover NAME [--permission-mode MODE]
+python3 tools/peerctl.py recover NAME [--permission-mode MODE] [--settings JSON]
 python3 tools/peerctl.py ls [--workspace LABEL] [--cwd DIR] [--json] [--all]
 python3 tools/peerctl.py stop NAME|ID [--rm]
 python3 tools/peerctl.py daemon start|stop|status
@@ -43,7 +43,7 @@ python3 tools/peerctl.py import PATH [--adopt]
 
 Defaults:
 
-- `--engine process`; `--permission-mode bypassPermissions`
+- `--engine process`; `--backend claude`; `--permission-mode bypassPermissions`
 - `--disallow AskUserQuestion` (bg only)
 - per-workspace pool cap 8 managed live sessions (`--max` overrides)
 - process state at `$AGENTABI_PEER_STATE`, default

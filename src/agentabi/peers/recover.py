@@ -44,6 +44,8 @@ def recover_peer(
     *,
     permission_mode: str | None = None,
     prompt: str | None = None,
+    settings: dict[str, Any] | None = None,
+    env: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Start a new peer process that resumes a saved session.
 
@@ -52,6 +54,9 @@ def recover_peer(
         name: Saved peer name.
         permission_mode: Override the saved permission mode.
         prompt: Optional first task.
+        settings: Endpoint settings for the new process.  They are never
+            read from state, because they can hold keys.
+        env: Extra child environment for the new process.
 
     Returns:
         The new peer's info dict.
@@ -81,6 +86,10 @@ def recover_peer(
     )
     if permission_mode:
         params["permission_mode"] = permission_mode
+    if settings:
+        params["settings"] = settings
+    if env:
+        params["env"] = env
     for key in ("model", "agents", "add_dirs"):
         if entry.get(key):
             params[key] = entry[key]
