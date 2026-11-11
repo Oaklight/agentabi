@@ -19,6 +19,7 @@ Two backends are implemented:
 | `claude` (default) | `claude --print --input-format stream-json` | a second user message on stdin | control request |
 | `codex` | `codex app-server --listen stdio://` | `turn/steer` | `turn/interrupt` |
 | `opencode` | `opencode serve` (V2 HTTP/SSE) | a second prompt with `delivery: "steer"` | `/api/session/{id}/interrupt` |
+| `pi` | `pi --mode rpc` (NDJSON) | `{"type":"steer"}` | `{"type":"abort"}` |
 
 The peer API and `peerctl` are the same for both. Differences are listed
 under [Backends](#backends).
@@ -242,6 +243,32 @@ peer = await broker.spawn(
 model must be `provider/model`. The peer answers a permission ask with
 `once` in an approving mode and with `reject` otherwise, recording a
 `permission_denied` note.
+
+### Pi
+
+One peer is one `pi -p --mode rpc` process. Commands are one JSON object
+per line on stdin; the process answers with `response` objects and emits
+`agent_start`, `turn_start`, `message_update`, `turn_end`, `agent_end`,
+and `agent_settled` events. `send` uses `prompt`, a message during the
+run uses `steer` (the model sees it after the running tool call), and
+`interrupt` uses `abort`; the run ends at `agent_settled`, whose
+`aborted` flag marks a cancelled turn. The session id comes from
+`get_state`, and `recover` reuses it with `--session-id`.
+
+Endpoint settings go through the same adapter as the pi transport: a
+private agent directory with `models.json`, removed when the peer
+closes. pi has no approval flag in this transport, so
+`permission_mode` is accepted but not applied.
+
+```python
+peer = await broker.spawn(
+    "pi",
+    cwd="/repo",
+    backend="pi",
+    model="rosetta/qwen3.8-27b",
+    prompt="Review the tests",
+)
+```
 
 ## Limits
 
