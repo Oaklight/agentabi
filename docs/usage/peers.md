@@ -20,6 +20,7 @@ Two backends are implemented:
 | `codex` | `codex app-server --listen stdio://` | `turn/steer` | `turn/interrupt` |
 | `opencode` | `opencode serve` (V2 HTTP/SSE) | a second prompt with `delivery: "steer"` | `/api/session/{id}/interrupt` |
 | `pi` | `pi --mode rpc` (NDJSON) | `{"type":"steer"}` | `{"type":"abort"}` |
+| `agy` | `agy --input-format stream-json` | not available | `{"event":"interrupt"}` (best effort) |
 
 The peer API and `peerctl` are the same for both. Differences are listed
 under [Backends](#backends).
@@ -269,6 +270,35 @@ peer = await broker.spawn(
     prompt="Review the tests",
 )
 ```
+
+### agy
+
+One peer is one `agy --output-format stream-json --input-format
+stream-json` process. `send` writes one `user` event and the turn ends
+at the `result` event; text, usage, and status come from it. The
+conversation id arrives with the first `init` event, and `recover`
+resumes it with `--conversation`.
+
+The input side accepts only `user` and `interrupt`. A second `user` is a
+queued follow-up turn, not a steer, so a message sent while the peer is
+running is refused (`PeerBusy`) instead of silently queuing. `steer`
+raises for the same reason. Measured on 1.5.5, `interrupt` is honoured
+during a tool step but ignored while the agent is between steps, so a
+turn may still finish normally; the result is authoritative.
+
+```python
+peer = await broker.spawn(
+    "agy",
+    cwd="/repo",
+    backend="agy",
+    model="qwen3.8-27b",
+    prompt="Review the tests",
+    # command=["/path/to/agy.real"] when a launcher pins another profile
+)
+```
+
+`peerctl spawn/recover --command` sets that argv prefix; `--env` supplies
+extra environment.
 
 ## Limits
 
