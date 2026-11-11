@@ -13,6 +13,7 @@ stdout.  Special markers in the message:
 from __future__ import annotations
 
 import json
+import os
 import select
 import sys
 import time
@@ -24,13 +25,26 @@ def write(row: dict) -> None:
     sys.stdout.flush()
 
 
+_buffer = b""
+
+
 def read_message(timeout: float) -> dict | None:
-    ready, _, _ = select.select([sys.stdin], [], [], timeout)
-    if not ready:
-        return None
-    line = sys.stdin.readline()
-    if not line:
-        raise EOFError
+    """Read one line from stdin without buffering ahead.
+
+    ``sys.stdin.readline()`` can buffer several lines, which hides a
+    steer message from ``select``; read raw bytes instead.
+    """
+    global _buffer
+    fd = sys.stdin.fileno()
+    while b"\n" not in _buffer:
+        ready, _, _ = select.select([fd], [], [], timeout)
+        if not ready:
+            return None
+        chunk = os.read(fd, 65536)
+        if not chunk:
+            raise EOFError
+        _buffer += chunk
+    line, _buffer = _buffer.split(b"\n", 1)
     try:
         return json.loads(line)
     except json.JSONDecodeError:

@@ -1,22 +1,32 @@
 #!/usr/bin/env python3
-"""peerctl — minimal background peer control for Claude Code.
+"""peerctl — peer lifecycle and messaging.
 
-Scope: open, list, stop. No message sending. The main session handles
-messages itself. Every command reconciles against Claude's own registry
-(``claude agents --json``); the local manifest is a cache plus labels,
-never the authority.
+Two engines:
+
+- ``process`` (default): the peer daemon owns a long-lived
+  ``claude --print --input-format stream-json`` process.  Messages are
+  written to its stdin, so ``send``/``steer``/``wait``/``inbox`` work.
+- ``bg``: the previous ``claude --bg`` path.  Sessions are owned by
+  Claude's daemon and cannot receive messages; only lifecycle commands
+  apply.
+
+Every command reconciles against its authority: the peer daemon for
+``process`` peers, ``claude agents --json`` for ``bg`` sessions.  The
+local manifest is a cache plus labels, never the authority.
 
 Commands:
-    spawn NAME --cwd DIR --prompt TEXT [--model M] [--permission-mode MODE]
-    ls [--workspace WS] [--cwd DIR] [--json]
+    spawn NAME --cwd DIR [--prompt TEXT] [--engine process|bg]
+    ls [--workspace WS] [--cwd DIR] [--json] [--all]
+    send NAME TEXT [--json]
+    steer NAME TEXT [--interrupt] [--json]
+    interrupt NAME
+    wait NAME [--timeout S] [--json]
+    inbox [NAME] [--clear] [--json]
+    status NAME [--json]
     stop NAME|ID [--rm]
+    daemon start|stop|status
     export PATH
     import PATH [--adopt]
-
-Handover design: entries are keyed by the adapter's stable identity
-(Claude: sessionId). ``export`` before switching tools; ``import`` after
-reconciles by sessionId first, then by (cwd, name). Import never stops
-anything; unmatched entries are reported as orphans.
 """
 
 from __future__ import annotations
@@ -30,6 +40,17 @@ import sys
 import time
 from pathlib import Path
 from typing import Any, NoReturn
+
+try:
+    from agentabi.peers import PeerClient
+    from agentabi.peers.errors import PeerError, PeerNotFound
+except ImportError as exc:  # pragma: no cover - environment problem
+    print(
+        "peerctl: agentabi is not importable; install the package or set "
+        f"PYTHONPATH to its src directory ({exc})",
+        file=sys.stderr,
+    )
+    raise SystemExit(2) from exc
 
 STATE_DIR = Path(os.environ.get("PEERCTL_STATE", Path.home() / ".local/state/peerctl"))
 MANIFEST = STATE_DIR / "pool.json"
@@ -144,6 +165,59 @@ def parse_short_id(text: str) -> str | None:
 
 
 def cmd_spawn(args: argparse.Namespace) -> int:
+    cwd = str(Path(args.cwd).expanduser().resolve())
+    if not Path(cwd).is_dir():
+        die(f"cwd is not a directory: {cwd}")
+    if args.engine == "bg":
+        if not args.prompt:
+            die("--engine bg requires --prompt")
+        return _spawn_bg(args, cwd)
+    return _spawn_process(args, cwd)
+
+
+def _load_json_arg(value: str | None, label: str) -> Any:
+    """Parse an inline JSON value or read it from a file."""
+    if value is None:
+        return None
+    path = Path(value).expanduser()
+    if path.is_file():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            die(f"{label} file is not valid JSON: {exc}")
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError as exc:
+        die(f"{label} must be JSON or a JSON file: {exc}")
+
+
+def _spawn_process(args: argparse.Namespace, cwd: str) -> int:
+    params: dict[str, Any] = {"name": args.name, "cwd": cwd}
+    if args.prompt:
+        params["prompt"] = args.prompt
+    if args.model:
+        params["model"] = args.model
+    if args.permission_mode:
+        params["permission_mode"] = args.permission_mode
+    agents = _load_json_arg(args.agent_json, "--agent-json")
+    if agents is not None:
+        params["agents"] = agents
+    settings = _load_json_arg(args.settings, "--settings")
+    if settings is not None:
+        params["settings"] = settings
+    if args.system_prompt:
+        params["system_prompt"] = args.system_prompt
+    for directory in args.add_dir or []:
+        params.setdefault("add_dirs", []).append(directory)
+    try:
+        info = PeerClient().request("spawn", params, timeout=60)
+    except PeerError as exc:
+        die(str(exc))
+    print(json.dumps(info, ensure_ascii=False))
+    return 0
+
+
+def _spawn_bg(args: argparse.Namespace, cwd: str) -> int:
     manifest = load_manifest()
     live = sync(manifest)
     cwd = str(Path(args.cwd).expanduser().resolve())
@@ -235,6 +309,15 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     return 0
 
 
+def _process_rows() -> list[dict[str, Any]]:
+    """Read live peers from the daemon without starting it."""
+    client = PeerClient(autostart=False)
+    try:
+        return client.request("list", timeout=5)
+    except (PeerError, OSError, RuntimeError):
+        return []
+
+
 def cmd_ls(args: argparse.Namespace) -> int:
     manifest = load_manifest()
     live = sync(manifest)
@@ -243,7 +326,28 @@ def cmd_ls(args: argparse.Namespace) -> int:
         if args.all
         else [entry for entry in manifest["entries"].values() if entry.get("live")]
     )
-    rows = []
+    rows: list[dict[str, Any]] = []
+    for item in _process_rows():
+        label = Path(str(item.get("cwd") or "")).name
+        if args.workspace and args.workspace not in (label, str(item.get("cwd"))):
+            continue
+        if args.cwd and not str(item.get("cwd") or "").startswith(
+            str(Path(args.cwd).expanduser().resolve())
+        ):
+            continue
+        rows.append(
+            {
+                "workspace": label,
+                "name": item.get("name"),
+                "id": "-",
+                "status": item.get("status"),
+                "state": item.get("turn_id") or "-",
+                "kind": "process",
+                "engine": "process",
+                "cwd": item.get("cwd"),
+                "sessionId": item.get("session_id"),
+            }
+        )
     for item in sources:
         sid = item.get("sessionId")
         label = item.get("workspace") or Path(str(item.get("cwd") or "")).name
@@ -261,6 +365,7 @@ def cmd_ls(args: argparse.Namespace) -> int:
                 "status": item.get("status"),
                 "state": item.get("state"),
                 "kind": item.get("kind"),
+                "engine": "bg",
                 "cwd": item.get("cwd"),
                 "sessionId": sid,
             }
@@ -272,12 +377,16 @@ def cmd_ls(args: argparse.Namespace) -> int:
     if not rows:
         print("no live peer sessions")
         return 0
-    header = f"{'WORKSPACE':<18} {'NAME':<24} {'ID':<10} {'STATUS':<9} {'STATE':<9} CWD"
+    header = (
+        f"{'WORKSPACE':<18} {'NAME':<24} {'ENGINE':<8} {'ID':<10} "
+        f"{'STATUS':<9} {'STATE':<9} CWD"
+    )
     print(header)
     for row in rows:
         print(
             f"{row['workspace'] or '-':<18} "
             f"{row['name'] or '-':<24} "
+            f"{row['engine'] or '-':<8} "
             f"{row['id'] or '-':<10} "
             f"{row['status'] or '-':<9} "
             f"{row['state'] or '-':<9} "
@@ -286,7 +395,117 @@ def cmd_ls(args: argparse.Namespace) -> int:
     return 0
 
 
+def _rpc(op: str, params: dict[str, Any], *, timeout: float = 60) -> Any:
+    try:
+        return PeerClient().request(op, params, timeout=timeout)
+    except PeerError as exc:
+        die(str(exc))
+
+
+def cmd_send(args: argparse.Namespace) -> int:
+    result = _rpc("send", {"name": args.name, "text": args.text})
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False))
+    else:
+        print(f"{result['mode']} {result['turn_id']}")
+    return 0
+
+
+def cmd_steer(args: argparse.Namespace) -> int:
+    result = _rpc(
+        "steer",
+        {"name": args.name, "text": args.text, "interrupt": args.interrupt},
+    )
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False))
+    else:
+        print(f"{result['mode']} {result['turn_id']}")
+    return 0
+
+
+def cmd_interrupt(args: argparse.Namespace) -> int:
+    result = _rpc("interrupt", {"name": args.name})
+    print(json.dumps(result, ensure_ascii=False))
+    return 0
+
+
+def cmd_wait(args: argparse.Namespace) -> int:
+    timeout = args.timeout
+    turn = _rpc(
+        "wait",
+        {"name": args.name, "timeout": timeout},
+        timeout=timeout + 15,
+    )
+    if args.json:
+        print(json.dumps(turn, ensure_ascii=False))
+    else:
+        print(turn.get("text") or "")
+    return 0
+
+
+def cmd_inbox(args: argparse.Namespace) -> int:
+    params: dict[str, Any] = {"clear": args.clear}
+    if args.name:
+        params["name"] = args.name
+    notes = _rpc("inbox", params)
+    if args.json:
+        print(json.dumps(notes, ensure_ascii=False))
+        return 0
+    for note in notes:
+        kind = note.get("kind")
+        if kind == "turn":
+            turn = note.get("turn") or {}
+            print(
+                f"turn {turn.get('turn_id')} {turn.get('status')}: {turn.get('text')}"
+            )
+        else:
+            print(f"{kind}: {note.get('text')}")
+    return 0
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    status = _rpc("status", {"name": args.name})
+    if args.json:
+        print(json.dumps(status, ensure_ascii=False))
+    else:
+        print(
+            f"{status.get('name')} [{status.get('engine')}] "
+            f"{status.get('status')} turn={status.get('turn_id') or '-'} "
+            f"session={status.get('session_id') or '-'}"
+        )
+    return 0
+
+
+def cmd_daemon(args: argparse.Namespace) -> int:
+    client = PeerClient()
+    if args.action == "start":
+        ping = client.ensure_daemon()
+        print(json.dumps(ping, ensure_ascii=False))
+        return 0
+    if args.action == "stop":
+        client.stop_daemon()
+        print("stopped")
+        return 0
+    ping = client.ping()
+    if ping is None:
+        print("not running")
+        return 1
+    print(json.dumps(ping, ensure_ascii=False))
+    return 0
+
+
 def cmd_stop(args: argparse.Namespace) -> int:
+    # A process peer lives in the daemon; stop it there when present.
+    try:
+        result = PeerClient(autostart=False).request(
+            "stop", {"name": args.target}, timeout=10
+        )
+        print(json.dumps(result, ensure_ascii=False))
+        return 0
+    except PeerNotFound:
+        pass
+    except (PeerError, OSError, RuntimeError):
+        pass
     manifest = load_manifest()
     live = sync(manifest)
     item = resolve(live, args.target)
@@ -322,6 +541,7 @@ def cmd_export(args: argparse.Namespace) -> int:
         "tool": "peerctl",
         "entries": entries,
         "live": live,
+        "process_peers": _process_rows(),
     }
     path = Path(args.path).expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -389,22 +609,40 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="peerctl", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    spawn = sub.add_parser("spawn", help="start a background Claude session")
+    spawn = sub.add_parser("spawn", help="start a peer")
     spawn.add_argument("name")
     spawn.add_argument("--cwd", required=True)
-    spawn.add_argument("--prompt", required=True)
+    spawn.add_argument("--prompt", help="initial task (required for --engine bg)")
+    spawn.add_argument(
+        "--engine",
+        choices=("process", "bg"),
+        default="process",
+        help="process: daemon-owned, messageable (default); bg: claude --bg",
+    )
     spawn.add_argument(
         "--workspace", help="label for listing; defaults to the cwd basename"
     )
     spawn.add_argument("--model")
     spawn.add_argument("--permission-mode", default="bypassPermissions")
     spawn.add_argument(
+        "--agent-json",
+        help="subagent definitions as JSON or a path to a JSON file",
+    )
+    spawn.add_argument(
+        "--settings",
+        help="agentabi settings as JSON or a path to a JSON file",
+    )
+    spawn.add_argument("--system-prompt")
+    spawn.add_argument("--add-dir", action="append", help="repeatable")
+    spawn.add_argument(
         "--disallow",
         action="append",
         default=["AskUserQuestion"],
-        help="tool to disallow (repeatable; default: AskUserQuestion)",
+        help="bg only: tool to disallow (repeatable; default: AskUserQuestion)",
     )
-    spawn.add_argument("--max", type=int, default=DEFAULT_MAX, help="live session cap")
+    spawn.add_argument(
+        "--max", type=int, default=DEFAULT_MAX, help="bg live session cap"
+    )
     spawn.set_defaults(func=cmd_spawn)
 
     ls = sub.add_parser("ls", help="list live sessions grouped by workspace")
@@ -415,6 +653,46 @@ def build_parser() -> argparse.ArgumentParser:
         "--all", action="store_true", help="include sessions not created by peerctl"
     )
     ls.set_defaults(func=cmd_ls)
+
+    send = sub.add_parser("send", help="send a message: new turn, or steer")
+    send.add_argument("name")
+    send.add_argument("text")
+    send.add_argument("--json", action="store_true")
+    send.set_defaults(func=cmd_send)
+
+    steer = sub.add_parser("steer", help="send into the running turn")
+    steer.add_argument("name")
+    steer.add_argument("text")
+    steer.add_argument(
+        "--interrupt", action="store_true", help="interrupt the turn first"
+    )
+    steer.add_argument("--json", action="store_true")
+    steer.set_defaults(func=cmd_steer)
+
+    interrupt = sub.add_parser("interrupt", help="cancel the running turn")
+    interrupt.add_argument("name")
+    interrupt.set_defaults(func=cmd_interrupt)
+
+    wait = sub.add_parser("wait", help="wait for the running turn")
+    wait.add_argument("name")
+    wait.add_argument("--timeout", type=float, default=300.0)
+    wait.add_argument("--json", action="store_true")
+    wait.set_defaults(func=cmd_wait)
+
+    inbox = sub.add_parser("inbox", help="read turn results, exits, denials")
+    inbox.add_argument("name", nargs="?")
+    inbox.add_argument("--clear", action="store_true")
+    inbox.add_argument("--json", action="store_true")
+    inbox.set_defaults(func=cmd_inbox)
+
+    status = sub.add_parser("status", help="show one peer")
+    status.add_argument("name")
+    status.add_argument("--json", action="store_true")
+    status.set_defaults(func=cmd_status)
+
+    daemon = sub.add_parser("daemon", help="manage the peer daemon")
+    daemon.add_argument("action", choices=("start", "stop", "status"))
+    daemon.set_defaults(func=cmd_daemon)
 
     stop = sub.add_parser("stop", help="stop a session by name, short id, or sessionId")
     stop.add_argument("target")
