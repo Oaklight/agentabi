@@ -693,7 +693,7 @@ def build_parser() -> argparse.ArgumentParser:
     spawn.add_argument("--prompt", help="initial task (required for --engine bg)")
     spawn.add_argument(
         "--backend",
-        choices=("claude", "codex", "opencode"),
+        choices=("claude", "codex", "opencode", "pi"),
         default="claude",
         help="peer backend for --engine process (default: claude)",
     )
