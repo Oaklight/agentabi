@@ -17,6 +17,7 @@
 | --- | --- | --- | --- |
 | `claude`（默认） | `claude --print --input-format stream-json` | stdin 上的第二条 user 消息 | control request |
 | `codex` | `codex app-server --listen stdio://` | `turn/steer` | `turn/interrupt` |
+| `opencode` | `opencode serve`（V2 HTTP/SSE） | 带 `delivery: "steer"` 的第二条 prompt | `/api/session/{id}/interrupt` |
 
 两种后端的 peer API 与 `peerctl` 用法一致，差异见下文“后端”一节。
 
@@ -91,6 +92,8 @@ await peer.close()
 ```bash
 peerctl spawn reviewer --cwd /repo --prompt "Review the current branch"
 peerctl spawn cx --backend codex --cwd /repo --prompt "Review the tests"
+peerctl spawn oc --backend opencode --cwd /repo \
+    --model rosetta/qwen3.8-27b --env OPENCODE_AUTH_CONTENT="$AUTH"
 peerctl wait reviewer --timeout 300
 peerctl send reviewer "Check the tests too"
 peerctl steer reviewer "Do not edit files" --interrupt
@@ -194,9 +197,36 @@ peer = await broker.spawn(
 )
 ```
 
+### OpenCode
+
+一个 peer 是一个 `opencode serve` 进程加一个 V2 会话。`send` 以
+`delivery: "steer"` 提交 prompt；回合中的第二条 prompt 即为 steer。
+`interrupt` 调用 `/interrupt`，会话仍可使用。完成状态与文本从会话消息读取，
+因为 opencode 1.19.0 在 steer 后会关闭事件流。事件流仍会保持订阅：1.19.0
+在没有订阅者时不会为 prompt 启动回合。
+
+端点 `settings` 会被拒绝，因为 V2 模型目录看不到经 `OPENCODE_CONFIG` 或
+`OPENCODE_CONFIG_CONTENT` 注入的 provider（已实测）。请改为在 opencode 自身
+完成 provider 配置，或把凭据交给 peer 的服务进程：
+
+```python
+peer = await broker.spawn(
+    "oc",
+    cwd="/repo",
+    backend="opencode",
+    model="rosetta/qwen3.8-27b",
+    env={"OPENCODE_AUTH_CONTENT": '{"rosetta":{"type":"api","key":"..."}}'},
+)
+```
+
+`peerctl spawn ... --env OPENCODE_AUTH_CONTENT=...` 等价。model 必须是
+`provider/model`。审批模式下 peer 对权限请求回答 `once`，其他模式回答
+`reject` 并记录 `permission_denied`。
+
 ## 限制
 
-- steer 只以写入子进程 stdin 作为确认。Claude 不做应答，以回合结果为准。
+- Claude 后端的 steer 只以写入子进程 stdin 作为确认，不做应答，以回合结果
+  为准。Codex 的 `turn/steer` 返回回合 id，opencode 返回已接收的消息 id。
 - daemon 是 peer 的父进程。daemon 崩溃会带走 peer；用 `recover` 从保存的
   会话恢复。
 - `wait` 在整个回合期间保持一个请求连接。超时抛出 `PeerTimeout`，回合继续
