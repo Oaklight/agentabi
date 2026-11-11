@@ -50,6 +50,19 @@ class TestClaudePeer:
         finally:
             await peer.close()
 
+    async def test_a_large_stream_line_does_not_kill_the_reader(
+        self, tmp_path: Path
+    ) -> None:
+        peer = await _start(tmp_path)
+        try:
+            await peer.send("BIGLINE")
+            turn = await peer.wait(timeout=5)
+            assert turn.status == "success"
+            assert len(turn.text) == 200_000
+            assert not [note for note in peer.inbox() if note.kind == "error"]
+        finally:
+            await peer.close()
+
     async def test_second_message_starts_a_new_turn(self, tmp_path: Path) -> None:
         peer = await _start(tmp_path)
         try:

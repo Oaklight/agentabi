@@ -18,6 +18,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from typing import Any
 
+from .._streams import STREAM_LIMIT
 from .._vendor.jsonrpc import INTERNAL_ERROR, JSONRPCError
 
 logger = logging.getLogger("agentabi.providers.codex_appserver")
@@ -91,6 +92,7 @@ class AppServerClient:
             stderr=asyncio.subprocess.PIPE,
             cwd=self._cwd,
             env=env,
+            limit=STREAM_LIMIT,
         )
         self._reader_task = asyncio.create_task(self._read_loop())
         self._stderr_task = asyncio.create_task(self._drain_stderr())

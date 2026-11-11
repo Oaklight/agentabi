@@ -18,6 +18,7 @@ from contextlib import ExitStack
 from dataclasses import dataclass, field
 from typing import Any
 
+from .._streams import STREAM_LIMIT
 from ..settings.registry import adapter_for
 from ..types.ir.task import TaskConfig
 from .base import PeerInfo, PeerNote, PeerStatus, PeerTurn, SendResult
@@ -127,6 +128,7 @@ class PiPeer:
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
                 cwd=self._cwd,
+                limit=STREAM_LIMIT,
             )
         except OSError as exc:
             raise PeerError(f"cannot start pi: {exc}") from exc

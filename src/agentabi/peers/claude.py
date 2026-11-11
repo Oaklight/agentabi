@@ -18,6 +18,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
+from .._streams import STREAM_LIMIT
 from ..providers.base import _RunState
 from ..providers.claude_native import ClaudeNativeProvider
 from ..settings.registry import adapter_for
@@ -142,6 +143,7 @@ class ClaudePeer:
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
                 cwd=self._cwd,
+                limit=STREAM_LIMIT,
             )
         except OSError as exc:
             raise PeerError(f"cannot start peer {self.name}: {exc}") from exc
