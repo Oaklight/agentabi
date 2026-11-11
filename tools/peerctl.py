@@ -38,6 +38,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -182,6 +183,21 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     return _spawn_process(args, cwd)
 
 
+def _parse_command(value: str | None) -> list[str] | None:
+    """Parse ``--command`` as a JSON list or a shell-like string."""
+    if not value:
+        return None
+    stripped = value.strip()
+    if stripped.startswith("["):
+        parsed = json.loads(stripped)
+        if not isinstance(parsed, list) or not all(
+            isinstance(part, str) for part in parsed
+        ):
+            die("--command JSON must be a list of strings")
+        return parsed
+    return shlex.split(stripped)
+
+
 def _parse_env(values: list[str] | None) -> dict[str, str]:
     """Parse repeated ``KEY=VALUE`` options."""
     env: dict[str, str] = {}
@@ -236,6 +252,9 @@ def _spawn_process(args: argparse.Namespace, cwd: str) -> int:
     env = _parse_env(args.env)
     if env:
         params["env"] = env
+    command = _parse_command(args.command)
+    if command:
+        params["command"] = command
     try:
         info = PeerClient().request("spawn", params, timeout=60)
     except PeerError as exc:
@@ -542,6 +561,7 @@ def cmd_recover(args: argparse.Namespace) -> int:
         "permission_mode": args.permission_mode,
         "settings": _load_json_arg(args.settings, "--settings"),
         "env": _parse_env(args.env) or None,
+        "command": _parse_command(args.command),
     }
     try:
         info = recover_peer(client, args.name, **options)
@@ -698,7 +718,7 @@ def build_parser() -> argparse.ArgumentParser:
     spawn.add_argument("--prompt", help="initial task (required for --engine bg)")
     spawn.add_argument(
         "--backend",
-        choices=("claude", "codex", "opencode", "pi"),
+        choices=("claude", "codex", "opencode", "pi", "agy"),
         default="claude",
         help="peer backend for --engine process (default: claude)",
     )
@@ -723,6 +743,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     spawn.add_argument("--system-prompt")
     spawn.add_argument("--add-dir", action="append", help="repeatable")
+    spawn.add_argument(
+        "--command",
+        help="CLI argv prefix as a JSON list or a shell-like string",
+    )
     spawn.add_argument(
         "--env",
         action="append",
@@ -802,6 +826,10 @@ def build_parser() -> argparse.ArgumentParser:
     recover.add_argument(
         "--settings",
         help="agentabi settings for the new process (not saved in state)",
+    )
+    recover.add_argument(
+        "--command",
+        help="CLI argv prefix for the new process (not saved in state)",
     )
     recover.add_argument(
         "--env",

@@ -55,6 +55,13 @@ _PEER_OPTIONS = frozenset(
     }
 )
 
+#: Ops after which the peer index is refreshed.  A backend can learn its
+#: session id after spawn (agy reads it from the first event), so a save
+#: at spawn time alone would lose it.
+_PERSIST_OPS = frozenset(
+    {"spawn", "send", "steer", "interrupt", "wait", "status", "stop"}
+)
+
 #: Spawn options that survive a daemon restart for ``recover``.  Endpoint
 #: settings and ``env`` may hold keys, so they are never written to disk.
 _REPLAY_OPTIONS = frozenset(
@@ -223,6 +230,8 @@ class PeerDaemon:
             }
         try:
             result = await self._run_op(str(op), params)
+            if op in _PERSIST_OPS:
+                self._save_state()
         except Exception as exc:  # noqa: BLE001 - reported to the client
             return {
                 "id": request_id,

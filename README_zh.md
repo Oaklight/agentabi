@@ -129,7 +129,8 @@ result = await session.run(prompt="修复失败的测试")
 
 ## 长生命周期 peer
 
-`Session.run` 只跑一个任务。peer 让 Claude Code、Codex、OpenCode 或 Pi 进程在回合之间保持存活，
+`Session.run` 只跑一个任务。peer 让 Claude Code、Codex、OpenCode、Pi 或
+Antigravity（agy）进程在回合之间保持存活，
 协调者因此可以追加任务、在运行中 steer，或中断后继续同一段对话：
 
 ```python
@@ -138,6 +139,8 @@ from agentabi.peers import PeerBroker
 async with PeerBroker() as broker:
     peer = await broker.spawn("reviewer", cwd="/repo", prompt="Review the diff")
     await peer.send("Also check the tests")   # 新回合；忙碌时为 steer
+    # 其他 CLI 用 backend="codex"、"opencode"、"pi" 或 "agy"；
+    # agy 不支持 steer，忙碌时发送会被拒绝，interrupt 为尽力而为
     turn = await peer.wait(timeout=300)
     print(turn.status, turn.text)
 ```
