@@ -7,18 +7,21 @@ description: Spawn, message, steer, interrupt, list, stop, attach to, and recove
 
 Peer lifecycle and messaging for Claude Code. Two engines:
 
-- `process` (default) — a daemon-owned CLI process, `claude --print
-  --input-format stream-json` or `codex app-server`. It accepts messages: `send` starts a turn when
-  idle and steers it when busy; `interrupt` ends the turn and keeps the
-  process; `wait` returns the turn result; `inbox` collects turn results,
-  exits, and denied permissions.
+- `process` (default) — a daemon-owned CLI process: `claude --print
+  --input-format stream-json`, `codex app-server`, `opencode serve`,
+  `pi --mode rpc`, or `agy --input-format stream-json`. It accepts
+  messages: `send` starts a turn when idle and steers it when busy;
+  `interrupt` ends the turn and keeps the process; `wait` returns the
+  turn result; `inbox` collects turn results, exits, and denied
+  permissions.
 - `bg` — a `claude --bg` session owned by Claude's daemon. Lifecycle
   only; use `attach` to write one message to it.
 
 Backends for a process peer: `claude` (default), `codex` (`codex
-app-server`), `opencode` (`opencode serve`), and `pi` (`pi --mode
-rpc`). See the peers guide for
-their differences.
+app-server`), `opencode` (`opencode serve`), `pi` (`pi --mode rpc`), and
+`agy` (`agy --input-format stream-json`). `agy` cannot steer: a busy
+send and `steer` are refused, and `interrupt` works only during a tool
+step. See the peers guide for their differences.
 
 Use this skill to dispatch a worker or reviewer and then talk to it:
 send a follow-up task, steer a running turn, interrupt, collect results,
@@ -28,10 +31,10 @@ or rebuild a peer after its daemon stopped.
 
 ```bash
 python3 tools/peerctl.py spawn NAME --cwd DIR [--prompt TEXT] \
-    [--engine process|bg] [--backend claude|codex|opencode|pi] [--model M] \
+    [--engine process|bg] [--backend claude|codex|opencode|pi|agy] [--model M] \
     [--permission-mode MODE] [--agent-json JSON] [--settings JSON] \
     [--system-prompt TEXT] [--add-dir DIR] [--env K=V] \
-    [--workspace LABEL] [--max N]
+    [--command 'ARGV'] [--workspace LABEL] [--max N]
 python3 tools/peerctl.py send NAME TEXT [--json]
 python3 tools/peerctl.py steer NAME TEXT [--interrupt] [--json]
 python3 tools/peerctl.py interrupt NAME
@@ -39,7 +42,8 @@ python3 tools/peerctl.py wait NAME [--timeout S] [--json]
 python3 tools/peerctl.py inbox [NAME] [--clear] [--json]
 python3 tools/peerctl.py status NAME [--json]
 python3 tools/peerctl.py attach NAME TEXT [--from-name N] [--from-mode bypass|default]
-python3 tools/peerctl.py recover NAME [--permission-mode MODE] [--settings JSON] [--env K=V]
+python3 tools/peerctl.py recover NAME [--backend B] [--permission-mode MODE] \
+    [--settings JSON] [--env K=V] [--command 'ARGV']
 python3 tools/peerctl.py ls [--workspace LABEL] [--cwd DIR] [--json] [--all]
 python3 tools/peerctl.py stop NAME|ID [--rm]
 python3 tools/peerctl.py daemon start|stop|status

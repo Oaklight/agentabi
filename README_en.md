@@ -140,16 +140,17 @@ pass-through.
 ## Long-lived peers
 
 `Session.run` runs one task. A peer keeps a Claude Code, Codex,
-OpenCode, or Pi process alive between turns, so a coordinator can send
-follow-up work, steer a running turn, or interrupt it and keep the
-conversation:
+OpenCode, Pi, or Antigravity (agy) process alive between turns, so a
+coordinator can send follow-up work, steer a running turn, or interrupt
+it and keep the conversation:
 
 ```python
 from agentabi.peers import PeerBroker
 
 async with PeerBroker() as broker:
     peer = await broker.spawn("reviewer", cwd="/repo", prompt="Review the diff")
-    # backend="codex", "opencode", or "pi" for the other CLIs
+    # backend="codex", "opencode", "pi", or "agy" for the other CLIs
+    # agy cannot steer: a busy send is refused, interrupt is best effort
     await peer.send("Also check the tests")   # new turn, or steer if busy
     turn = await peer.wait(timeout=300)
     print(turn.status, turn.text)
