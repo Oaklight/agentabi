@@ -18,6 +18,7 @@
 | `claude`（默认） | `claude --print --input-format stream-json` | stdin 上的第二条 user 消息 | control request |
 | `codex` | `codex app-server --listen stdio://` | `turn/steer` | `turn/interrupt` |
 | `opencode` | `opencode serve`（V2 HTTP/SSE） | 带 `delivery: "steer"` 的第二条 prompt | `/api/session/{id}/interrupt` |
+| `pi` | `pi --mode rpc`（NDJSON） | `{"type":"steer"}` | `{"type":"abort"}` |
 
 两种后端的 peer API 与 `peerctl` 用法一致，差异见下文“后端”一节。
 
@@ -222,6 +223,28 @@ peer = await broker.spawn(
 `peerctl spawn ... --env OPENCODE_AUTH_CONTENT=...` 等价。model 必须是
 `provider/model`。审批模式下 peer 对权限请求回答 `once`，其他模式回答
 `reject` 并记录 `permission_denied`。
+
+### Pi
+
+一个 peer 是一个 `pi -p --mode rpc` 进程。命令为 stdin 上每行一个 JSON 对象；
+进程以 `response` 对象应答，并发出 `agent_start`、`turn_start`、
+`message_update`、`turn_end`、`agent_end`、`agent_settled` 事件。`send` 使用
+`prompt`，回合中发送使用 `steer`（模型在当前工具调用后读到），`interrupt`
+使用 `abort`；回合以 `agent_settled` 结束，其 `aborted` 标记表示已取消。
+session id 来自 `get_state`，`recover` 用 `--session-id` 复用它。
+
+端点 settings 走与 pi 传输相同的适配器：私有 agent 目录加 `models.json`，
+peer 关闭时删除。该传输没有审批参数，`permission_mode` 被接受但不生效。
+
+```python
+peer = await broker.spawn(
+    "pi",
+    cwd="/repo",
+    backend="pi",
+    model="rosetta/qwen3.8-27b",
+    prompt="Review the tests",
+)
+```
 
 ## 限制
 
