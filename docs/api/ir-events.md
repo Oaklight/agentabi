@@ -120,6 +120,37 @@ Result from a tool execution.
 }
 ```
 
+### SubagentStartEvent / SubagentEndEvent
+
+A Claude session dispatched a subagent through the `Task` or `Agent`
+tool. The two events share `subagent_id` and are emitted around the
+matching `tool_use` and `tool_result`.
+
+```python
+# Start: the tool call that dispatches a subagent
+{
+    "type": "subagent_start",
+    "subagent_id": "call_abc",       # the originating tool_use id
+    "agent": "reviewer",             # subagent_type
+    "prompt": "check the tests",     # optional
+    "background": False,             # optional
+    "parent_tool_use_id": "call_xyz",  # optional, when forwarded
+}
+
+# End: the result came back
+{
+    "type": "subagent_end",
+    "subagent_id": "call_abc",
+    "status": "completed",           # "completed" | "failed" | "cancelled"
+    "result": "[Subagent hand-back] ...",  # optional, truncated
+    "duration_ms": 1200,             # optional
+}
+```
+
+Observation only: agentabi reports what the CLI chose to dispatch and does
+not schedule subagents itself. Declared with
+`AgentCapabilities.supports_subagent_events`.
+
 ### UsageEvent
 
 Token usage statistics for the session or turn.
@@ -212,6 +243,8 @@ IREvent = Union[
     ReasoningDeltaEvent,
     ToolUseEvent,
     ToolResultEvent,
+    SubagentStartEvent,
+    SubagentEndEvent,
     PermissionRequestEvent,
     PermissionResponseEvent,
     UsageEvent,

@@ -194,6 +194,7 @@ class AgentCapabilities(TypedDict):
     supports_system_prompt: NotRequired[bool]
     supports_tool_filtering: NotRequired[bool]
     supports_file_diffs: NotRequired[bool]
+    supports_subagent_events: NotRequired[bool]
     supports_permissions: NotRequired[bool]
     supports_multi_turn: NotRequired[bool]
     supports_thinking: NotRequired[bool]

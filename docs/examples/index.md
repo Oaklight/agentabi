@@ -31,6 +31,17 @@ python examples/settings.py --agent codex
 
 It prints the transport's settings mechanism and supported fields first, then runs the prompt. See [Settings](../usage/settings.md).
 
+## Peers
+
+The [`examples/peers.py`](https://github.com/oaklight/agentabi/blob/master/examples/peers.py) script keeps one Claude Code process alive for two turns:
+
+```bash
+LLM_BASE_URL=https://llm.example.com LLM_API_KEY=... \
+python examples/peers.py --cwd /repo --prompt "Review the diff"
+```
+
+The second message starts a new turn or steers the running one, and `inbox()` reports anything that was not a turn result. See [Peers](../usage/peers.md).
+
 ## Streaming
 
 The [`examples/streaming.py`](https://github.com/oaklight/agentabi/blob/master/examples/streaming.py) script demonstrates real-time event streaming:

@@ -97,6 +97,7 @@ nav:
       - Agent Settings: usage/settings.md
       - Middleware: usage/middleware.md
       - ACP Gateway: usage/acp.md
+      - Peers: usage/peers.md
       - Claude TUI Transport: usage/tui.md
   - API Reference:
       - Overview: api/index.md
