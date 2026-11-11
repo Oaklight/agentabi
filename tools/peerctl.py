@@ -23,6 +23,8 @@ Commands:
     wait NAME [--timeout S] [--json]
     inbox [NAME] [--clear] [--json]
     status NAME [--json]
+    attach NAME TEXT [--from-name N] [--from-mode bypass|default]
+    recover NAME [--permission-mode MODE] [--json]
     stop NAME|ID [--rm]
     daemon start|stop|status
     export PATH
@@ -44,6 +46,8 @@ from typing import Any, NoReturn
 try:
     from agentabi.peers import PeerClient
     from agentabi.peers.errors import PeerError, PeerNotFound
+    from agentabi.peers.recover import recover_peer
+    from agentabi.peers.socket_wire import send_cross_session, session_socket
 except ImportError as exc:  # pragma: no cover - environment problem
     print(
         "peerctl: agentabi is not importable; install the package or set "
@@ -476,6 +480,48 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_attach(args: argparse.Namespace) -> int:
+    """Send one message to a session through Claude's peer socket."""
+    for peer in _process_rows():
+        if peer.get("name") == args.target:
+            die(
+                f"{args.target} is a process peer; use `peerctl send` "
+                "(the socket would bypass its turn tracking)"
+            )
+    item = resolve(live_sessions(), args.target)
+    if item is None:
+        die(f"no live session matches {args.target!r}")
+    pid = item.get("pid")
+    if not pid:
+        die(f"session {args.target!r} has no pid")
+    receipt = send_cross_session(
+        session_socket(int(pid)),
+        args.text,
+        from_name=args.from_name,
+        from_mode=args.from_mode,
+    )
+    if args.json:
+        print(json.dumps(receipt, ensure_ascii=False))
+    else:
+        print(
+            f"sent {receipt['msg_id']} to {item.get('name') or args.target} "
+            f"via {receipt['socket']} (no ack)"
+        )
+    return 0
+
+
+def cmd_recover(args: argparse.Namespace) -> int:
+    info = recover_peer(PeerClient(), args.name, permission_mode=args.permission_mode)
+    if args.json:
+        print(json.dumps(info, ensure_ascii=False))
+    else:
+        print(
+            f"recovered {info.get('name')} session={info.get('session_id')} "
+            f"pid={info.get('pid')}"
+        )
+    return 0
+
+
 def cmd_daemon(args: argparse.Namespace) -> int:
     client = PeerClient()
     if args.action == "start":
@@ -689,6 +735,20 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("name")
     status.add_argument("--json", action="store_true")
     status.set_defaults(func=cmd_status)
+
+    attach = sub.add_parser("attach", help="message a bg or interactive session")
+    attach.add_argument("target", help="session name, id, or session id")
+    attach.add_argument("text")
+    attach.add_argument("--from-name", default="agentabi-peerctl")
+    attach.add_argument("--from-mode", choices=("bypass", "default"), default="bypass")
+    attach.add_argument("--json", action="store_true")
+    attach.set_defaults(func=cmd_attach)
+
+    recover = sub.add_parser("recover", help="resume a saved process peer")
+    recover.add_argument("name")
+    recover.add_argument("--permission-mode")
+    recover.add_argument("--json", action="store_true")
+    recover.set_defaults(func=cmd_recover)
 
     daemon = sub.add_parser("daemon", help="manage the peer daemon")
     daemon.add_argument("action", choices=("start", "stop", "status"))
