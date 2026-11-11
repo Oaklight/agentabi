@@ -55,6 +55,7 @@ class ClaudePeer:
     """A Claude Code process that accepts one message at a time."""
 
     engine = "process"
+    backend = "claude"
 
     def __init__(
         self,
@@ -157,6 +158,7 @@ class ClaudePeer:
             cwd=self._cwd,
             status=self._status,
             engine=self.engine,
+            backend=self.backend,
             session_id=self._session_id,
             model=self._model,
             pid=self._proc.pid if self._proc is not None else None,

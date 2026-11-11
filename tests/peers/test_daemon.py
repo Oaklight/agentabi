@@ -13,6 +13,8 @@ from agentabi.peers.errors import PeerBusy, PeerError
 
 FAKE = Path(__file__).with_name("fake_claude_peer.py")
 COMMAND = [sys.executable, str(FAKE)]
+CODEX_FAKE = Path(__file__).with_name("fake_codex_app_server.py")
+CODEX_COMMAND = [sys.executable, str(CODEX_FAKE)]
 
 
 @pytest.fixture
@@ -33,6 +35,23 @@ def _spawn(client: PeerClient, name: str, cwd: Path, **extra) -> dict:
 
 
 class TestDaemon:
+    def test_codex_backend_round_trip(self, client: PeerClient, tmp_path: Path) -> None:
+        info = client.request(
+            "spawn",
+            {
+                "name": "cx",
+                "cwd": str(tmp_path),
+                "backend": "codex",
+                "command": CODEX_COMMAND,
+            },
+        )
+        assert info["backend"] == "codex"
+        client.request("send", {"name": "cx", "text": "hello"})
+        turn = client.request("wait", {"name": "cx", "timeout": 10}, timeout=20)
+        assert turn["status"] == "success"
+        assert turn["text"] == "hello"
+        client.request("stop", {"name": "cx"})
+
     def test_ping_and_shutdown(self, client: PeerClient) -> None:
         ping = client.ping()
         assert ping is not None and ping["pid"] > 0

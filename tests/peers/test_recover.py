@@ -14,6 +14,8 @@ from agentabi.peers.recover import find_entry, load_entries, recover_peer
 
 FAKE = Path(__file__).with_name("fake_claude_peer.py")
 COMMAND = [sys.executable, str(FAKE)]
+CODEX_FAKE = Path(__file__).with_name("fake_codex_app_server.py")
+CODEX_COMMAND = [sys.executable, str(CODEX_FAKE)]
 
 
 @pytest.fixture
@@ -57,6 +59,17 @@ class TestRecover:
         assert "--resume" in argv
         assert argv[argv.index("--resume") + 1] == session_id
         assert info["model"] == "fake-model"
+
+    def test_resumes_a_codex_thread(self, client: PeerClient, tmp_path: Path) -> None:
+        info = _spawn(client, "cx", tmp_path, backend="codex", command=CODEX_COMMAND)
+        session_id = info["session_id"]
+        client.stop_daemon()
+        recovered = recover_peer(client, "cx")
+        assert recovered["session_id"] == session_id
+        client.request("send", {"name": "cx", "text": "after resume"})
+        turn = client.request("wait", {"name": "cx", "timeout": 10}, timeout=20)
+        assert turn["status"] == "success"
+        assert turn["text"] == "after resume"
 
     def test_unknown_name(self, client: PeerClient) -> None:
         with pytest.raises(PeerNotFound, match="no saved peer"):

@@ -1,7 +1,8 @@
 """In-process peer broker.
 
 The broker owns the child processes for its lifetime.  Cross-process
-callers use the daemon client instead; both share :class:`ClaudePeer`.
+callers use the daemon client instead.  A peer backend is selected by
+name; both share the :class:`PeerAdapter` surface.
 """
 
 from __future__ import annotations
@@ -9,19 +10,26 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from .base import PeerInfo, PeerNote
+from .base import PeerAdapter, PeerInfo, PeerNote
 from .claude import ClaudePeer
+from .codex import CodexPeer
 from .errors import PeerNotFound
 
 #: Default cap on live peers in one broker.
 DEFAULT_MAX_PEERS = 8
 
+#: Backend name to peer class.
+BACKENDS: dict[str, type] = {
+    "claude": ClaudePeer,
+    "codex": CodexPeer,
+}
+
 
 class PeerBroker:
-    """Spawn, look up, and stop Claude peers in this process."""
+    """Spawn, look up, and stop peers in this process."""
 
     def __init__(self, *, max_peers: int = DEFAULT_MAX_PEERS) -> None:
-        self._peers: dict[str, ClaudePeer] = {}
+        self._peers: dict[str, PeerAdapter] = {}
         self._max_peers = max_peers
         self._lock = asyncio.Lock()
 
@@ -31,15 +39,17 @@ class PeerBroker:
         *,
         cwd: str,
         prompt: str | None = None,
+        backend: str = "claude",
         **options: Any,
-    ) -> ClaudePeer:
+    ) -> PeerAdapter:
         """Spawn a peer and optionally send its first task.
 
         Args:
             name: Unique name within this broker.
             cwd: Working directory.
             prompt: Initial task; omitted leaves the peer idle.
-            **options: Forwarded to :class:`ClaudePeer`.
+            backend: ``claude`` (default) or ``codex``.
+            **options: Forwarded to the backend's peer class.
 
         Returns:
             The started peer.
@@ -55,7 +65,12 @@ class PeerBroker:
                     f"peer pool is full: {len(live)}/{self._max_peers}; "
                     "close a peer or raise max_peers"
                 )
-            peer = ClaudePeer(name=name, cwd=cwd, **options)
+            peer_class = BACKENDS.get(backend)
+            if peer_class is None:
+                raise ValueError(
+                    f"unknown backend {backend!r}; expected one of {sorted(BACKENDS)}"
+                )
+            peer = peer_class(name=name, cwd=cwd, **options)
             self._peers[name] = peer
         try:
             await peer.start()
@@ -66,7 +81,7 @@ class PeerBroker:
             await peer.send(prompt)
         return peer
 
-    def get(self, name: str) -> ClaudePeer:
+    def get(self, name: str) -> PeerAdapter:
         """Return a live peer by name."""
         peer = self._peers.get(name)
         if peer is None:
