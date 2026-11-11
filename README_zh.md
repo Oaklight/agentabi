@@ -127,7 +127,25 @@ result = await session.run(prompt="修复失败的测试")
 
 `agentabi acp --agent opencode` 不受影响，仍走原生 ACP 直通。
 
-## ACP 网关
+## 长生命周期 peer
+
+`Session.run` 只跑一个任务。peer 让 Claude Code 进程在回合之间保持存活，
+协调者因此可以追加任务、在运行中 steer，或中断后继续同一段对话：
+
+```python
+from agentabi.peers import PeerBroker
+
+async with PeerBroker() as broker:
+    peer = await broker.spawn("reviewer", cwd="/repo", prompt="Review the diff")
+    await peer.send("Also check the tests")   # 新回合；忙碌时为 steer
+    turn = await peer.wait(timeout=300)
+    print(turn.status, turn.text)
+```
+
+`peerctl` 让同一套运行时跨进程可用：`spawn`、`send`、`steer`、
+`interrupt`、`wait`、`inbox`，以及面向其他进程会话的 `attach` 和
+daemon 停止后的 `recover`。详见
+[Peer 指南](https://agentabi-zh.readthedocs.io/zh-cn/latest/usage/peers/)。
 
 把 agentabi 暴露为单一的 ACP 端点。网关对客户端说 ACP，对内委托给每个 CLI 的原生接口：
 
@@ -225,6 +243,7 @@ method、agent、session、耗时和结果。
 - `content_block_start` / `content_block_end` — 内容块边界
 - `reasoning_delta` — 思考/推理文本（Claude、Pi）
 - `tool_use` / `tool_result` — 工具调用
+- `subagent_start` / `subagent_end` — Claude 会话自身派发的 subagent（仅观测）
 - `usage` — token 使用统计（包含 `reasoning_tokens`）
 - `error` — 错误报告
 
