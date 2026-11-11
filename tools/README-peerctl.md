@@ -7,16 +7,21 @@ source of truth in `tools/`.
 Peer lifecycle and messaging for Claude Code. Two engines:
 
 - `process` (default): the peer daemon owns a long-lived CLI process,
-  `claude --print --input-format stream-json` or `codex app-server`. Messages go to its
+  `claude --print --input-format stream-json`, `codex app-server`, or `opencode serve`. Messages go to its
   stdin, so `send`, `steer`, `interrupt`, `wait`, and `inbox` work.
 - `bg`: a `claude --bg` session. Lifecycle only; `attach` writes one
   message to its peer socket.
 
+Backends for a process peer: `claude` (default), `codex` (`codex
+app-server`), and `opencode` (`opencode serve`). See
+`docs_en/docs/usage/peers.md` for their differences.
+
 ```bash
 python3 tools/peerctl.py spawn NAME --cwd DIR [--prompt TEXT] \
-    [--engine process|bg] [--backend claude|codex] [--model M] \
+    [--engine process|bg] [--backend claude|codex|opencode] [--model M] \
     [--permission-mode MODE] [--agent-json JSON] [--settings JSON] \
-    [--system-prompt TEXT] [--add-dir DIR] [--workspace LABEL] [--max N]
+    [--system-prompt TEXT] [--add-dir DIR] [--env K=V] \
+    [--workspace LABEL] [--max N]
 python3 tools/peerctl.py send NAME TEXT [--json]
 python3 tools/peerctl.py steer NAME TEXT [--interrupt] [--json]
 python3 tools/peerctl.py interrupt NAME
@@ -24,7 +29,7 @@ python3 tools/peerctl.py wait NAME [--timeout S] [--json]
 python3 tools/peerctl.py inbox [NAME] [--clear] [--json]
 python3 tools/peerctl.py status NAME [--json]
 python3 tools/peerctl.py attach NAME TEXT [--from-name N] [--from-mode MODE]
-python3 tools/peerctl.py recover NAME [--permission-mode MODE] [--settings JSON]
+python3 tools/peerctl.py recover NAME [--permission-mode MODE] [--settings JSON] [--env K=V]
 python3 tools/peerctl.py ls [--workspace LABEL] [--cwd DIR] [--json] [--all]
 python3 tools/peerctl.py stop NAME|ID [--rm]
 python3 tools/peerctl.py daemon start|stop|status
