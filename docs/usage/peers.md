@@ -12,8 +12,15 @@ Two things are involved:
 - `peerctl` is the CLI front end. It talks to a background daemon that
   owns the peers, so a peer outlives the command that started it.
 
-This page covers Claude Code. The `PeerAdapter` protocol leaves room for
-other backends, but only the Claude one exists today.
+Two backends are implemented:
+
+| backend | process | steer | interrupt |
+| --- | --- | --- | --- |
+| `claude` (default) | `claude --print --input-format stream-json` | a second user message on stdin | control request |
+| `codex` | `codex app-server --listen stdio://` | `turn/steer` | `turn/interrupt` |
+
+The peer API and `peerctl` are the same for both. Differences are listed
+under [Backends](#backends).
 
 ## Library
 
@@ -65,12 +72,16 @@ await peer.close()
 | `stop_reason` | CLI stop reason, for example `success` or `error_during_execution` |
 | `errors` | diagnostic strings from the CLI result row |
 
-`PeerBroker` options:
+`PeerBroker` options (the default backend is `claude`; pass
+`backend="codex"` for Codex):
 
-- `spawn(name, cwd, prompt=None, **options)` — `options` accepts
-  `model`, `permission_mode`, `agents`, `system_prompt`, `settings`,
-  `env`, `add_dirs`, `command`, `session_id`, `resume`, `extra_args`.
-  `settings` is the same mapping as `Session(settings=...)`.
+
+- `spawn(name, cwd, prompt=None, backend="claude", **options)` —
+  `options` accepts `model`, `permission_mode`, `agents`, `system_prompt`,
+  `settings`, `env`, `add_dirs`, `command`, `session_id`, `resume`,
+  `extra_args`; the Codex backend additionally takes `sandbox` and
+  `approval_policy`. `settings` is the same mapping as
+  `Session(settings=...)`.
 - `max_peers` (default 8) caps the broker.
 - `get(name)`, `list_peers()`, `notes()`, `close(name)` and
   `close()` are the rest of the surface.
@@ -84,6 +95,7 @@ started them. The first command starts the daemon; it writes
 
 ```bash
 peerctl spawn reviewer --cwd /repo --prompt "Review the current branch"
+peerctl spawn cx --backend codex --cwd /repo --prompt "Review the tests"
 peerctl wait reviewer --timeout 300
 peerctl send reviewer "Check the tests too"
 peerctl steer reviewer "Do not edit files" --interrupt
@@ -101,6 +113,9 @@ peerctl daemon start|status|stop
 | --- | --- | --- |
 | `process` (default) | the peer daemon | `send`, `steer`, `interrupt`, `wait`, `inbox` |
 | `bg` | Claude's own daemon (`claude --bg`) | `attach` only |
+
+The `BACKEND` column names the CLI behind a process peer (`claude` or
+`codex`).
 
 Every command accepts `--json` where the output is structured; use it
 when another agent drives `peerctl`.
@@ -135,11 +150,13 @@ never written, because they can hold keys.
 
 ```bash
 peerctl recover reviewer
-peerctl recover reviewer --permission-mode acceptEdits
+peerctl recover cx --settings "$SETTINGS_JSON"
 ```
 
-The new process starts with `--resume <session_id>`, so the previous
-conversation is available. The in-flight turn is not replayed.
+For Claude the new process starts with `--resume <session_id>`; for
+Codex it calls `thread/resume`. The previous conversation is available
+in both cases. The in-flight turn is not replayed, and endpoint settings
+are not saved: pass `--settings` again when the new process needs them.
 
 ## Subagent events
 
@@ -159,6 +176,39 @@ When a Claude session dispatches its own subagent through the `Task` or
 only: agentabi reports what the CLI decided to dispatch and does not
 schedule subagents itself. Check `AgentCapabilities.supports_subagent_events`
 before waiting for them.
+
+## Backends
+
+### Claude
+
+The CLI reads stream-json user messages from stdin. A message sent while
+a turn runs is read by the model when the current tool call finishes.
+Denied permission requests are recorded in the inbox.
+
+### Codex
+
+One peer is one `codex app-server` process with one thread. `send` uses
+`turn/start`; a message during the turn uses `turn/steer` with the
+active turn id, which the server acknowledges. `interrupt` sends
+`turn/interrupt`; the thread remains usable. The server reports token
+usage through `thread/tokenUsage/updated`.
+
+`permission_mode` maps to an app-server sandbox and approval policy:
+`bypassPermissions` is `danger-full-access` with approvals `never`,
+`full_auto` and `acceptEdits` are `workspace-write` with `never`, and
+`default` or `plan` keep approvals `on-request`. A peer has no approval
+channel, so an `on-request` approval is declined and recorded. `agents`
+is not supported by this backend.
+
+```python
+peer = await broker.spawn(
+    "cx",
+    cwd="/repo",
+    backend="codex",
+    prompt="Review the tests",
+    settings={"base_url": "...", "api_key_env": "OPENAI_API_KEY"},
+)
+```
 
 ## Limits
 
