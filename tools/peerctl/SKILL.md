@@ -16,7 +16,8 @@ Peer lifecycle and messaging for Claude Code. Two engines:
   only; use `attach` to write one message to it.
 
 Backends for a process peer: `claude` (default), `codex` (`codex
-app-server`), and `opencode` (`opencode serve`). See the peers guide for
+app-server`), `opencode` (`opencode serve`), and `pi` (`pi --mode
+rpc`). See the peers guide for
 their differences.
 
 Use this skill to dispatch a worker or reviewer and then talk to it:
@@ -27,7 +28,7 @@ or rebuild a peer after its daemon stopped.
 
 ```bash
 python3 tools/peerctl.py spawn NAME --cwd DIR [--prompt TEXT] \
-    [--engine process|bg] [--backend claude|codex|opencode] [--model M] \
+    [--engine process|bg] [--backend claude|codex|opencode|pi] [--model M] \
     [--permission-mode MODE] [--agent-json JSON] [--settings JSON] \
     [--system-prompt TEXT] [--add-dir DIR] [--env K=V] \
     [--workspace LABEL] [--max N]

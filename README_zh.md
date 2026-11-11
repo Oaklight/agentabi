@@ -129,7 +129,7 @@ result = await session.run(prompt="修复失败的测试")
 
 ## 长生命周期 peer
 
-`Session.run` 只跑一个任务。peer 让 Claude Code、Codex 或 OpenCode 进程在回合之间保持存活，
+`Session.run` 只跑一个任务。peer 让 Claude Code、Codex、OpenCode 或 Pi 进程在回合之间保持存活，
 协调者因此可以追加任务、在运行中 steer，或中断后继续同一段对话：
 
 ```python

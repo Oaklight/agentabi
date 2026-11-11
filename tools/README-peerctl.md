@@ -7,18 +7,19 @@ source of truth in `tools/`.
 Peer lifecycle and messaging for Claude Code. Two engines:
 
 - `process` (default): the peer daemon owns a long-lived CLI process,
-  `claude --print --input-format stream-json`, `codex app-server`, or `opencode serve`. Messages go to its
-  stdin, so `send`, `steer`, `interrupt`, `wait`, and `inbox` work.
+  `claude --print --input-format stream-json`, `codex app-server`,
+  `opencode serve`, or `pi --mode rpc`. Messages go to its stdin, so
+  `send`, `steer`, `interrupt`, `wait`, and `inbox` work.
 - `bg`: a `claude --bg` session. Lifecycle only; `attach` writes one
   message to its peer socket.
 
 Backends for a process peer: `claude` (default), `codex` (`codex
-app-server`), and `opencode` (`opencode serve`). See
-`docs_en/docs/usage/peers.md` for their differences.
+app-server`), `opencode` (`opencode serve`), and `pi` (`pi --mode
+rpc`). See `docs_en/docs/usage/peers.md` for their differences.
 
 ```bash
 python3 tools/peerctl.py spawn NAME --cwd DIR [--prompt TEXT] \
-    [--engine process|bg] [--backend claude|codex|opencode] [--model M] \
+    [--engine process|bg] [--backend claude|codex|opencode|pi] [--model M] \
     [--permission-mode MODE] [--agent-json JSON] [--settings JSON] \
     [--system-prompt TEXT] [--add-dir DIR] [--env K=V] \
     [--workspace LABEL] [--max N]

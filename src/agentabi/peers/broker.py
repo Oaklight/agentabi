@@ -15,6 +15,7 @@ from .claude import ClaudePeer
 from .codex import CodexPeer
 from .errors import PeerNotFound
 from .opencode import OpenCodePeer
+from .pi import PiPeer
 
 #: Default cap on live peers in one broker.
 DEFAULT_MAX_PEERS = 8
@@ -24,6 +25,7 @@ BACKENDS: dict[str, type] = {
     "claude": ClaudePeer,
     "codex": CodexPeer,
     "opencode": OpenCodePeer,
+    "pi": PiPeer,
 }
 
 
@@ -50,7 +52,7 @@ class PeerBroker:
             name: Unique name within this broker.
             cwd: Working directory.
             prompt: Initial task; omitted leaves the peer idle.
-            backend: ``claude`` (default), ``codex``, or ``opencode``.
+            backend: ``claude`` (default), ``codex``, ``opencode``, or ``pi``.
             **options: Forwarded to the backend's peer class.
 
         Returns:

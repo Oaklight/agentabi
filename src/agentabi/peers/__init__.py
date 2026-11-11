@@ -42,6 +42,7 @@ from .errors import (
     PeerTimeout,
 )
 from .opencode import OpenCodePeer
+from .pi import PiPeer
 
 if TYPE_CHECKING:
     from .client import DaemonUnavailable, PeerClient
@@ -75,6 +76,7 @@ __all__ = [
     "ClaudePeer",
     "CodexPeer",
     "OpenCodePeer",
+    "PiPeer",
     "PeerAdapter",
     "PeerBroker",
     "PeerBusy",
