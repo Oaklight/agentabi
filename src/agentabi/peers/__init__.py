@@ -16,6 +16,9 @@ Example:
 
 from __future__ import annotations
 
+from importlib import import_module
+from typing import TYPE_CHECKING, Any
+
 from .base import (
     PeerAdapter,
     PeerEngine,
@@ -38,8 +41,35 @@ from .errors import (
     PeerTimeout,
 )
 
+if TYPE_CHECKING:
+    from .client import DaemonUnavailable, PeerClient
+    from .daemon import PeerDaemon
+
+_LAZY = {
+    "DaemonUnavailable": ".client",
+    "PeerClient": ".client",
+    "PeerDaemon": ".daemon",
+}
+
+
+def __getattr__(name: str) -> Any:
+    """Import the client and daemon only when asked.
+
+    The daemon imports this package, so an eager import here makes
+    ``python -m agentabi.peers.daemon`` warn about a module that is already
+    loaded when runpy runs it.
+    """
+    module = _LAZY.get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(import_module(module, __name__), name)
+
+
 __all__ = [
     "DEFAULT_MAX_PEERS",
+    "DaemonUnavailable",
+    "PeerClient",
+    "PeerDaemon",
     "ClaudePeer",
     "PeerAdapter",
     "PeerBroker",
