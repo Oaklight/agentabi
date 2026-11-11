@@ -15,7 +15,8 @@ Every command reconciles against its authority: the peer daemon for
 local manifest is a cache plus labels, never the authority.
 
 Commands:
-    spawn NAME --cwd DIR [--prompt TEXT] [--engine process|bg] [--backend claude|codex]
+    spawn NAME --cwd DIR [--prompt TEXT] [--engine process|bg]
+        [--backend claude|codex|opencode]
     ls [--workspace WS] [--cwd DIR] [--json] [--all]
     send NAME TEXT [--json]
     steer NAME TEXT [--interrupt] [--json]
@@ -24,7 +25,7 @@ Commands:
     inbox [NAME] [--clear] [--json]
     status NAME [--json]
     attach NAME TEXT [--from-name N] [--from-mode bypass|default]
-    recover NAME [--permission-mode MODE] [--settings JSON] [--json]
+    recover NAME [--permission-mode MODE] [--settings JSON] [--env K=V] [--json]
     stop NAME|ID [--rm]
     daemon start|stop|status
     export PATH
@@ -181,6 +182,17 @@ def cmd_spawn(args: argparse.Namespace) -> int:
     return _spawn_process(args, cwd)
 
 
+def _parse_env(values: list[str] | None) -> dict[str, str]:
+    """Parse repeated ``KEY=VALUE`` options."""
+    env: dict[str, str] = {}
+    for item in values or []:
+        key, sep, value = item.partition("=")
+        if not sep or not key:
+            die(f"--env expects KEY=VALUE, got {item!r}")
+        env[key] = value
+    return env
+
+
 def _load_json_arg(value: str | None, label: str) -> Any:
     """Parse an inline JSON value or read it from a file."""
     if value is None:
@@ -221,6 +233,9 @@ def _spawn_process(args: argparse.Namespace, cwd: str) -> int:
         params["system_prompt"] = args.system_prompt
     for directory in args.add_dir or []:
         params.setdefault("add_dirs", []).append(directory)
+    env = _parse_env(args.env)
+    if env:
+        params["env"] = env
     try:
         info = PeerClient().request("spawn", params, timeout=60)
     except PeerError as exc:
@@ -527,6 +542,7 @@ def cmd_recover(args: argparse.Namespace) -> int:
         args.name,
         permission_mode=args.permission_mode,
         settings=_load_json_arg(args.settings, "--settings"),
+        env=_parse_env(args.env) or None,
     )
     if args.json:
         print(json.dumps(info, ensure_ascii=False))
@@ -677,7 +693,7 @@ def build_parser() -> argparse.ArgumentParser:
     spawn.add_argument("--prompt", help="initial task (required for --engine bg)")
     spawn.add_argument(
         "--backend",
-        choices=("claude", "codex"),
+        choices=("claude", "codex", "opencode"),
         default="claude",
         help="peer backend for --engine process (default: claude)",
     )
@@ -702,6 +718,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     spawn.add_argument("--system-prompt")
     spawn.add_argument("--add-dir", action="append", help="repeatable")
+    spawn.add_argument(
+        "--env",
+        action="append",
+        metavar="KEY=VALUE",
+        help="child environment entry (repeatable); never saved to state",
+    )
     spawn.add_argument(
         "--disallow",
         action="append",
@@ -772,6 +794,12 @@ def build_parser() -> argparse.ArgumentParser:
     recover.add_argument(
         "--settings",
         help="agentabi settings for the new process (not saved in state)",
+    )
+    recover.add_argument(
+        "--env",
+        action="append",
+        metavar="KEY=VALUE",
+        help="child environment entry (repeatable); not saved in state",
     )
     recover.add_argument("--json", action="store_true")
     recover.set_defaults(func=cmd_recover)
