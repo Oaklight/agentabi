@@ -97,6 +97,7 @@ nav:
       - 统一 Settings: usage/settings.md
       - 中间件: usage/middleware.md
       - ACP 网关: usage/acp.md
+      - Peer: usage/peers.md
       - Claude TUI 传输: usage/tui.md
   - API 参考:
       - 概览: api/index.md

@@ -147,6 +147,35 @@ Agent 调用工具。
 }
 ```
 
+### SubagentStartEvent / SubagentEndEvent
+
+Claude 会话通过 `Task` 或 `Agent` 工具派发了一个 subagent。两个事件共用
+`subagent_id`，并围绕对应的 `tool_use` 与 `tool_result` 发出。
+
+```python
+# 开始：派发 subagent 的工具调用
+{
+    "type": "subagent_start",
+    "subagent_id": "call_abc",       # 发起它的 tool_use id
+    "agent": "reviewer",             # subagent_type
+    "prompt": "check the tests",     # 可选
+    "background": False,             # 可选
+    "parent_tool_use_id": "call_xyz",  # 可选，转发时提供
+}
+
+# 结束：结果返回
+{
+    "type": "subagent_end",
+    "subagent_id": "call_abc",
+    "status": "completed",           # "completed" | "failed" | "cancelled"
+    "result": "[Subagent hand-back] ...",  # 可选，已截断
+    "duration_ms": 1200,             # 可选
+}
+```
+
+仅用于观测：agentabi 只报告 CLI 自己派发了什么，不自行调度 subagent。
+能力声明为 `AgentCapabilities.supports_subagent_events`。
+
 ### UsageEvent
 
 会话或回合的 token 使用统计。
@@ -240,6 +269,8 @@ IREvent = Union[
     ReasoningDeltaEvent,
     ToolUseEvent,
     ToolResultEvent,
+    SubagentStartEvent,
+    SubagentEndEvent,
     PermissionRequestEvent,
     PermissionResponseEvent,
     UsageEvent,

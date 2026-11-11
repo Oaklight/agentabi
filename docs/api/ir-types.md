@@ -188,6 +188,7 @@ class AgentCapabilities(TypedDict, total=False):
     supports_tool_filtering: bool
     supports_permissions: bool
     supports_multi_turn: bool
+    supports_subagent_events: bool
     supported_settings: list[str]  # 本传输支持的 AgentSettings 字段
     settings_mechanism: str        # 值如何到达 CLI
     transport: str                # "subprocess" 或 "sdk"

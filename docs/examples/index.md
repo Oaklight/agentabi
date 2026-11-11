@@ -31,6 +31,17 @@ python examples/settings.py --agent codex
 
 先打印传输的 settings 机制与支持字段，再运行提示词。详见 [Settings](../usage/settings.md)。
 
+## Peer
+
+[`examples/peers.py`](https://github.com/oaklight/agentabi/blob/master/examples/peers.py) 让同一个 Claude Code 进程连续处理两个回合：
+
+```bash
+LLM_BASE_URL=https://llm.example.com LLM_API_KEY=... \
+python examples/peers.py --cwd /repo --prompt "Review the diff"
+```
+
+第二条消息会开启新回合或 steer 正在运行的回合，`inbox()` 报告不是回合结果的事件。详见 [Peer](../usage/peers.md)。
+
 ## 流式输出
 
 [`examples/streaming.py`](https://github.com/oaklight/agentabi/blob/master/examples/streaming.py) 演示实时事件流：
