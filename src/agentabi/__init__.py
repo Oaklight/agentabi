@@ -75,7 +75,7 @@ from .types.ir import (
     UsageEvent,
 )
 
-__version__ = "0.5.0.dev1"
+__version__ = "0.5.0"
 
 __all__ = [
     # Consumer API
