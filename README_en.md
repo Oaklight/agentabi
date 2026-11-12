@@ -75,7 +75,7 @@ session = Session(
 CLI-specific options. Keys travel in the child environment, never in argv.
 An unsupported field raises `UnsupportedSettingsError` unless
 `on_unsupported="ignore"`. See the
-[settings guide](https://agentabi-en.readthedocs.io/en/latest/usage/settings/).
+[settings guide](https://agentabi.readthedocs.io/en/latest/usage/settings/).
 
 ### Claude subscription quota (PTY transport)
 
@@ -159,7 +159,7 @@ async with PeerBroker() as broker:
 `peerctl` drives the same runtime across processes: `spawn`, `send`,
 `steer`, `interrupt`, `wait`, `inbox`, plus `attach` for a session
 another process started and `recover` after the daemon stops. See the
-[peers guide](https://agentabi-en.readthedocs.io/en/latest/usage/peers/).
+[peers guide](https://agentabi.readthedocs.io/en/latest/usage/peers/).
 
 ## ACP gateway
 
@@ -275,8 +275,8 @@ All agents emit the same streaming events:
 
 ## Documentation
 
-- [English docs](https://agentabi-en.readthedocs.io/)
-- [中文文档](https://agentabi-zh.readthedocs.io/)
+- [English docs](https://agentabi.readthedocs.io/en/latest/)
+- [中文文档](https://agentabi.readthedocs.io/zh-cn/latest/)
 
 ## License
 

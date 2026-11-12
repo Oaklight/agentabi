@@ -73,7 +73,7 @@ session = Session(
 `settings` 还接受 `headers`、`env`、`args`，以及各 CLI 专属选项的 `native`
 块。密钥走子进程环境，不进入 argv。不支持的字段抛出
 `UnsupportedSettingsError`，除非设置 `on_unsupported="ignore"`。详见
-[Settings 指南](https://agentabi-zh.readthedocs.io/zh-cn/latest/usage/settings/)。
+[Settings 指南](https://agentabi.readthedocs.io/zh-cn/latest/usage/settings/)。
 
 ### Claude 订阅额度（PTY 传输）
 
@@ -148,7 +148,7 @@ async with PeerBroker() as broker:
 `peerctl` 让同一套运行时跨进程可用：`spawn`、`send`、`steer`、
 `interrupt`、`wait`、`inbox`，以及面向其他进程会话的 `attach` 和
 daemon 停止后的 `recover`。详见
-[Peer 指南](https://agentabi-zh.readthedocs.io/zh-cn/latest/usage/peers/)。
+[Peer 指南](https://agentabi.readthedocs.io/zh-cn/latest/usage/peers/)。
 
 把 agentabi 暴露为单一的 ACP 端点。网关对客户端说 ACP，对内委托给每个 CLI 的原生接口：
 
@@ -252,8 +252,8 @@ method、agent、session、耗时和结果。
 
 ## 文档
 
-- [English docs](https://agentabi-en.readthedocs.io/)
-- [中文文档](https://agentabi-zh.readthedocs.io/)
+- [English docs](https://agentabi.readthedocs.io/en/latest/)
+- [中文文档](https://agentabi.readthedocs.io/zh-cn/latest/)
 
 ## 许可证
 
