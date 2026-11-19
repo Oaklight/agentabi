@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Peer launch guidance** — the peers guide and the `peerctl` skill now state that a peer inherits the parent MCP servers and pays for their tool definitions. Launch with `--command '["claude","--strict-mcp-config","--mcp-config",...]'`, which is the flag that guarantees no other MCP configuration loads; peerctl appends the protocol flags after that prefix. Measured: 2 servers with `general.json`, 1 with a one-server file. Also recorded: trimming saves little context (78,236 cache-creation tokens with all global servers, 77,740 with two, 71,820 with one), `peerctl spawn --settings` parses agentabi settings rather than Claude Code settings, and a model can be refused upstream with a 400 on every turn.
+
 ## v0.5.0 (2026-11-11)
 
 ### Added

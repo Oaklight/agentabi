@@ -125,6 +125,65 @@ The `BACKEND` column names the CLI behind a process peer (`claude` or
 Every command accepts `--json` where the output is structured; use it
 when another agent drives `peerctl`.
 
+## Launching a peer with a trimmed MCP set
+
+A peer inherits the MCP servers configured for the parent Claude Code,
+and every tool definition in those servers is part of the peer's system
+prompt. Give each peer only the servers its role needs.
+
+Measured configurations (2026-11-19):
+
+| Config file | Servers | Role |
+| --- | --- | --- |
+| `~/.claude/mcp/general.json` | `toolregistry-server-local`, `toolregistry-server-remote` | general worker |
+| `~/.claude/mcp/ui.json` | the two above plus `playwright` | UI and browser work |
+
+```bash
+python3 tools/peerctl.py spawn NAME --cwd DIR --permission-mode bypassPermissions \
+  --command '["claude","--strict-mcp-config","--mcp-config","/path/to/general.json"]'
+```
+
+`--strict-mcp-config` is the flag that makes the guarantee: it stops
+every other MCP configuration from being loaded. In the measured case
+`--mcp-config` alone also replaced the global set, but that behaviour is
+not a guarantee.
+
+`--command` replaces the backend's argv prefix. peerctl appends the
+protocol flags (`--print --output-format stream-json --verbose
+--input-format stream-json --permission-prompts none --permission-mode
+MODE`) after it, so the array holds only the command and its own flags.
+Do not repeat the protocol flags in it.
+
+A peer launched this way reports exactly the configured server count: 2
+with `general.json`, 1 with a one-server file.
+
+### Trimming does not explain the peer's context cost
+
+Cache creation tokens on the same trivial prompt, measured 2026-11-19:
+
+| Configuration | `cache_creation_tokens` |
+| --- | --- |
+| all global servers | 78,236 |
+| `general.json` (2 servers) | 77,740 |
+| one server only | 71,820 |
+
+Trimming saves little context. The peer's baseline cost comes from
+somewhere other than the MCP tool definitions, so do not expect a large
+saving from this change.
+
+### `--settings` is not a Claude Code settings file
+
+`peerctl spawn --settings` parses agentabi's own settings schema:
+`base_url`, `api_key`, `api_key_env`, `model_provider`, `headers`,
+`env`, `args`, `native`, `on_unsupported` (see
+`src/agentabi/settings/resolve.py`). A Claude Code settings object is
+rejected with `unknown key 'permissions'` or `unknown key
+'allowedTools'`.
+
+A role that needs Claude Code settings passes the path inside
+`--command`, for example
+`'["claude","--settings","/path/settings.json"]'`.
+
 ## Reaching a session another process started
 
 `peerctl attach` writes one message to a session's peer socket under
@@ -313,3 +372,10 @@ extra environment.
   `PeerTimeout` and leaves the turn running.
 - Permission requests are denied automatically (`--permission-prompts none`),
   and each denial is recorded in the inbox as `permission_denied`.
+- A model can be refused upstream. A peer spawned with `--model
+  claude-sonnet-5.5` against a proxy endpoint returned `400
+  claude-sonnet-5-5 refused this request (safety filter:
+  content_filter)` on every turn, including a trivial prompt; the same
+  peer with the default model worked. When a peer fails on its first
+  turn with a 400, test the model before the prompt. This is one
+  environment observation, not a guarantee about the model.
