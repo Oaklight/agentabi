@@ -66,6 +66,40 @@ Defaults:
 adds every live Claude session on the machine. The `ENGINE` column says
 which commands apply.
 
+## Launching a peer
+
+Give a peer only the MCP servers its role needs. A peer inherits the
+MCP servers of the Claude Code configuration, and every tool definition
+they expose is part of its system prompt.
+
+```bash
+python3 tools/peerctl.py spawn NAME --cwd DIR --permission-mode bypassPermissions \
+  --command '["claude","--strict-mcp-config","--mcp-config","/path/to/general.json"]'
+```
+
+- `--strict-mcp-config` is the flag that guarantees no other MCP
+  configuration is loaded. In the measured case `--mcp-config` alone
+  replaced the global set, but that is not a guarantee.
+- `--command` replaces the backend's argv prefix. peerctl appends the
+  protocol flags (`--print --output-format stream-json --verbose
+  --input-format stream-json --permission-prompts none --permission-mode
+  MODE`) after it, so the array holds only the command and its own
+  flags.
+- `--settings` parses agentabi's settings schema (`base_url`,
+  `api_key`, `api_key_env`, `model_provider`, `headers`, `env`, `args`,
+  `native`, `on_unsupported`), not a Claude Code settings file. A Claude
+  settings object fails with `unknown key 'permissions'` or `unknown
+  key 'allowedTools'`; pass the path inside `--command` instead.
+- A 400 on the peer's first turn can be the model, not the prompt. One
+  peer with `--model claude-sonnet-5.5` was refused upstream with
+  `safety filter: content_filter` on every turn, including a trivial
+  one, while the default model worked. Environment observation, not a
+  property of the model.
+
+Trimming saves little context: on one trivial prompt, all global
+servers cost 78,236 cache-creation tokens, two servers cost 77,740,
+and one server cost 71,820.
+
 ## Messaging rules
 
 - `send` idle → new turn. `send` busy → steer, read by the model when the
