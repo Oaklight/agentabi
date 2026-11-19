@@ -118,6 +118,58 @@ peerctl daemon start|status|stop
 
 输出为结构化内容的命令都接受 `--json`，便于其他 agent 调用。
 
+## 按角色裁剪 MCP 后启动 peer
+
+peer 会继承父级 Claude Code 的 MCP 服务器配置，这些服务器暴露的每条工具定义
+都进入 peer 的 system prompt。只给它角色需要的服务器。
+
+实测配置（2026-11-19）：
+
+| 配置文件 | 服务器 | 角色 |
+| --- | --- | --- |
+| `~/.claude/mcp/general.json` | `toolregistry-server-local`、`toolregistry-server-remote` | 通用 worker |
+| `~/.claude/mcp/ui.json` | 上述两个再加 `playwright` | UI / 浏览器任务 |
+
+```bash
+python3 tools/peerctl.py spawn NAME --cwd DIR --permission-mode bypassPermissions \
+  --command '["claude","--strict-mcp-config","--mcp-config","/path/to/general.json"]'
+```
+
+`--strict-mcp-config` 是提供保证的参数：它能阻止其他 MCP 配置被加载。实测中
+单用 `--mcp-config` 也替换掉了全局集合，但这一行为不构成保证。
+
+`--command` 替换后端的 argv 前缀。peerctl 会在其后追加协议参数
+（`--print --output-format stream-json --verbose --input-format stream-json
+--permission-prompts none --permission-mode MODE`），因此数组里只放命令本身和
+它自己的参数，不要重复写入协议参数。
+
+这样启动的 peer 报告的服务器数量与配置完全一致：`general.json` 为 2 个，单
+服务器文件为 1 个。
+
+### 裁剪并不能解释 peer 的上下文开销
+
+同一简单 prompt 的 cache creation tokens 实测（2026-11-19）：
+
+| 配置 | `cache_creation_tokens` |
+| --- | --- |
+| 全部全局服务器 | 78,236 |
+| `general.json`（2 个服务器） | 77,740 |
+| 仅 1 个服务器 | 71,820 |
+
+裁剪节省的上下文很少。peer 的基础开销并非来自 MCP 工具定义，不要期待这项改动
+带来大幅节省。
+
+### `--settings` 不是 Claude Code 的设置文件
+
+`peerctl spawn --settings` 解析的是 agentabi 自己的设置结构：`base_url`、
+`api_key`、`api_key_env`、`model_provider`、`headers`、`env`、`args`、
+`native`、`on_unsupported`（见 `src/agentabi/settings/resolve.py`）。传入
+Claude Code 的设置对象会报 `unknown key 'permissions'` 或
+`unknown key 'allowedTools'`。
+
+需要 Claude Code 设置的角色，把路径放进 `--command`，例如
+`'["claude","--settings","/path/settings.json"]'`。
+
 ## 连接别的进程启动的会话
 
 `peerctl attach` 向会话的 peer socket 写入一条消息，路径为
@@ -284,3 +336,8 @@ peer = await broker.spawn(
   运行。
 - 权限请求会被自动拒绝（`--permission-prompts none`），每次拒绝以
   `permission_denied` 记入 inbox。
+- 模型可能在上游被拒绝。以 `--model claude-sonnet-5.5` 对代理端点启动的
+  peer，每个回合都返回 `400 claude-sonnet-5-5 refused this request
+  (safety filter: content_filter)`，简单 prompt 也一样；同一 peer 用默认模型
+  正常。peer 首回合就返回 400 时，先测模型，再测 prompt。这是一次环境观测，
+  不是关于该模型的结论。

@@ -1,5 +1,11 @@
 # 更新日志
 
+## [未发布]
+
+### 新增
+
+- **peer 启动指南** — peers 指南与 `peerctl` skill 现在说明：peer 继承父级的 MCP 服务器，并为其工具定义付出上下文开销。用 `--command '["claude","--strict-mcp-config","--mcp-config",...]'` 启动，只有这个参数能保证不加载其他 MCP 配置；peerctl 会在该前缀之后追加协议参数。实测：`general.json` 为 2 个服务器，单服务器文件为 1 个。同时记录：裁剪节省的上下文很少（全部全局服务器 78,236 cache creation tokens，两个服务器 77,740，一个服务器 71,820）；`peerctl spawn --settings` 解析的是 agentabi 设置而非 Claude Code 设置；模型可能每个回合都因 400 在上游被拒绝。
+
 ## v0.5.0 (2026-11-11)
 
 ### 新增
